@@ -1,6 +1,7 @@
 # enrich — گامِ ۲ی چرخهٔ محتوا، روی رانرِ عمومیِ رایگان.
 # ⛔ این مخزن هیچ رازی ندارد و نباید داشته باشد. رسانه فقط با لینکِ موقتِ ورودی می‌آید.
-# خروجی فقط به‌صورتِ آرتیفکت برمی‌گردد؛ این ورک‌فلو هیچ‌جا نمی‌نویسد.
+# خروجی فقط به‌صورتِ آرتیفکت برمی‌گردد. ⛔ تنها نوشتن: برچسبِ پایانِ `enriched/<key>/<epoch>` در همین مخزن
+# (۱۴۰۵-۰۷-۰۶) تا سشنِ گامِ ۳ ، که به API راه ندارد ولی git را می‌خواند، بی جابِ صورت‌حساب‌دار منتظر بماند.
 name: enrich
 
 on:
@@ -20,9 +21,13 @@ on:
         description: "small یا medium"
         required: false
         default: "medium"
+      media_urls:
+        description: "اختیاری — همهٔ ویدیوهای بسته، هر خط «نام لینک» به ترتیبِ پیام (بستهٔ چندویدیویی)"
+        required: false
+        default: ""
 
 permissions:
-  contents: read
+  contents: write   # فقط برای برچسبِ پایان — هیچ فایلی نوشته نمی‌شود
 
 jobs:
   enrich:
@@ -53,15 +58,32 @@ jobs:
         # ⛔ لینک هرگز چاپ نمی‌شود؛ در متغیرِ محیطی می‌ماند.
         env:
           MEDIA_URL: ${{ github.event.inputs.media_url }}
+          MEDIA_URLS: ${{ github.event.inputs.media_urls }}
           KEY: ${{ github.event.inputs.key }}
           SRC: ${{ github.event.inputs.source }}
         run: |
           set -euo pipefail
           mkdir -p "pool/$SRC/$KEY"
-          curl -sSL --fail -o "pool/$SRC/$KEY/$KEY.mp4" "$MEDIA_URL"
-          SZ=$(stat -c%s "pool/$SRC/$KEY/$KEY.mp4")
-          echo "حجمِ دریافتی: $SZ بایت"
-          [ "$SZ" -gt 10000 ] || { echo "::error::دانلود ناقص بود"; exit 1; }
+          # ⛔ بستهٔ چندویدیویی (۱۴۰۵-۰۷-۰۶ · بستهٔ b7063): پیش‌تر فقط یک لینک می‌آمد و از ۹ ویدیوی بسته فقط یکی
+          # رونویسی شد. حالا هر خطِ MEDIA_URLS یک ویدیوست و همه در پوشهٔ همان بسته می‌نشینند.
+          if [ -n "${MEDIA_URLS// /}" ]; then
+            N=0
+            while read -r NAME URL; do
+              [ -n "${URL:-}" ] || continue
+              NAME=$(basename "$NAME")
+              curl -sSL --fail --retry 3 -o "pool/$SRC/$KEY/$NAME" "$URL"
+              SZ=$(stat -c%s "pool/$SRC/$KEY/$NAME")
+              [ "$SZ" -gt 10000 ] || { echo "::error::دانلودِ $NAME ناقص بود"; exit 1; }
+              N=$((N+1))
+            done <<< "$MEDIA_URLS"
+            echo "دریافت شد: $N ویدیو"
+            [ "$N" -gt 0 ] || { echo "::error::هیچ ویدیویی از media_urls نیامد"; exit 1; }
+          else
+            curl -sSL --fail -o "pool/$SRC/$KEY/$KEY.mp4" "$MEDIA_URL"
+            SZ=$(stat -c%s "pool/$SRC/$KEY/$KEY.mp4")
+            echo "حجمِ دریافتی: $SZ بایت"
+            [ "$SZ" -gt 10000 ] || { echo "::error::دانلود ناقص بود"; exit 1; }
+          fi
 
       - name: غنی‌سازی — برشِ فریم و رونویسی
         env:
@@ -80,7 +102,7 @@ jobs:
           set -euo pipefail
           mkdir -p out
           cp -r "pool/$SRC/$KEY/." out/
-          rm -f "out/$KEY.mp4"
+          find out -maxdepth 1 -type f \( -name '*.mp4' -o -name '*.mov' -o -name '*.m4v' \) -delete
           echo "محتوای خروجی:"; ls -1R out | head -40
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -88,3 +110,17 @@ jobs:
           name: enriched-${{ github.event.inputs.key }}
           path: out/
           retention-days: 1
+
+      # ⛔ برچسبِ پایان (۱۴۰۵-۰۷-۰۶): سشنِ گامِ ۳ با `git ls-remote` منتظرش می‌ماند و فقط بعد فرود را می‌خواهد.
+      - name: برچسبِ پایان — موفق
+        if: success()
+        env:
+          KEY: ${{ github.event.inputs.key }}
+        run: |
+          T="enriched/$KEY/$(date +%s)"; git tag "$T" && git push -q origin "refs/tags/$T" || echo "::warning::برچسبِ پایان نشست"
+      - name: برچسبِ پایان — شکست
+        if: failure()
+        env:
+          KEY: ${{ github.event.inputs.key }}
+        run: |
+          T="enriched-failed/$KEY/$(date +%s)"; git tag "$T" && git push -q origin "refs/tags/$T" || echo "::warning::برچسبِ شکست نشست"
