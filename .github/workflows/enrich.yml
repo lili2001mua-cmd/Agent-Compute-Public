@@ -103,7 +103,8 @@ jobs:
           mkdir -p out
           cp -r "pool/$SRC/$KEY/." out/
           find out -maxdepth 1 -type f \( -name '*.mp4' -o -name '*.mov' -o -name '*.m4v' \) -delete
-          echo "محتوای خروجی:"; ls -1R out | head -40
+          # ⛔ با pipefail ، head پس از ۴۰ خط لوله را می‌بندد و ls با SIGPIPE اجرا را قرمز می‌کرد (بستهٔ ۲۰ویدیویی b7052).
+          echo "محتوای خروجی ($(find out -type f | wc -l) فایل):"; find out -maxdepth 1 | head -40 || true
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
