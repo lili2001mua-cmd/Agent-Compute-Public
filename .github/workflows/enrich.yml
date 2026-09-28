@@ -106,6 +106,36 @@ jobs:
           # ⛔ با pipefail ، head پس از ۴۰ خط لوله را می‌بندد و ls با SIGPIPE اجرا را قرمز می‌کرد (بستهٔ ۲۰ویدیویی b7052).
           echo "محتوای خروجی ($(find out -type f | wc -l) فایل):"; find out -maxdepth 1 | head -40 || true
 
+      # ⛔ پیش‌نمایشِ یک‌تکه برای بستهٔ چندویدیویی (۱۴۰۵-۰۷-۰۶ · بستهٔ b7052): گزارش فقط لینکِ ویدیوی اول را نشان می‌داد.
+      # همهٔ ویدیوها به ترتیبِ پیام پشتِ‌هم در out/preview/preview.mp4 می‌نشینند؛ سمتِ خصوصی آن را به Drive می‌برد.
+      # شکستش گامِ ۲ را نمی‌خواباند (رونویسی کامل است)؛ آن‌وقت گزارش به ویدیوی اول برمی‌گردد.
+      - name: پیش‌نمایشِ یک‌تکه (بستهٔ چندویدیویی)
+        continue-on-error: true
+        env:
+          KEY: ${{ github.event.inputs.key }}
+          SRC: ${{ github.event.inputs.source }}
+        run: |
+          set -euo pipefail
+          mapfile -t V < <(find "pool/$SRC/$KEY" -maxdepth 1 -type f \( -name '*.mp4' -o -name '*.mov' -o -name '*.m4v' \) | sort -V)
+          [ "${#V[@]}" -gt 1 ] || { echo "تک‌ویدیویی — پیش‌نمایشِ یک‌تکه لازم نیست."; exit 0; }
+          mkdir -p out/preview tmpv
+          VF="scale=720:1280:force_original_aspect_ratio=decrease,pad=720:1280:(ow-iw)/2:(oh-ih)/2,fps=30,format=yuv420p"
+          i=0
+          for f in "${V[@]}"; do
+            i=$((i+1)); o="tmpv/$(printf %03d $i).ts"
+            if ffprobe -v error -select_streams a -show_entries stream=index -of csv=p=0 "$f" | grep -q .; then
+              ffmpeg -nostdin -loglevel error -y -i "$f" -vf "$VF" -c:v libx264 -preset veryfast -crf 28 \
+                -c:a aac -ar 44100 -ac 2 -b:a 96k -f mpegts "$o"
+            else
+              ffmpeg -nostdin -loglevel error -y -i "$f" -f lavfi -i anullsrc=r=44100:cl=stereo -shortest -map 0:v -map 1:a \
+                -vf "$VF" -c:v libx264 -preset veryfast -crf 28 -c:a aac -ar 44100 -ac 2 -b:a 96k -f mpegts "$o"
+            fi
+          done
+          for t in tmpv/*.ts; do echo "file '$PWD/$t'"; done > tmpv/list.txt
+          ffmpeg -nostdin -loglevel error -y -f concat -safe 0 -i tmpv/list.txt -c copy -bsf:a aac_adtstoasc \
+            -movflags +faststart out/preview/preview.mp4
+          echo "پیش‌نمایش: ${#V[@]} ویدیو · $(stat -c%s out/preview/preview.mp4) بایت"
+
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: enriched-${{ github.event.inputs.key }}
