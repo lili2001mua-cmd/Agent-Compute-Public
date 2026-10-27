@@ -1,12 +1,13 @@
 {
-  "version": "20261027180403",
+  "version": "20261027181615",
   "files": {
     "app/bot.php": "f2f6808930208f853d410229a118d3cba55518e7855a01fd738687cbbf69701c",
-    "app/jobs/channels.php": "5f75e98d7364fe9c336e6dc6e0071adf258ea657ec75b4fcb2a66b5985502c87",
+    "app/gh.php": "01e35ef826ebfdb1f85be74e6f41cde772ed34721e197e8d1ee233247619a18f",
+    "app/jobs/channels.php": "434d94f544da7f64a5e9eb35989a14d7c6f59ab442407dd9b3c08c86c501b3e4",
     "app/lib.php": "dabd32913b5165c8114195affe3f34404a483bd406a4b4ec41573db521fdee8d",
     "app/tick.php": "d25db8635a5ff37723864773c18d25358f5169c2fd6e9ffaede1bd8cecea6a63",
     "public_html/index.php": "c704f3cf59916ebba53ce53ece00db162fc354f3c36067af285bb27545bbeab8",
-    "public_html/run.php": "5a7cfe4293abf6c023d5fdc1b842d1f390c457f5e7e0099ab11feae2b4f84627",
+    "public_html/run.php": "310284f27c9f10e3c06136ea9fc1498a530a1f3cc4760d3f174c939688e48bfe",
     "public_html/status.php": "b5ebf9b5ac833228e884070cfd20fb91005048f173b74b4ade2bf65234530c16"
   }
 }

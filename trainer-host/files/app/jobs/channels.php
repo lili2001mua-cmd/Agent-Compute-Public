@@ -2,6 +2,7 @@
 // Job: verify the bot works and report its rights in the two trainer channels.
 // Returns data only (names/ids of org channels are not personal data); never the token.
 require_once __DIR__ . '/../bot.php';
+require_once __DIR__ . '/../gh.php';
 
 function job_channels(array $args = []): array {
     $bot = new TrainerBot();
@@ -36,4 +37,18 @@ function job_sendtest(array $args = []): array {
     if (!$chat) throw new RuntimeException('chat required');
     $r = (new TrainerBot())->send($chat, $args['text'] ?? 'TEST — trainer.hohedoc.ir آزمایشِ اتصال', false);
     return ['message_id' => $r['message_id'] ?? null];
+}
+
+function job_ghcheck(array $args = []): array {
+    return (new GitHub())->check();
+}
+
+function job_dispatch(array $args = []): array {
+    $wf = preg_replace('/[^a-z0-9._-]/i', '', (string) ($args['wf'] ?? ''));
+    $ref = (string) ($args['ref'] ?? 'main');
+    if ($wf === '') throw new RuntimeException('wf required');
+    $allowedWf = ['nightly-pool.yml', 'telegram-panel.yml', 'telegram-notify.yml', 'step3-watchdog.yml'];
+    if (!in_array($wf, $allowedWf, true)) throw new RuntimeException('workflow not allowed');
+    (new GitHub())->dispatch($wf, $ref);
+    return ['dispatched' => $wf, 'ref' => $ref];
 }
