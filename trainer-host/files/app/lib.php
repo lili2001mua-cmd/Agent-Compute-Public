@@ -1,12 +1,20 @@
 <?php
 // Shared helpers for trainer.hohedoc.ir. Secrets live in ../secrets.php (outside public_html).
+// An optional ../secrets-extra.php (same "return [...]" shape) is merged on top, so new keys
+// can be added by uploading one small file instead of editing the big secrets.php.
 const TRAINER_ROOT = __DIR__ . '/..';
 
 function trainer_secrets(): array {
     static $s = null;
     if ($s === null) {
-        $f = TRAINER_ROOT . '/secrets.php';
-        $s = is_file($f) ? (array) (include $f) : [];
+        $s = [];
+        foreach (['/secrets.php', '/secrets-extra.php'] as $f) {
+            $p = TRAINER_ROOT . $f;
+            if (is_file($p)) {
+                $part = include $p;
+                if (is_array($part)) $s = array_merge($s, array_filter($part, fn($v) => $v !== '' && $v !== null));
+            }
+        }
     }
     return $s;
 }

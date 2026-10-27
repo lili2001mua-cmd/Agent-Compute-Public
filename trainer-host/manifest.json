@@ -1,9 +1,9 @@
 {
-  "version": "20261027173058",
+  "version": "20261027173429",
   "files": {
     "app/bot.php": "f2f6808930208f853d410229a118d3cba55518e7855a01fd738687cbbf69701c",
     "app/jobs/channels.php": "5f75e98d7364fe9c336e6dc6e0071adf258ea657ec75b4fcb2a66b5985502c87",
-    "app/lib.php": "4cd31812980cb96e9d1d27598b9709b6fc117b608d232f858f4443fb046de8f0",
+    "app/lib.php": "dabd32913b5165c8114195affe3f34404a483bd406a4b4ec41573db521fdee8d",
     "app/tick.php": "d25db8635a5ff37723864773c18d25358f5169c2fd6e9ffaede1bd8cecea6a63",
     "public_html/index.php": "c704f3cf59916ebba53ce53ece00db162fc354f3c36067af285bb27545bbeab8",
     "public_html/run.php": "5a7cfe4293abf6c023d5fdc1b842d1f390c457f5e7e0099ab11feae2b4f84627",
