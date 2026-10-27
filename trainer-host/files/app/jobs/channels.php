@@ -39,6 +39,33 @@ function job_sendtest(array $args = []): array {
     return ['message_id' => $r['message_id'] ?? null];
 }
 
+// Board/notify primitives: the host-bot owns the channel messages it posts, so it can edit/delete
+// them later. The chain hands rendered text here over HTTPS; these three do the Telegram side.
+function job_post(array $args = []): array {
+    $chat = (int) ($args['chat'] ?? 0);
+    $text = (string) ($args['text'] ?? '');
+    if (!$chat || $text === '') throw new RuntimeException('chat and text required');
+    $r = (new TrainerBot())->send($chat, $text, false);
+    return ['message_id' => $r['message_id'] ?? null, 'chat' => $chat];
+}
+
+function job_edit(array $args = []): array {
+    $chat = (int) ($args['chat'] ?? 0);
+    $mid = (int) ($args['mid'] ?? 0);
+    $text = (string) ($args['text'] ?? '');
+    if (!$chat || !$mid || $text === '') throw new RuntimeException('chat, mid and text required');
+    (new TrainerBot())->edit($chat, $mid, $text, false);
+    return ['edited' => $mid, 'chat' => $chat];
+}
+
+function job_del(array $args = []): array {
+    $chat = (int) ($args['chat'] ?? 0);
+    $mid = (int) ($args['mid'] ?? 0);
+    if (!$chat || !$mid) throw new RuntimeException('chat and mid required');
+    (new TrainerBot())->delete($chat, $mid);
+    return ['deleted' => $mid, 'chat' => $chat];
+}
+
 function job_ghcheck(array $args = []): array {
     return (new GitHub())->check();
 }

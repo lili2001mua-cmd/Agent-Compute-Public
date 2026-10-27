@@ -54,4 +54,7 @@ final class TrainerBot {
     public function pin(int|string $chat, int $messageId): void {
         $this->call('pinChatMessage', ['chat_id' => $chat, 'message_id' => $messageId, 'disable_notification' => true]);
     }
+    public function delete(int|string $chat, int $messageId): void {
+        $this->call('deleteMessage', ['chat_id' => $chat, 'message_id' => $messageId]);
+    }
 }
