@@ -54,3 +54,17 @@ function job_dispatch(array $args = []): array {
     (new GitHub())->dispatch($wf, $ref, $inputs);
     return ['dispatched' => $wf, 'ref' => $ref, 'inputs' => $inputs];
 }
+
+function job_enable(array $args = []): array {
+    $wf = preg_replace('/[^a-z0-9._-]/i', '', (string) ($args['wf'] ?? ''));
+    $allowedWf = ['nightly-pool.yml', 'telegram-panel.yml', 'telegram-notify.yml', 'step3-watchdog.yml'];
+    if (!in_array($wf, $allowedWf, true)) throw new RuntimeException('workflow not allowed');
+    (new GitHub())->enable($wf);
+    return ['enabled' => $wf];
+}
+
+function job_runstatus(array $args = []): array {
+    $wf = preg_replace('/[^a-z0-9._-]/i', '', (string) ($args['wf'] ?? ''));
+    if ($wf === '') throw new RuntimeException('wf required');
+    return (new GitHub())->latestRun($wf);
+}

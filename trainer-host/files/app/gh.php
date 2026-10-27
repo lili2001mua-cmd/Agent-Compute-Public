@@ -40,6 +40,19 @@ final class GitHub {
         $j = json_decode($r['body'], true);
         return ['repo' => $j['full_name'] ?? null, 'private' => $j['private'] ?? null];
     }
+    /** Re-enable a workflow that was disabled on GitHub's side. Returns true on 204. */
+    public function enable(string $workflowFile): bool {
+        $r = $this->req('PUT', "/repos/{$this->owner}/{$this->repo}/actions/workflows/{$workflowFile}/enable");
+        if ($r['code'] === 204) return true;
+        throw new RuntimeException("enable HTTP {$r['code']}: " . substr($r['body'], 0, 200));
+    }
+    /** Latest run of a workflow file (status/conclusion/url). */
+    public function latestRun(string $workflowFile): array {
+        $r = $this->req('GET', "/repos/{$this->owner}/{$this->repo}/actions/workflows/{$workflowFile}/runs?per_page=1");
+        $j = json_decode($r['body'], true);
+        $run = $j['workflow_runs'][0] ?? null;
+        return $run ? ['id' => $run['id'], 'status' => $run['status'], 'conclusion' => $run['conclusion'], 'created_at' => $run['created_at']] : [];
+    }
     /** Start one run of a workflow file on a ref. Returns true on 204. */
     public function dispatch(string $workflowFile, string $ref, array $inputs = []): bool {
         $r = $this->req('POST', "/repos/{$this->owner}/{$this->repo}/actions/workflows/{$workflowFile}/dispatches",
