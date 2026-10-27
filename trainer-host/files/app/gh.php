@@ -46,6 +46,13 @@ final class GitHub {
         if ($r['code'] === 204) return true;
         throw new RuntimeException("enable HTTP {$r['code']}: " . substr($r['body'], 0, 200));
     }
+    /** Current state of a workflow file: 'active', 'disabled_manually', etc. Needs only Actions:read. */
+    public function workflowState(string $workflowFile): string {
+        $r = $this->req('GET', "/repos/{$this->owner}/{$this->repo}/actions/workflows/{$workflowFile}");
+        if ($r['code'] !== 200) throw new RuntimeException("workflow state HTTP {$r['code']}");
+        $j = json_decode($r['body'], true);
+        return (string) ($j['state'] ?? '');
+    }
     /** Latest run of a workflow file (status/conclusion/url). */
     public function latestRun(string $workflowFile): array {
         $r = $this->req('GET', "/repos/{$this->owner}/{$this->repo}/actions/workflows/{$workflowFile}/runs?per_page=1");

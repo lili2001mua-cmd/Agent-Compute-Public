@@ -68,3 +68,19 @@ function job_runstatus(array $args = []): array {
     if ($wf === '') throw new RuntimeException('wf required');
     return (new GitHub())->latestRun($wf);
 }
+
+function job_wfstate(array $args = []): array {
+    $wf = preg_replace('/[^a-z0-9._-]/i', '', (string) ($args['wf'] ?? ''));
+    if ($wf === '') throw new RuntimeException('wf required');
+    return ['wf' => $wf, 'state' => (new GitHub())->workflowState($wf)];
+}
+
+// Manual nightly fire for the joint test: enable (if needed) then dispatch mode=plan, bypassing
+// the clock's time window. Same path the host takes at 03:00; use for the live test with the user.
+function job_nightly(array $args = []): array {
+    $mode = preg_replace('/[^a-z-]/', '', (string) ($args['mode'] ?? 'plan'));
+    $gh = new GitHub();
+    if ($gh->workflowState('nightly-pool.yml') !== 'active') $gh->enable('nightly-pool.yml');
+    $gh->dispatch('nightly-pool.yml', 'main', ['mode' => $mode]);
+    return ['dispatched' => 'nightly-pool.yml', 'mode' => $mode];
+}

@@ -15,5 +15,7 @@ file_put_contents(trainer_state_path('last-tick.txt'), (string) time(), LOCK_EX)
 // Flip to on by creating var/schedule-armed.txt once verified. Until then the host is a clock only.
 if (trainer_secret('GH_DISPATCH_TOKEN') !== '' && is_file(trainer_state_path('schedule-armed.txt'))) {
     try { schedule_nightly(); }
-    catch (Throwable $e) { trainer_log('schedule', 'error: ' . $e->getMessage()); }
+    catch (Throwable $e) { trainer_log('schedule', 'nightly error: ' . $e->getMessage()); }
+    try { drive_step3(); }
+    catch (Throwable $e) { trainer_log('schedule', 'step3 error: ' . $e->getMessage()); }
 }
