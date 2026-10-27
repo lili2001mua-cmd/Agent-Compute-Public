@@ -11,8 +11,9 @@ if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) exit;
 
 file_put_contents(trainer_state_path('last-tick.txt'), (string) time(), LOCK_EX);
 
-// Only act if the dispatch key is present; otherwise the host is still a passive clock.
-if (trainer_secret('GH_DISPATCH_TOKEN') !== '') {
+// Auto-dispatch stays OFF until one live test confirms the exact workflow mode and time.
+// Flip to on by creating var/schedule-armed.txt once verified. Until then the host is a clock only.
+if (trainer_secret('GH_DISPATCH_TOKEN') !== '' && is_file(trainer_state_path('schedule-armed.txt'))) {
     try { schedule_nightly(); }
     catch (Throwable $e) { trainer_log('schedule', 'error: ' . $e->getMessage()); }
 }

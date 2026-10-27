@@ -49,6 +49,8 @@ function job_dispatch(array $args = []): array {
     if ($wf === '') throw new RuntimeException('wf required');
     $allowedWf = ['nightly-pool.yml', 'telegram-panel.yml', 'telegram-notify.yml', 'step3-watchdog.yml'];
     if (!in_array($wf, $allowedWf, true)) throw new RuntimeException('workflow not allowed');
-    (new GitHub())->dispatch($wf, $ref);
-    return ['dispatched' => $wf, 'ref' => $ref];
+    $inputs = [];
+    if (isset($args['mode'])) $inputs['mode'] = preg_replace('/[^a-z-]/', '', (string) $args['mode']);
+    (new GitHub())->dispatch($wf, $ref, $inputs);
+    return ['dispatched' => $wf, 'ref' => $ref, 'inputs' => $inputs];
 }
