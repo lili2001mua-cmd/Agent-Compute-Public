@@ -1,14 +1,14 @@
 {
-  "version": "20261028114447",
+  "version": "20261028115436",
   "files": {
     "app/bot.php": "61402824c3b603549b7e61f832c114e608e1e72ab78326291e881196b4ee6484",
     "app/gh.php": "af75d25641c86c8842c44bc91da09678e7f8f06d034ac2171336aac40cb9b0c6",
     "app/jobs/channels.php": "18051b70aa889bc426418d58ab383511ce927acfdbf01add05c84b5dbc87bc92",
-    "app/jobs/mp-spike.php": "27cf5265f41a6d6de6d352d7833e5ef96a08ecd232797a3bf5b9177dbbd72d1c",
+    "app/jobs/mp-spike.php": "11458f12487c2f13e59b717c9cb4cfe9a173a665ae731fda28b222e6010ada91",
     "app/jobs/schedule.php": "e6e11af022c0ecfc9711d3949c2eca34e43a786723f67f8d6880514afff85b14",
     "app/lib.php": "1b3e34d221496b35d4b1618cb847df56f42e395745da8d270bff2c6247225e65",
-    "app/mp-spike.flag": "92895e2b6f134b1831a21d061c2f5299ab14f19a5777108cdb683f496137631d",
-    "app/probe-cli.flag": null,
+    "app/mp-spike.flag": "ac7f302d03f527263934f7e43c0da0fd55673ebd2a57c20c27838e3907ca69fa",
+    "app/mp-vendor.tgz": "3bfebd43dfbfaf210b19e92a4e47da1648a75f3d0d2e3a178b821ebe5c7798c1",
     "app/tick.php": "0bcd423ab9acf0e9aec2e6f232568859282bd55770859fdef2d2ef09e7f1cf9c",
     "public_html/index.php": "c704f3cf59916ebba53ce53ece00db162fc354f3c36067af285bb27545bbeab8",
     "public_html/probe.php": "bbaac2d69e3390c0695f9cb97232859a2942bd84d202d1eb914a4ec8f6c83af4",

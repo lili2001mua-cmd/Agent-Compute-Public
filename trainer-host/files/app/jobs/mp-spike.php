@@ -6,9 +6,12 @@
 // never start it twice). Runs before the tick lock so the minute clock is not held.
 // Public result public_html/mp-spike.txt: booleans, counts, durations only — no id, no text,
 // no secret. Private detail: var/mp-spike.log and var/mp-madeline.log.
-const MP_PHAR_URL = 'https://github.com/danog/MadelineProto/releases/download/8.14.0/madeline.phar';
-const MP_PHAR_SHA256 = '2fad826c93009607607302bc92543cdbf0b3c2ed960c9ed6ef697f40b8cf95c4'; // pinned 1405-08-06
-const MP_BUDGET_S = 420; // whole import+read budget; the phar download has its own 600s budget
+// The cron PHP has no Phar extension (spike run 1, 1405-08-06), so MadelineProto ships as a plain
+// composer vendor tree: app/mp-vendor.tgz (deployed by manifest, sha-pinned there) is unpacked by
+// the pure-PHP untar below into app/vendor/ on first run.
+const MP_VENDOR_TGZ = TRAINER_ROOT . '/app/mp-vendor.tgz';
+const MP_VENDOR_DIR = TRAINER_ROOT . '/app/vendor';
+const MP_BUDGET_S = 420; // whole import+read budget
 
 function mp_spike_public(array $r): void {
     @file_put_contents(TRAINER_ROOT . '/public_html/mp-spike.txt', json_encode($r, JSON_UNESCAPED_SLASHES));
@@ -52,35 +55,62 @@ function mp_redact(string $m): string {
     return mb_substr(preg_replace('/[A-Za-z0-9_\-]{25,}/u', '…', $m), 0, 300);
 }
 
+/** Minimal tar.gz extractor (ustar/gnu: regular files and directories; long names via 'L'; pax entries skipped). */
+function mp_untar_gz(string $tgz, string $dest): int {
+    $gz = gzopen($tgz, 'rb');
+    if (!$gz) throw new RuntimeException('cannot open ' . basename($tgz));
+    $n = 0; $longName = null;
+    $real = realpath($dest) ?: $dest;
+    while (!gzeof($gz)) {
+        $hdr = gzread($gz, 512);
+        if ($hdr === false || strlen($hdr) < 512 || trim($hdr, "\0") === '') break;
+        $name = rtrim(substr($hdr, 0, 100), "\0");
+        $size = (int) octdec(trim(substr($hdr, 124, 12), "\0 "));
+        $type = substr($hdr, 156, 1);
+        $prefix = rtrim(substr($hdr, 345, 155), "\0");
+        if ($prefix !== '' && substr($hdr, 257, 5) === 'ustar') $name = $prefix . '/' . $name;
+        if ($longName !== null) { $name = $longName; $longName = null; }
+        $blocks = (int) ceil($size / 512);
+        if ($type === 'L') { $longName = rtrim(gzread($gz, $blocks * 512), "\0"); continue; }
+        if ($type === 'x' || $type === 'g') { if ($blocks) gzread($gz, $blocks * 512); continue; }
+        if (str_contains($name, '..')) throw new RuntimeException('tar path escapes: ' . $name);
+        $path = $dest . '/' . ltrim($name, '/');
+        if ($type === '5') { if (!is_dir($path)) mkdir($path, 0755, true); continue; }
+        if ($type !== '0' && $type !== "\0") { if ($blocks) gzread($gz, $blocks * 512); continue; } // links etc.
+        $dir = dirname($path);
+        if (!is_dir($dir)) mkdir($dir, 0755, true);
+        $out = fopen($path, 'wb');
+        $left = $size;
+        while ($left > 0) { $chunk = gzread($gz, min(65536, (int) (ceil($left / 512) * 512))); if ($chunk === false || $chunk === '') throw new RuntimeException('truncated tar at ' . $name); fwrite($out, substr($chunk, 0, min($left, strlen($chunk)))); $left -= min($left, strlen($chunk)); }
+        fclose($out); $n++;
+    }
+    gzclose($gz);
+    return $n;
+}
+
 function mp_spike_run(): void {
-    if (!@file_exists(TRAINER_ROOT . '/app/mp-spike.flag') || @file_exists(TRAINER_ROOT . '/var/mp-spike.done')) return;
-    @file_put_contents(TRAINER_ROOT . '/var/mp-spike.done', date('c'));
+    $flag = TRAINER_ROOT . '/app/mp-spike.flag';
+    if (!@file_exists($flag)) return;
+    $done = TRAINER_ROOT . '/var/mp-spike-' . substr(md5((string) @file_get_contents($flag)), 0, 10) . '.done'; // re-arm by changing the flag text
+    if (@file_exists($done)) return;
+    @file_put_contents($done, date('c'));
+    @unlink(TRAINER_ROOT . '/app/madeline.phar'); // leftover of spike run 1 (no Phar extension here)
     @set_time_limit(0);
     @ini_set('memory_limit', '512M');
-    $r = ['started' => date('c'), 'php' => PHP_VERSION, 'phase' => 'init', 'ext_ctype' => extension_loaded('ctype')];
+    $r = ['started' => date('c'), 'php' => PHP_VERSION, 'phase' => 'init', 'ext' => []];
+    foreach (['ctype', 'phar', 'zip', 'sqlite3', 'pdo', 'mbstring', 'gmp', 'bcmath', 'sockets', 'openssl', 'zlib', 'xml', 'dom', 'filter', 'fileinfo', 'json'] as $e) $r['ext'][$e] = extension_loaded($e);
     mp_spike_public($r);
     trainer_log('mp-spike', 'start');
     $t0 = microtime(true);
     try {
-        // 1) the phar (29.6 MB, streamed to disk, sha256-pinned; kept for later runs)
-        $phar = TRAINER_ROOT . '/app/madeline.phar';
-        if (!is_file($phar) || hash_file('sha256', $phar) !== MP_PHAR_SHA256) {
-            $r['phase'] = 'download'; mp_spike_public($r);
-            $tmp = $phar . '.part';
-            $fh = fopen($tmp, 'wb');
-            if (!$fh) throw new RuntimeException('cannot open ' . basename($tmp));
-            $ch = curl_init(MP_PHAR_URL);
-            curl_setopt_array($ch, [CURLOPT_FILE => $fh, CURLOPT_FOLLOWLOCATION => true, CURLOPT_MAXREDIRS => 5,
-                CURLOPT_TIMEOUT => 600, CURLOPT_CONNECTTIMEOUT => 30, CURLOPT_FAILONERROR => true]);
-            $ok = curl_exec($ch); $err = curl_error($ch); curl_close($ch); fclose($fh);
-            if (!$ok) { @unlink($tmp); throw new RuntimeException('phar download: ' . $err); }
-            $got = hash_file('sha256', $tmp);
-            if ($got !== MP_PHAR_SHA256) { @unlink($tmp); throw new RuntimeException('phar sha256 mismatch ' . substr($got, 0, 12)); }
-            rename($tmp, $phar);
-            $r['downloaded'] = true;
+        // 1) the library: unpack the vendor tree once
+        if (!is_file(MP_VENDOR_DIR . '/autoload.php')) {
+            if (!is_file(MP_VENDOR_TGZ)) throw new RuntimeException('mp-vendor.tgz not deployed');
+            $r['phase'] = 'unpack'; mp_spike_public($r);
+            $r['unpacked_files'] = mp_untar_gz(MP_VENDOR_TGZ, dirname(MP_VENDOR_DIR));
+            if (!is_file(MP_VENDOR_DIR . '/autoload.php')) throw new RuntimeException('autoload.php missing after unpack');
         }
-        $r['phar_mb'] = round(filesize($phar) / 1048576, 1);
-        $r['t_download_s'] = round(microtime(true) - $t0);
+        $r['t_unpack_s'] = round(microtime(true) - $t0, 1);
 
         // 2) inputs
         $sess = mp_decode_telethon_string(trainer_secret('TG_SESSION'));
@@ -92,7 +122,7 @@ function mp_spike_run(): void {
         // 3) load
         $r['phase'] = 'load'; mp_spike_public($r);
         $t1 = microtime(true);
-        require_once $phar;
+        require_once MP_VENDOR_DIR . '/autoload.php';
         $r['t_load_s'] = round(microtime(true) - $t1, 1);
         $r['mem_after_load_mb'] = round(memory_get_usage(true) / 1048576);
         $r['release'] = \danog\MadelineProto\API::RELEASE;
