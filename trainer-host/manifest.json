@@ -1,17 +1,19 @@
 {
-  "version": "20261028123719",
+  "version": "20261028180733",
   "files": {
     "app/bot.php": "61402824c3b603549b7e61f832c114e608e1e72ab78326291e881196b4ee6484",
+    "app/cleanup.flag": "6294eb7eb827d85a346aa68d7549895a57d9529287c67c04dbfa491dd8612216",
     "app/gh.php": "af75d25641c86c8842c44bc91da09678e7f8f06d034ac2171336aac40cb9b0c6",
     "app/jobs/channels.php": "18051b70aa889bc426418d58ab383511ce927acfdbf01add05c84b5dbc87bc92",
-    "app/jobs/mp-spike.php": "1b5d182b9c269897cab4e02a498060fe9a45c20db19565fe11100552fdb5874c",
+    "app/jobs/cleanup-spike.php": "85c724422b572d7c38f4e62b18a150fae03483e1b2f5317c1d4f9252d102ccdc",
+    "app/jobs/mp-spike.php": null,
     "app/jobs/schedule.php": "e6e11af022c0ecfc9711d3949c2eca34e43a786723f67f8d6880514afff85b14",
     "app/lib.php": "1b3e34d221496b35d4b1618cb847df56f42e395745da8d270bff2c6247225e65",
-    "app/mp-spike.flag": "6fc424dae76c5468a8a76dc778c80a7541941441cbbbafab86bbc728648cf597",
-    "app/mp-vendor.tgz": "db34e772d5ddabb47a77def2d23bddb07a7c8c90a3d5a2f82cca8f8f34282fe8",
-    "app/tick.php": "0bcd423ab9acf0e9aec2e6f232568859282bd55770859fdef2d2ef09e7f1cf9c",
+    "app/mp-spike.flag": null,
+    "app/mp-vendor.tgz": null,
+    "app/tick.php": "1cb078f031cabb8ea08bdd2072a6b91006a4f0731fe144ec0271453a8b2e9807",
     "public_html/index.php": "c704f3cf59916ebba53ce53ece00db162fc354f3c36067af285bb27545bbeab8",
-    "public_html/probe.php": "bbaac2d69e3390c0695f9cb97232859a2942bd84d202d1eb914a4ec8f6c83af4",
+    "public_html/probe.php": null,
     "public_html/run.php": "d55fa9390ea80394bf608ba170192b0a4542c2ab57aa4c5c01cbff23e0948572",
     "public_html/status.php": "b5ebf9b5ac833228e884070cfd20fb91005048f173b74b4ade2bf65234530c16"
   }
