@@ -178,6 +178,7 @@ function mp_spike_run(): void {
         $r['ok'] = false;
         $r['error_class'] = get_class($e);
         $r['error'] = mp_redact($e->getMessage());
+        $r['error_at'] = array_map(fn($f) => basename($f['file'] ?? '?') . ':' . ($f['line'] ?? 0) . ' ' . ($f['class'] ?? '') . ($f['type'] ?? '') . ($f['function'] ?? ''), array_slice($e->getTrace(), 0, 6));
         trainer_log('mp-spike', 'error ' . get_class($e) . ': ' . mp_redact($e->getMessage()) . ' @' . basename($e->getFile()) . ':' . $e->getLine());
     }
     $r['peak_mem_mb'] = round(memory_get_peak_usage(true) / 1048576);
