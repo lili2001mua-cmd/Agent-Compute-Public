@@ -122,6 +122,9 @@ function mp_spike_run(): void {
         // 3) load
         $r['phase'] = 'load'; mp_spike_public($r);
         $t1 = microtime(true);
+        // No proc_open here, so no separate IPC worker can be spawned: declare THIS process the worker
+        // (the library's own flag) — Settings\Ipc::getSlow() then forces the full in-process session.
+        if (!defined('MADELINE_WORKER_TYPE')) { define('MADELINE_WORKER_TYPE', 'madeline-ipc'); define('MADELINE_WORKER_ARGS', []); }
         require_once MP_VENDOR_DIR . '/autoload.php';
         $r['t_load_s'] = round(microtime(true) - $t1, 1);
         $r['mem_after_load_mb'] = round(memory_get_usage(true) / 1048576);
@@ -129,7 +132,6 @@ function mp_spike_run(): void {
 
         $settings = new \danog\MadelineProto\Settings;
         $settings->getAppInfo()->setApiId((int) $creds['TG_API_ID'])->setApiHash($creds['TG_API_HASH']);
-        $settings->getIpc()->setSlow(true); // no IPC worker (no proc_open here): serve the session in-process
         $settings->getLogger()->setType(\danog\MadelineProto\Logger::FILE_LOGGER)
             ->setExtra(TRAINER_ROOT . '/var/mp-madeline.log')
             ->setLevel(\danog\MadelineProto\Logger::WARNING)->setMaxSize(2 * 1024 * 1024);
