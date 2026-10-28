@@ -7,6 +7,9 @@ require __DIR__ . '/lib.php';
 // cleanup-spike (one-off, flag-driven; see jobs/cleanup-spike.php): removes the MadelineProto spike leftovers.
 require __DIR__ . '/jobs/cleanup-spike.php';
 cleanup_spike_run();
+// secrets-move (one-off, flag-driven; see jobs/secrets-move.php): TG_SESSION out, TG_CREDS to the tg subdomain.
+require __DIR__ . '/jobs/secrets-move.php';
+secrets_move_run();
 
 
 require __DIR__ . '/jobs/schedule.php';
