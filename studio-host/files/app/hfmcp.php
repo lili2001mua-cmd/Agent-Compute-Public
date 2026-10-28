@@ -136,6 +136,13 @@ function hf_session(): string {
 }
 
 // Door jobs ------------------------------------------------------------------------------------------
+// Registers the client now (or reports why it cannot) so the browser leg never hits a blank 500.
+function job_hf_register(array $a): array {
+    if (!empty($a['reset'])) @unlink(studio_var('hf-client.json'));
+    try { $c = hf_client(); return ['registered' => true, 'client_id' => $c['client_id'], 'auth_method' => $c['token_endpoint_auth_method'] ?? null, 'redirect_uris' => $c['redirect_uris'] ?? null]; }
+    catch (Throwable $e) { return ['registered' => false, 'error' => $e->getMessage()]; }
+}
+
 function job_hf_login_status(array $a): array {
     $t = hf_tokens();
     $c = @json_decode((string) @file_get_contents(studio_var('hf-client.json')), true);

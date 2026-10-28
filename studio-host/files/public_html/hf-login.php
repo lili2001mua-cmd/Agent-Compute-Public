@@ -8,4 +8,5 @@ $f = studio_var('hf-login-link.txt');
 $want = is_file($f) ? trim((string) file_get_contents($f)) : '';
 if (!preg_match('/^[a-f0-9]{32}$/', $k) || $want === '' || !hash_equals($want, $k) || filemtime($f) < time() - 900) { http_response_code(404); exit; }
 @unlink($f);
-header('Location: ' . hf_login_url(), true, 302);
+try { header('Location: ' . hf_login_url(), true, 302); }
+catch (Throwable $e) { http_response_code(502); header('Content-Type: text/plain; charset=utf-8'); echo 'ورود آماده نشد: ', $e->getMessage(); }
