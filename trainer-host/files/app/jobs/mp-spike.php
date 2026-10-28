@@ -106,12 +106,15 @@ function mp_spike_run(): void {
     $t0 = microtime(true);
     try {
         // 1) the library: unpack the vendor tree once
-        if (!is_file(MP_VENDOR_DIR . '/autoload.php')) {
-            if (!is_file(MP_VENDOR_TGZ)) throw new RuntimeException('mp-vendor.tgz not deployed');
+        if (!is_file(MP_VENDOR_TGZ)) throw new RuntimeException('mp-vendor.tgz not deployed');
+        $tgzSha = hash_file('sha256', MP_VENDOR_TGZ);
+        if (!is_file(MP_VENDOR_DIR . '/autoload.php') || @file_get_contents(MP_VENDOR_DIR . '/.tgz-sha') !== $tgzSha) {
             $r['phase'] = 'unpack'; mp_spike_public($r);
-            $r['unpacked_files'] = mp_untar_gz(MP_VENDOR_TGZ, dirname(MP_VENDOR_DIR));
+            $r['unpacked_files'] = mp_untar_gz(MP_VENDOR_TGZ, dirname(MP_VENDOR_DIR)); // overwrites in place; stale extras are harmless
             if (!is_file(MP_VENDOR_DIR . '/autoload.php')) throw new RuntimeException('autoload.php missing after unpack');
+            file_put_contents(MP_VENDOR_DIR . '/.tgz-sha', $tgzSha);
         }
+        $r['vendor_patched'] = str_contains((string) @file_get_contents(MP_VENDOR_DIR . '/danog/madelineproto/src/MTProto.php'), 'trainer-host patch');
         $r['t_unpack_s'] = round(microtime(true) - $t0, 1);
 
         // 2) inputs
