@@ -1,0 +1,10 @@
+{
+  "client_id": "https://studio.hohedoc.ir/oauth/client.json",
+  "client_name": "studio.hohedoc.ir",
+  "client_uri": "https://studio.hohedoc.ir",
+  "redirect_uris": ["https://studio.hohedoc.ir/oauth/callback.php"],
+  "grant_types": ["authorization_code", "refresh_token"],
+  "response_types": ["code"],
+  "token_endpoint_auth_method": "none",
+  "scope": "openid email offline_access"
+}

@@ -7,6 +7,7 @@
 //   sd-photos-fetch.yml        → sd_fetch (queued; output = expiring token link)
 // Queued jobs are picked up by app/tick.php (cron, every minute, no web time limit).
 require_once __DIR__ . '/lib.php';
+require_once __DIR__ . '/hfmcp.php';
 
 const HF_API = 'https://api.higgsfield.ai';
 const ASSET_KINDS = ['picture', 'video', 'motion', 'audio', 'avatar'];
@@ -18,6 +19,13 @@ const OUT_TTL_S = 6 * 3600;
 const HF_DAILY_MAX_DEFAULT = 30;   // credit-burn cap if the key ever leaks; override with HF_DAILY_MAX
 
 // ---------------------------------------------------------------- Higgsfield
+// Gives the owner a 15-minute one-time link to hf-login.php (the browser cannot send the door header).
+function job_hf_login_link(array $a): array {
+    $t = bin2hex(random_bytes(16));
+    file_put_contents(studio_var('hf-login-link.txt'), $t); chmod(studio_var('hf-login-link.txt'), 0600);
+    return ['open_in_browser' => hf_base() . '/hf-login.php?k=' . $t, 'valid_minutes' => 15];
+}
+
 function hf_call(string $method, string $url, $payload = null, int $timeout = 60): array {
     $id = studio_secret('HF_API_KEY_ID'); $sec = studio_secret('HF_API_KEY_SECRET');
     if ($id === '' || $sec === '') throw new RuntimeException('HF_API_KEY_ID/HF_API_KEY_SECRET missing in secrets — add them with a secrets-extra file');

@@ -13,6 +13,14 @@ smaller set of secrets.
 | `sd-photos-inventory.yml` | `sd_inventory` | queued |
 | `sd-photos-fetch.yml` | `sd_fetch` → zip behind `get.php?t=<token>` (6 h, deleted after first download) | queued |
 
+## Higgsfield with the owner's app credits (MCP login)
+
+The server-side key (`HF_API_KEY_*`) spends a separate API wallet. To spend the **app** credits — the same
+wallet the claude.ai connector uses — the host logs into Higgsfield's MCP server once with the owner's
+account: `job=hf_login_link` → open the link in a browser → sign in → tokens land in `var/hf-oauth.json`.
+Then `hf_tools` lists the MCP tools and `hf_call` (tool + JSON args) runs one, refreshing tokens itself.
+The client is identified by `public_html/oauth/client.json` (OAuth client-metadata document, PKCE, no secret).
+
 ## Door
 
 `POST https://studio.hohedoc.ir/run.php` with header `X-Studio-Key: <ADMIN_KEY>` and form fields

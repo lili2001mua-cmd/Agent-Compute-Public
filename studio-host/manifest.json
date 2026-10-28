@@ -1,12 +1,16 @@
 {
-  "version": "20261028190620",
+  "version": "20261028201355",
   "files": {
-    "app/jobs.php": "60328540e4eddf5d595d5654bb1a13d97e444da17fbfdc4e5b4304fdbbf961b2",
+    "app/hfmcp.php": "d8578fb56941cfdf56ec50db205b7c42091efe90687f76a6433e7b9e1412e72b",
+    "app/jobs.php": "7e581c537386046b8c18be5c192c6e1b22348a6ee30157e7ed67bd7f50bab835",
     "app/lib.php": "9e96a5bded1d7276e50f5c27f070174e2a568904ae6c913ffa1368a991a329de",
     "app/tick.php": "09613d0b052e5b66cbba2f7244fd1a05521bfd50e40e17ad6c333936079196f5",
     "public_html/get.php": "06fcdee8bc93fd4c3686e50451a8af029f4250fc4094bcd65db271222576c49e",
+    "public_html/hf-login.php": "cc8472ae00df7096b5ee8e280f8b3a197d39c1efb214b8fbd3c7a4c4ec79c814",
     "public_html/index.php": "4fa8f7581553f6668fd73ae1a0f6baa8c208ad0ba03dc9ec6c230653649cfc85",
-    "public_html/run.php": "0a75ff4fa1dbae8d4377b3ccbffac5d0651a50d262f2252dcee75f7fe457e7df",
+    "public_html/oauth/callback.php": "2e88d6d70adbb0902b6b1f38a58f3a96de682a517040c15db2d8027edfcf0568",
+    "public_html/oauth/client.json": "5193288c9f7597e81a6519e6cf3adf4473f04559a0e80b2eb69bfe66ec6030d4",
+    "public_html/run.php": "679375f62e2006283342c79ccdd8d6078fa4133a1f7698c04042c011bc3ebe4b",
     "public_html/status.php": "3c21ee7bf3e8c7402e293f6d5c503e88f6deee6649a4968b19e70841d4e0db09"
   }
 }
