@@ -99,6 +99,8 @@ function mp_spike_run(): void {
     @ini_set('memory_limit', '512M');
     $r = ['started' => date('c'), 'php' => PHP_VERSION, 'phase' => 'init', 'ext' => []];
     foreach (['ctype', 'phar', 'zip', 'sqlite3', 'pdo', 'mbstring', 'gmp', 'bcmath', 'sockets', 'openssl', 'zlib', 'xml', 'dom', 'filter', 'fileinfo', 'json'] as $e) $r['ext'][$e] = extension_loaded($e);
+    $r['disabled_functions'] = array_values(array_filter(array_map('trim', explode(',', (string) ini_get('disable_functions')))));
+    foreach (['stream_socket_client', 'stream_socket_server', 'fsockopen', 'socket_create', 'stream_select'] as $f) $r['fn'][$f] = function_exists($f) && !in_array($f, $r['disabled_functions'], true);
     mp_spike_public($r);
     trainer_log('mp-spike', 'start');
     $t0 = microtime(true);
@@ -141,8 +143,14 @@ function mp_spike_run(): void {
         // 4) import (first run) or reopen, then two read-only calls — under one budget
         $r['phase'] = 'import'; mp_spike_public($r);
         $t2 = microtime(true);
+        // stream_socket_server() is disabled here, so the in-process IPC server cannot bind. The worker flag
+        // above is read synchronously by the API constructor (forces the full in-process session); this deferred
+        // callback runs at the constructor's first suspension and clears it, so the IPC-server failure is then
+        // only logged by MTProto::startLoops instead of being rethrown as it is for a real worker.
+        \Revolt\EventLoop::defer(static function (): void { \danog\MadelineProto\Magic::$isIpcWorker = false; });
         $work = \Amp\async(function () use (&$r, $sdir, $settings, $sess, $t2) {
             $api = new \danog\MadelineProto\API($sdir, $settings);
+            $r['ipc_worker_flag_now'] = \danog\MadelineProto\Magic::$isIpcWorker;
             if (is_file($sdir . '/safe.php') && $api->getSelf()) {
                 $r['reopened'] = true;
             } else {
