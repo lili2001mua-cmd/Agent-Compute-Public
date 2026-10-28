@@ -70,7 +70,13 @@ function hf_token_post(array $fields): array {
     if (!empty($c['client_secret'])) $fields['client_secret'] = $c['client_secret'];
     return studio_http('POST', HF_TOKEN, ['Content-Type: application/x-www-form-urlencoded', 'Accept: application/json'], http_build_query($fields));
 }
-function hf_redirect(): string { return hf_base() . '/oauth/callback.php'; }
+// The redirect URI is whatever the registered client carries (Higgsfield only trusts loopback URIs for us).
+// With a loopback URI the browser lands on a dead page whose ADDRESS BAR holds ?code=&state= ; the owner pastes
+// that address back and job=hf_finish exchanges it — the "manual remote" OAuth pattern of headless clients.
+function hf_redirect(): string {
+    $c = @json_decode((string) @file_get_contents(studio_var('hf-client.json')), true);
+    return (string) ($c['redirect_uris'][0] ?? 'http://localhost:8585/callback');
+}
 function hf_store(): string { return studio_var('hf-oauth.json'); }
 
 function hf_tokens(): array {
@@ -180,6 +186,17 @@ function job_hf_login_status(array $a): array {
     $c = @json_decode((string) @file_get_contents(studio_var('hf-client.json')), true);
     return ['logged_in' => !empty($t['access_token']), 'has_refresh' => !empty($t['refresh_token']),
         'saved_at' => $t['saved_at'] ?? null, 'client_registered' => !empty($c['client_id']), 'login_url' => hf_base() . '/hf-login.php'];
+}
+
+// Start the browser login: returns the URL the owner opens (no login page needed).
+function job_hf_login_start(array $a): array { return ['open_in_browser' => hf_login_url(), 'then' => 'paste the final address bar URL (localhost…?code=…) into job=hf_finish url=…', 'valid_minutes' => 10]; }
+
+// Finish it from the pasted address: url=http://localhost:8585/callback?code=…&state=…
+function job_hf_finish(array $a): array {
+    $u = parse_url((string) ($a['url'] ?? '')); parse_str((string) ($u['query'] ?? ''), $q);
+    $code = (string) ($q['code'] ?? $a['code'] ?? ''); $state = (string) ($q['state'] ?? $a['state'] ?? '');
+    if ($code === '' || $state === '') throw new RuntimeException('need the full pasted URL with code and state');
+    return hf_finish_login($code, $state);
 }
 
 function job_hf_device_start(array $a): array { return hf_device_start(); }
