@@ -42,6 +42,7 @@ jobs:
           INCLUDE_PAT: ${{ inputs.include_pat }}
           DELAY: ${{ inputs.delay }}
           MIN_CHARS: ${{ inputs.min_chars }}
+          IRAN_RELAY_RUN_KEY: ${{ secrets.IRAN_RELAY_RUN_KEY }}   # Iranian URLs go through relay.hohe1.ir
         run: |
           set -u
           mkdir -p out out/parts

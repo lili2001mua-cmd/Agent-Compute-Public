@@ -61,6 +61,32 @@ def main():
     if urlparse(a.url).scheme not in ("http", "https"):
         print("::error::URL must start with http or https.", file=sys.stderr)
         return 2
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import iran_relay
+    if iran_relay.should_route(a.url):
+        # Iranian site: no browser here - the relay inside Iran fetches the raw page.
+        # It cannot run JavaScript, so a client-rendered page honestly comes back a shell.
+        import web_extract as W
+        try:
+            status, headers, raw, _t, _n = W.fetch(a.url, 60, 3_000_000)
+        except Exception as e:                                # noqa: BLE001
+            print(f"::error::{a.url} via iran-relay - {str(e)[:160]}", file=sys.stderr)
+            return 1
+        html, _cs = W.decode(raw, headers)
+        p = W.Reader(a.url, False, main_only=False)
+        p.feed(html)
+        text = p.text()
+        links = sorted({l for l in p.links if l.startswith(("http://", "https://"))})
+        doc = {"url": a.url, "title": p.title, "text": text, "links": links[:400], "via": "iran-relay",
+               "stats": {"text_chars": len(text), "links_total": len(links),
+                         "links_shown": min(len(links), 400), "scrolled": 0, "wait": "relay-raw",
+                         "shell": len(text) < a.min_chars}}
+        out = json.dumps(doc, ensure_ascii=False, indent=1)
+        if a.out:
+            open(a.out, "w", encoding="utf-8").write(out)
+        print(f"{a.url} via iran-relay - {len(text)} chars" + (" - still a shell" if doc["stats"]["shell"] else ""))
+        return 1 if doc["stats"]["shell"] else 0
+
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
