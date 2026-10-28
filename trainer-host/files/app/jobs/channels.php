@@ -122,3 +122,35 @@ function job_nightly(array $args = []): array {
     $gh->dispatch('nightly-pool.yml', 'main', ['mode' => $mode]);
     return ['dispatched' => 'nightly-pool.yml', 'mode' => $mode];
 }
+
+// Enable every training workflow the host is allowed to drive, so the nightly chain
+// (nightly-pool -> intake-pool -> uses: enrich-public/telegram-notify) runs end to end.
+function job_enableall(array $args = []): array {
+    $gh = new GitHub();
+    $out = [];
+    foreach (trainer_wf_allowed() as $wf) {
+        try {
+            $state = $gh->workflowState($wf);
+            if ($state !== 'active') { $gh->enable($wf); $out[$wf] = 'enabled'; }
+            else $out[$wf] = 'already-active';
+        } catch (Throwable $e) { $out[$wf] = 'error: ' . $e->getMessage(); }
+    }
+    return $out;
+}
+
+// Arm / disarm the host's nightly clock (var/schedule-armed.txt). When armed, tick.php fires
+// nightly-pool (plan) at ~03:00 Tehran and drives step3-watchdog. When disarmed, the host is inert.
+function job_arm(array $args = []): array {
+    file_put_contents(trainer_state_path('schedule-armed.txt'), gmdate('c'), LOCK_EX);
+    return ['armed' => true, 'at' => gmdate('c')];
+}
+
+function job_disarm(array $args = []): array {
+    $p = trainer_state_path('schedule-armed.txt');
+    if (is_file($p)) @unlink($p);
+    return ['armed' => false];
+}
+
+function job_armstatus(array $args = []): array {
+    return ['armed' => is_file(trainer_state_path('schedule-armed.txt'))];
+}
