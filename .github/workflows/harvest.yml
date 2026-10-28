@@ -51,7 +51,7 @@ jobs:
           # doing nothing but polling. Looping here keeps every crawl minute on
           # this public repo, where minutes are free.
           i=0
-          printf '%s' "$URL" | tr ',' '\n' | while IFS= read -r u; do
+          printf '%s\n' "$URL" | tr ',' '\n' | while IFS= read -r u; do
             u="$(printf '%s' "$u" | tr -d '\r' | sed 's/^ *//; s/ *$//')"
             [ -z "$u" ] && continue
             i=$((i+1))
