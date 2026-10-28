@@ -1,5 +1,5 @@
 <?php
-// Minimal public health (panel: ok / age / version only — no secret names, no PHP version).
+// Minimal public health — JSON only (panel: ok / age / version; no secret names, no PHP version).
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
 header('X-Robots-Tag: noindex');
@@ -13,4 +13,6 @@ echo json_encode([
     'refused' => $d['refused'] ?? null,
     'deployed_age_s' => isset($d['at']) ? time() - strtotime($d['at']) : null,
     'tick_age_s' => $tick ? time() - $tick : null,
+    'queued' => count(glob($root . '/var/queue/*.json') ?: []),
+    'running' => count(glob($root . '/var/running/*.json') ?: []),
 ], JSON_UNESCAPED_SLASHES);
