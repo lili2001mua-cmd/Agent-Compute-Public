@@ -6,6 +6,7 @@
 //   sd-photos-inventory.yml    → sd_inventory (queued)
 //   sd-photos-fetch.yml        → sd_fetch (queued; output = expiring token link)
 //   app-release-publish.yml + workout-apk-to-drive.yml → app_upload (inline) → app_send (queued)
+//   workout-pdf-to-drive.yml   → doc_part × n + doc_commit (inline) → doc_send (queued)
 // Queued jobs are picked up by app/tick.php (cron, every minute, no web time limit).
 require_once __DIR__ . '/lib.php';
 require_once __DIR__ . '/hfmcp.php';
@@ -199,6 +200,98 @@ function run_app_send(array $a): array {
     } finally { @unlink($held); }
 }
 
+// ---------------------------------------------------------------- documents → Drive, in parts
+// Replaces workout-pdf-to-drive.yml (private Actions). The session renders the light and heavy PDFs, the program
+// bundle and the clip folder (weasyprint/ffmpeg cannot run here), then sends each file in parts of ≤32MB: the bundle
+// alone was 64.4MB, above the door's single-request limit. doc_part holds a part, doc_commit queues doc_send, and the
+// cron joins the parts, checks the whole md5 and uploads. Destination folders are an allow-list, never a free path.
+const DOC_FOLDERS = ['برنامه‌های تمرین'];
+const DOC_NAME_RE = '/^(?!\.)[^\/\\\\\x00-\x1f]{1,180}\.(pdf|zip|gif|mp4|webm|png|jpe?g|webp)$/u';
+const DOC_SUB_RE = '/^[\p{L}\p{N}][\p{L}\p{N} ._-]{0,60}$/u';
+const DOC_MAX_PARTS = 64;
+
+function doc_dir(string $id): string {
+    if (!preg_match('/^[a-f0-9]{16}$/', $id)) throw new RuntimeException('bad upload_id (16 hex)');
+    $d = studio_var('inbox/doc-' . $id);
+    if (!is_dir($d)) mkdir($d, 0700, true);
+    return $d;
+}
+
+function doc_check(string $folder, string $sub, string $name): void {
+    if (!in_array($folder, DOC_FOLDERS, true)) throw new RuntimeException('folder not allowed');
+    if ($sub !== '' && !preg_match(DOC_SUB_RE, $sub)) throw new RuntimeException('bad subfolder');
+    if (!preg_match(DOC_NAME_RE, $name)) throw new RuntimeException('bad name (no slash, media/pdf/zip extension)');
+}
+
+// The bytes must match the extension's family, not just the name.
+function doc_mime_ok(string $path, string $name): void {
+    $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
+    $want = ['pdf' => 'application/pdf', 'zip' => 'application/zip', 'gif' => 'image/', 'png' => 'image/', 'jpg' => 'image/',
+        'jpeg' => 'image/', 'webp' => 'image/', 'mp4' => 'video/', 'webm' => 'video/'][$ext] ?? 'x';
+    $mime = (new finfo(FILEINFO_MIME_TYPE))->file($path) ?: '';
+    if (strpos($mime, $want) !== 0) throw new RuntimeException("content is $mime, not a .$ext file");
+}
+
+// POST multipart: upload_id=<16 hex> index=<0..> md5=<part md5> file=<part>
+function job_doc_part(array $a): array {
+    $f = $_FILES['file'] ?? null;
+    if (!$f || ($f['error'] ?? 1) !== UPLOAD_ERR_OK || !is_uploaded_file($f['tmp_name'])) throw new RuntimeException('no part (field "file", ≤32MB)');
+    $i = (string) ($a['index'] ?? '');
+    if (!preg_match('/^[0-9]{1,2}$/', $i) || (int) $i >= DOC_MAX_PARTS) throw new RuntimeException('bad index');
+    if (!preg_match('/^[a-f0-9]{32}$/', (string) ($a['md5'] ?? '')) || md5_file($f['tmp_name']) !== $a['md5']) throw new RuntimeException('part md5 mismatch');
+    $d = doc_dir((string) ($a['upload_id'] ?? ''));
+    if (!move_uploaded_file($f['tmp_name'], "$d/" . str_pad($i, 2, '0', STR_PAD_LEFT))) throw new RuntimeException('could not hold the part');
+    return ['held' => (int) $i, 'bytes' => filesize("$d/" . str_pad($i, 2, '0', STR_PAD_LEFT))];
+}
+
+// POST: upload_id total name md5 folder [subfolder]
+function job_doc_commit(array $a): array {
+    $id = (string) ($a['upload_id'] ?? ''); $d = doc_dir($id);
+    $total = (int) ($a['total'] ?? 0);
+    if ($total < 1 || $total > DOC_MAX_PARTS) throw new RuntimeException('bad total');
+    for ($i = 0; $i < $total; $i++) if (!is_file("$d/" . str_pad((string) $i, 2, '0', STR_PAD_LEFT))) throw new RuntimeException("part $i missing");
+    $name = (string) ($a['name'] ?? ''); $folder = (string) ($a['folder'] ?? ''); $sub = (string) ($a['subfolder'] ?? '');
+    doc_check($folder, $sub, $name);
+    if (!preg_match('/^[a-f0-9]{32}$/', (string) ($a['md5'] ?? ''))) throw new RuntimeException('md5 required');
+    return job_enqueue('doc_send', ['upload_id' => $id, 'total' => $total, 'name' => $name, 'md5' => $a['md5'],
+        'folder' => $folder, 'subfolder' => $sub]);
+}
+
+function run_doc_send(array $a): array {
+    $d = doc_dir((string) $a['upload_id']); $name = (string) $a['name'];
+    doc_check((string) $a['folder'], (string) $a['subfolder'], $name);
+    $joined = "$d/joined";
+    try {
+        $out = fopen($joined, 'wb');
+        for ($i = 0; $i < (int) $a['total']; $i++) {
+            $in = fopen("$d/" . str_pad((string) $i, 2, '0', STR_PAD_LEFT), 'rb');
+            if (!$in) { fclose($out); throw new RuntimeException("part $i is gone"); }
+            stream_copy_to_stream($in, $out); fclose($in);
+        }
+        fclose($out);
+        $md5 = md5_file($joined);
+        if ($md5 !== $a['md5']) throw new RuntimeException('joined md5 mismatch');
+        doc_mime_ok($joined, $name);
+        $folder = drive_ensure_folder((string) $a['folder'], drive_root_id());
+        if ($a['subfolder'] !== '') $folder = drive_ensure_folder((string) $a['subfolder'], $folder);
+        $ex = drive_find($folder, $name);
+        if ($ex && ($ex['md5Checksum'] ?? '') === $md5) {
+            $r = $ex; $skipped = true;
+        } else {
+            $r = drive_upload_file($joined, $name, $folder, (new finfo(FILEINFO_MIME_TYPE))->file($joined) ?: 'application/octet-stream');
+            $skipped = false;
+            // Same name, other bytes: the old copy goes to Drive's trash (recoverable) so the folder holds one current file.
+            if ($ex) drive_call('PATCH', '/files/' . $ex['id'], ['supportsAllDrives' => 'true'], ['trashed' => true]);
+        }
+        return ['name' => $name, 'id' => $r['id'], 'size' => (string) filesize($joined), 'webViewLink' => $r['webViewLink'] ?? '',
+            'md5' => $md5, 'verified' => ($r['md5Checksum'] ?? '') === $md5, 'skipped_existing' => $skipped,
+            'folder_id' => $folder, 'folder_link' => 'https://drive.google.com/drive/folders/' . $folder];
+    } finally {
+        foreach (glob("$d/*") ?: [] as $x) @unlink($x);
+        @rmdir($d);
+    }
+}
+
 // SSRF guard for a caller-supplied URL: https only, the name must resolve to public addresses only, and the
 // connection is pinned to the checked address (no DNS rebinding). Redirects are followed by hand, re-checked each hop.
 function public_https_pin(string $url): array {
@@ -390,7 +483,7 @@ function run_sd_fetch(array $a): array {
 
 // ---------------------------------------------------------------- queue (cron-driven, no web time limit)
 const QUEUED = ['asset_import', 'sd_inventory', 'sd_fetch'];   // callable through the door
-const INTERNAL = ['asset_send', 'app_send'];                  // only enqueued by the host itself
+const INTERNAL = ['asset_send', 'app_send', 'doc_send'];      // only enqueued by the host itself
 
 function queue_dir(): string { $d = studio_var('queue'); if (!is_dir($d)) mkdir($d, 0700, true); return $d; }
 
@@ -441,5 +534,5 @@ function queue_cleanup(): void {
         if ($exp && $exp < time()) studio_rrmdir($d);
     }
     foreach (glob(studio_var('tmp-*')) ?: [] as $t) if (filemtime($t) < time() - 86400) unlink($t);
-    foreach (glob(studio_var('inbox') . '/*') ?: [] as $t) if (filemtime($t) < time() - 86400) unlink($t);
+    foreach (glob(studio_var('inbox') . '/*') ?: [] as $t) if (filemtime($t) < time() - 86400) is_dir($t) ? studio_rrmdir($t) : unlink($t);   // doc-<id>/ parts of an abandoned upload
 }
