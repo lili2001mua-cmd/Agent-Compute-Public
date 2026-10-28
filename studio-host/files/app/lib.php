@@ -10,6 +10,12 @@ function studio_secrets(): array {
     static $s = null;
     if ($s === null) {
         $s = [];
+        // DRIVE_OAUTH alone is read from trainer's secrets.php on the same account, so nobody copies it by hand.
+        $trainer = STUDIO_ROOT . '/../trainer.hohedoc.ir/secrets.php';
+        if (is_file($trainer)) {
+            $t = include $trainer;
+            if (is_array($t) && !empty($t['DRIVE_OAUTH'])) $s['DRIVE_OAUTH'] = $t['DRIVE_OAUTH'];
+        }
         foreach ([STUDIO_ROOT . '/secrets.php', STUDIO_ROOT . '/secrets-extra.php'] as $p) {
             if (is_file($p)) {
                 $part = include $p;

@@ -33,13 +33,14 @@ poll with `job=result&id=<id>`. `status.php` is public and shows only booleans a
 ];
 ```
 
-No Telegram session and no GitHub token live here. One optional `secrets-extra.php` (same shape)
-is merged on top.
+`DRIVE_OAUTH` alone is read from `../trainer.hohedoc.ir/secrets.php` when present, so in practice only
+`secrets-extra.php` is uploaded here. `tick.php` sets both secret files to 0600 by itself.
+No Telegram session and no GitHub token are read.
 
 ## Install (once)
 
 1. Create subdomain `studio.hohedoc.ir` with SSL in DirectAdmin.
-2. Upload `bootstrap/deploy.php` and `secrets.php` to `domains/studio.hohedoc.ir/`.
+2. Upload `bootstrap/deploy.php` and `secrets-extra.php` to `domains/studio.hohedoc.ir/`.
 3. Cron every 5 min: `/usr/local/bin/php …/studio.hohedoc.ir/deploy.php`
 4. Cron every 1 min: `/usr/local/bin/php …/studio.hohedoc.ir/app/tick.php`
 5. Check `https://studio.hohedoc.ir/status.php`: `gd_webp`, `secrets_present`, `last_tick_age_s`.

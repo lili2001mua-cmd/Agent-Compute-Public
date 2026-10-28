@@ -7,6 +7,7 @@ require __DIR__ . '/jobs.php';
 set_time_limit(0);
 ini_set('memory_limit', '512M');
 file_put_contents(studio_var('last-tick.txt'), (string) time());
+foreach (['secrets.php', 'secrets-extra.php'] as $f) if (is_file(STUDIO_ROOT . "/$f")) @chmod(STUDIO_ROOT . "/$f", 0600);   // no manual chmod step
 $lock = fopen(studio_var('tick.lock'), 'c');
 if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) exit;   // a long job from an earlier tick is still running
 $start = time();
