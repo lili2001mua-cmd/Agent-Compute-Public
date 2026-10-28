@@ -5,6 +5,7 @@
 //   remotion-render.yml        → the render runs inside the Claude Code session (Node + Chromium), then asset_upload
 //   sd-photos-inventory.yml    → sd_inventory (queued)
 //   sd-photos-fetch.yml        → sd_fetch (queued; output = expiring token link)
+//   app-release-publish.yml + workout-apk-to-drive.yml → app_upload (inline) → app_send (queued)
 // Queued jobs are picked up by app/tick.php (cron, every minute, no web time limit).
 require_once __DIR__ . '/lib.php';
 require_once __DIR__ . '/hfmcp.php';
@@ -127,6 +128,75 @@ function run_asset_send(array $a): array {
     asset_check((string) $a['kind'], (string) $a['name']);
     try { return asset_put((string) $a['kind'], $held, (string) $a['name']); }
     finally { @unlink($held); }
+}
+
+// ---------------------------------------------------------------- installable apps → Drive
+// Replaces app-release-publish.yml and workout-apk-to-drive.yml (private Actions). The Claude session builds and signs
+// the app, runs release-findings --gate, zips each apk/aab on its own (Drive refuses to serve a raw apk), then posts
+// the zip here. Drive: <root>/نسخه‌های نصبی/<App>/v<N>/<name>.zip . Same inbox + cron leg as asset_upload.
+const APP_RE = '/^[A-Z][A-Za-z0-9-]{1,40}$/';
+const APP_ZIP_RE = '/^[A-Za-z0-9][A-Za-z0-9._-]{0,150}\.zip$/';
+const APP_FOLDER = 'نسخه‌های نصبی';
+
+function app_check(string $app, string $ver, string $name): void {
+    if (!preg_match(APP_RE, $app)) throw new RuntimeException('bad app (e.g. Workout-Player)');
+    if (!preg_match('/^[0-9]{1,5}$/', $ver)) throw new RuntimeException('bad version (digits only)');
+    if (!preg_match(APP_ZIP_RE, $name)) throw new RuntimeException('bad name (letters, digits, . _ - and .zip)');
+}
+
+// A plain zip whose every entry is one top-level .apk or .aab — nothing else may ride along to Drive.
+function app_zip_ok(string $path): void {
+    $mime = (new finfo(FILEINFO_MIME_TYPE))->file($path) ?: '';
+    if ($mime !== 'application/zip') throw new RuntimeException("content is $mime, not a zip");
+    if (!class_exists('ZipArchive')) return;
+    $z = new ZipArchive();
+    if ($z->open($path) !== true) throw new RuntimeException('zip does not open');
+    try {
+        if ($z->numFiles < 1) throw new RuntimeException('empty zip');
+        for ($i = 0; $i < $z->numFiles; $i++) {
+            $n = (string) $z->getNameIndex($i);
+            if (!preg_match('/^[^\/]+\.(apk|aab)$/i', $n)) throw new RuntimeException("zip holds $n — only top-level .apk/.aab");
+        }
+    } finally { $z->close(); }
+}
+
+// POST multipart: file=<zip> app=<App> version=<N> name=<x.zip> md5=<hex>. md5 is required: it is the only proof
+// that the bytes on Drive are the bytes the session signed.
+function job_app_upload(array $a): array {
+    $f = $_FILES['file'] ?? null;
+    if (!$f || ($f['error'] ?? 1) !== UPLOAD_ERR_OK) throw new RuntimeException('no file (POST multipart field "file", ≤64MB)');
+    $app = (string) ($a['app'] ?? ''); $ver = (string) ($a['version'] ?? ''); $name = (string) ($a['name'] ?? $f['name']);
+    app_check($app, $ver, $name);
+    if (!is_uploaded_file($f['tmp_name'])) throw new RuntimeException('not an upload');
+    $md5 = (string) ($a['md5'] ?? '');
+    if (!preg_match('/^[a-f0-9]{32}$/', $md5)) throw new RuntimeException('md5 required');
+    if (md5_file($f['tmp_name']) !== $md5) throw new RuntimeException('md5 mismatch in transit');
+    app_zip_ok($f['tmp_name']);
+    $inbox = studio_var('inbox'); if (!is_dir($inbox)) mkdir($inbox, 0700, true);
+    $held = $inbox . '/' . bin2hex(random_bytes(8));
+    if (!move_uploaded_file($f['tmp_name'], $held)) throw new RuntimeException('could not hold the upload');
+    return job_enqueue('app_send', ['app' => $app, 'version' => $ver, 'name' => $name, 'md5' => $md5, 'held' => basename($held)]);
+}
+
+function run_app_send(array $a): array {
+    $held = studio_var('inbox/' . preg_replace('/[^a-f0-9]/', '', (string) ($a['held'] ?? '')));
+    if (!is_file($held)) throw new RuntimeException('held file is gone');
+    $app = (string) $a['app']; $ver = (string) $a['version']; $name = (string) $a['name'];
+    app_check($app, $ver, $name);
+    try {
+        $md5 = md5_file($held);
+        if ($md5 !== ($a['md5'] ?? '')) throw new RuntimeException('held file changed');
+        $folder = drive_ensure_folder('v' . $ver, drive_ensure_folder($app, drive_ensure_folder(APP_FOLDER, drive_root_id())));
+        $ex = drive_find($folder, $name);
+        if ($ex && ($ex['md5Checksum'] ?? '') === $md5) {
+            return ['app' => $app, 'version' => (int) $ver, 'name' => $name, 'drive_id' => $ex['id'],
+                'web_view_link' => $ex['webViewLink'] ?? '', 'md5' => $md5, 'verified' => true, 'skipped_existing' => true];
+        }
+        $r = drive_upload_file($held, $name, $folder, 'application/zip');
+        return ['app' => $app, 'version' => (int) $ver, 'name' => $name, 'drive_id' => $r['id'],
+            'web_view_link' => $r['webViewLink'] ?? '', 'md5' => $md5, 'verified' => ($r['md5Checksum'] ?? '') === $md5,
+            'skipped_existing' => false];
+    } finally { @unlink($held); }
 }
 
 // SSRF guard for a caller-supplied URL: https only, the name must resolve to public addresses only, and the
@@ -320,7 +390,7 @@ function run_sd_fetch(array $a): array {
 
 // ---------------------------------------------------------------- queue (cron-driven, no web time limit)
 const QUEUED = ['asset_import', 'sd_inventory', 'sd_fetch'];   // callable through the door
-const INTERNAL = ['asset_send'];                              // only enqueued by the host itself
+const INTERNAL = ['asset_send', 'app_send'];                  // only enqueued by the host itself
 
 function queue_dir(): string { $d = studio_var('queue'); if (!is_dir($d)) mkdir($d, 0700, true); return $d; }
 
