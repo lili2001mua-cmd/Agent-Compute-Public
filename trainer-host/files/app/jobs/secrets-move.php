@@ -19,7 +19,7 @@ function secrets_move_run(): void {
     $done = TRAINER_ROOT . '/var/secrets-move-' . substr(md5((string) @file_get_contents($flag)), 0, 10) . '.done';
     if (@file_exists($done)) return;
     @file_put_contents($done, date('c'));
-    $tgDest = dirname(TRAINER_ROOT) . '/tg.hohedoc.ir/secrets.php';
+    $tgDest = dirname((string) realpath(TRAINER_ROOT)) . '/tg.hohedoc.ir/secrets.php'; // TRAINER_ROOT ends in /app/.. — resolve first
     $r = ['at' => date('c'), 'files_checked' => 0, 'files_rewritten' => 0, 'session_removed' => 0,
           'creds_found' => false, 'creds_moved' => false, 'tg_dir_exists' => is_dir(dirname($tgDest)), 'errors' => 0];
     $creds = null;
