@@ -4,6 +4,17 @@
 require_once __DIR__ . '/../bot.php';
 require_once __DIR__ . '/../gh.php';
 
+// The full set of private-repo training workflows the host is allowed to enable/dispatch.
+// Keeping it in one place so the Claude door can drive the whole chain from the free host clock.
+function trainer_wf_allowed(): array {
+    return [
+        'nightly-pool.yml', 'intake-pool.yml', 'intake-pull.yml', 'intake-enrich.yml',
+        'enrich-public.yml', 'import-remote.yml', 'review-claim.yml', 'close-package.yml',
+        'archive-bundle.yml', 'pool-reset-step1.yml', 'drive-share.yml', 'drive-delete.yml',
+        'telegram-notify.yml', 'telegram-panel.yml', 'trainer-control-channel.yml', 'step3-watchdog.yml',
+    ];
+}
+
 function job_channels(array $args = []): array {
     $bot = new TrainerBot();
     $me = $bot->getMe();
@@ -74,7 +85,7 @@ function job_dispatch(array $args = []): array {
     $wf = preg_replace('/[^a-z0-9._-]/i', '', (string) ($args['wf'] ?? ''));
     $ref = (string) ($args['ref'] ?? 'main');
     if ($wf === '') throw new RuntimeException('wf required');
-    $allowedWf = ['nightly-pool.yml', 'telegram-panel.yml', 'telegram-notify.yml', 'step3-watchdog.yml'];
+    $allowedWf = trainer_wf_allowed();
     if (!in_array($wf, $allowedWf, true)) throw new RuntimeException('workflow not allowed');
     $inputs = [];
     if (isset($args['mode'])) $inputs['mode'] = preg_replace('/[^a-z-]/', '', (string) $args['mode']);
@@ -84,7 +95,7 @@ function job_dispatch(array $args = []): array {
 
 function job_enable(array $args = []): array {
     $wf = preg_replace('/[^a-z0-9._-]/i', '', (string) ($args['wf'] ?? ''));
-    $allowedWf = ['nightly-pool.yml', 'telegram-panel.yml', 'telegram-notify.yml', 'step3-watchdog.yml'];
+    $allowedWf = trainer_wf_allowed();
     if (!in_array($wf, $allowedWf, true)) throw new RuntimeException('workflow not allowed');
     (new GitHub())->enable($wf);
     return ['enabled' => $wf];
