@@ -88,6 +88,15 @@ function mp_untar_gz(string $tgz, string $dest): int {
     return $n;
 }
 
+function mp_rmdir_r(string $dir): void {
+    foreach (scandir($dir) ?: [] as $f) {
+        if ($f === '.' || $f === '..') continue;
+        $p = $dir . '/' . $f;
+        is_dir($p) && !is_link($p) ? mp_rmdir_r($p) : @unlink($p);
+    }
+    @rmdir($dir);
+}
+
 function mp_spike_run(): void {
     $flag = TRAINER_ROOT . '/app/mp-spike.flag';
     if (!@file_exists($flag)) return;
@@ -146,11 +155,11 @@ function mp_spike_run(): void {
         // 4) import (first run) or reopen, then two read-only calls — under one budget
         $r['phase'] = 'import'; mp_spike_public($r);
         $t2 = microtime(true);
-        // stream_socket_server() is disabled here, so the in-process IPC server cannot bind. The worker flag
-        // above is read synchronously by the API constructor (forces the full in-process session); this deferred
-        // callback runs at the constructor's first suspension and clears it, so the IPC-server failure is then
-        // only logged by MTProto::startLoops instead of being rethrown as it is for a real worker.
-        \Revolt\EventLoop::defer(static function (): void { \danog\MadelineProto\Magic::$isIpcWorker = false; });
+        // (run 7 lesson) no deferred flag flip: the loop ran it before the async body, so the constructor saw
+        // a plain client and tried to spawn a worker. The worker flag stays on; the vendored MTProto tolerates
+        // the unbindable IPC server (stream_socket_server() is disabled here).
+        // A half-built session from an earlier failed run must not be reused: keep it only once it logged in.
+        if (is_dir($sdir) && !is_file($sdir . '/.imported-ok')) { mp_rmdir_r($sdir); $r['session_reset'] = true; }
         $work = \Amp\async(function () use (&$r, $sdir, $settings, $sess, $t2) {
             $api = new \danog\MadelineProto\API($sdir, $settings);
             $r['ipc_worker_flag_now'] = \danog\MadelineProto\Magic::$isIpcWorker;
@@ -161,6 +170,7 @@ function mp_spike_run(): void {
             }
             $self = $api->getSelf();
             $r['self_ok'] = is_array($self) && !empty($self['id']);
+            if ($r['self_ok']) @file_put_contents($sdir . '/.imported-ok', date('c'));
             $r['self_is_bot'] = (bool) ($self['bot'] ?? false);
             $r['t_import_s'] = round(microtime(true) - $t2, 1);
             $r['phase'] = 'read'; mp_spike_public($r);
