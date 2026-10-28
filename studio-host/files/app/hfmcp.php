@@ -14,7 +14,32 @@ const HF_TOKEN = 'https://mcp.higgsfield.ai/oauth2/token';
 const HF_SCOPE = 'openid email offline_access';
 
 function hf_base(): string { return 'https://' . (studio_secret('STUDIO_HOST') ?: 'studio.hohedoc.ir'); }
-function hf_client_id(): string { return hf_base() . '/oauth/client.json'; }
+const HF_REGISTER = 'https://mcp.higgsfield.ai/oauth2/register';
+
+// Higgsfield only trusts redirect URIs of REGISTERED clients (the hosted client-metadata document was refused
+// with invalid_redirect_uri), so the host registers itself once (RFC 7591) and keeps the record in var/.
+function hf_client(): array {
+    $f = studio_var('hf-client.json');
+    $c = @json_decode((string) @file_get_contents($f), true);
+    if (is_array($c) && !empty($c['client_id'])) return $c;
+    [$code, $r] = studio_http('POST', HF_REGISTER, ['Content-Type: application/json', 'Accept: application/json'],
+        json_encode(['client_name' => 'studio.hohedoc.ir', 'client_uri' => hf_base(), 'redirect_uris' => [hf_redirect()],
+            'grant_types' => ['authorization_code', 'refresh_token'], 'response_types' => ['code'],
+            'token_endpoint_auth_method' => 'none', 'scope' => HF_SCOPE]));
+    if (!in_array($code, [200, 201], true) || !is_array($r) || empty($r['client_id'])) throw new RuntimeException("client registration failed ($code): " . substr(json_encode($r), 0, 300));
+    file_put_contents("$f.tmp", json_encode($r)); chmod("$f.tmp", 0600); rename("$f.tmp", $f);
+    return $r;
+}
+
+function hf_client_id(): string { return (string) hf_client()['client_id']; }
+
+// Token-endpoint auth: public client by default; if registration handed us a secret, send it.
+function hf_token_post(array $fields): array {
+    $c = hf_client();
+    $fields['client_id'] = $c['client_id'];
+    if (!empty($c['client_secret'])) $fields['client_secret'] = $c['client_secret'];
+    return studio_http('POST', HF_TOKEN, ['Content-Type: application/x-www-form-urlencoded', 'Accept: application/json'], http_build_query($fields));
+}
 function hf_redirect(): string { return hf_base() . '/oauth/callback.php'; }
 function hf_store(): string { return studio_var('hf-oauth.json'); }
 
@@ -45,9 +70,8 @@ function hf_finish_login(string $code, string $state): array {
     $p = @json_decode((string) @file_get_contents(studio_var('hf-pkce.json')), true);
     @unlink(studio_var('hf-pkce.json'));
     if (!is_array($p) || time() - ($p['t'] ?? 0) > 600 || !hash_equals($p['s'] ?? '', $state)) throw new RuntimeException('login expired or state mismatch — open hf-login.php again');
-    [$c, $r] = studio_http('POST', HF_TOKEN, ['Content-Type: application/x-www-form-urlencoded'],
-        http_build_query(['grant_type' => 'authorization_code', 'code' => $code, 'redirect_uri' => hf_redirect(),
-            'client_id' => hf_client_id(), 'code_verifier' => $p['v'], 'resource' => HF_MCP]));
+    [$c, $r] = hf_token_post(['grant_type' => 'authorization_code', 'code' => $code, 'redirect_uri' => hf_redirect(),
+        'code_verifier' => $p['v'], 'resource' => HF_MCP]);
     if ($c !== 200 || !is_array($r) || empty($r['access_token'])) throw new RuntimeException("token exchange failed ($c)");
     hf_save_tokens($r);
     return ['logged_in' => true, 'has_refresh' => !empty($r['refresh_token']), 'expires_in' => $r['expires_in'] ?? null];
@@ -59,8 +83,7 @@ function hf_access_token(bool $force = false): string {
     $exp = ($t['saved_at'] ?? 0) + (int) ($t['expires_in'] ?? 3600);
     if (!$force && time() < $exp - 60) return $t['access_token'];
     if (empty($t['refresh_token'])) throw new RuntimeException('access token expired and no refresh token — log in again');
-    [$c, $r] = studio_http('POST', HF_TOKEN, ['Content-Type: application/x-www-form-urlencoded'],
-        http_build_query(['grant_type' => 'refresh_token', 'refresh_token' => $t['refresh_token'], 'client_id' => hf_client_id(), 'resource' => HF_MCP]));
+    [$c, $r] = hf_token_post(['grant_type' => 'refresh_token', 'refresh_token' => $t['refresh_token'], 'resource' => HF_MCP]);
     if ($c !== 200 || !is_array($r) || empty($r['access_token'])) throw new RuntimeException("refresh failed ($c) — log in again");
     if (empty($r['refresh_token'])) $r['refresh_token'] = $t['refresh_token'];
     hf_save_tokens($r);
@@ -115,8 +138,9 @@ function hf_session(): string {
 // Door jobs ------------------------------------------------------------------------------------------
 function job_hf_login_status(array $a): array {
     $t = hf_tokens();
+    $c = @json_decode((string) @file_get_contents(studio_var('hf-client.json')), true);
     return ['logged_in' => !empty($t['access_token']), 'has_refresh' => !empty($t['refresh_token']),
-        'saved_at' => $t['saved_at'] ?? null, 'login_url' => hf_base() . '/hf-login.php'];
+        'saved_at' => $t['saved_at'] ?? null, 'client_registered' => !empty($c['client_id']), 'login_url' => hf_base() . '/hf-login.php'];
 }
 
 function job_hf_tools(array $a): array {
