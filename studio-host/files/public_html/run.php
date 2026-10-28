@@ -11,7 +11,7 @@ if (!studio_key_ok()) { http_response_code(404); exit; }
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') { http_response_code(405); exit; }
 
 $job = preg_replace('/[^a-z_]/', '', (string) ($_POST['job'] ?? ''));
-$inline = ['hf_check', 'hf_submit', 'hf_status', 'hf_login_link', 'hf_login_status', 'hf_register', 'hf_tools', 'hf_call', 'asset_upload', 'result'];
+$inline = ['hf_check', 'hf_submit', 'hf_status', 'hf_login_link', 'hf_login_status', 'hf_register', 'hf_device_start', 'hf_device_poll', 'hf_tools', 'hf_call', 'asset_upload', 'result'];
 $args = $_POST;
 unset($args['job']);
 try {

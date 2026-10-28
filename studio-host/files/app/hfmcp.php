@@ -18,17 +18,47 @@ const HF_REGISTER = 'https://mcp.higgsfield.ai/oauth2/register';
 
 // Higgsfield only trusts redirect URIs of REGISTERED clients (the hosted client-metadata document was refused
 // with invalid_redirect_uri), so the host registers itself once (RFC 7591) and keeps the record in var/.
-function hf_client(): array {
+function hf_client(array $opts = []): array {
     $f = studio_var('hf-client.json');
     $c = @json_decode((string) @file_get_contents($f), true);
-    if (is_array($c) && !empty($c['client_id'])) return $c;
-    [$code, $r] = studio_http('POST', HF_REGISTER, ['Content-Type: application/json', 'Accept: application/json'],
-        json_encode(['client_name' => 'studio.hohedoc.ir', 'client_uri' => hf_base(), 'redirect_uris' => [hf_redirect()],
-            'grant_types' => ['authorization_code', 'refresh_token'], 'response_types' => ['code'],
-            'token_endpoint_auth_method' => 'none', 'scope' => HF_SCOPE]));
+    if (is_array($c) && !empty($c['client_id']) && !$opts) return $c;
+    // Higgsfield keeps a trusted list of redirect URIs; a loopback URI (what CLI clients use) is the usual member.
+    $redirects = $opts['redirect_uris'] ?? [hf_redirect()];
+    $body = ['client_name' => 'studio.hohedoc.ir', 'client_uri' => hf_base(),
+        'grant_types' => $opts['grant_types'] ?? ['authorization_code', 'refresh_token', 'urn:ietf:params:oauth:grant-type:device_code'],
+        'response_types' => ['code'], 'token_endpoint_auth_method' => 'none', 'scope' => HF_SCOPE];
+    if ($redirects) $body['redirect_uris'] = $redirects;
+    [$code, $r] = studio_http('POST', HF_REGISTER, ['Content-Type: application/json', 'Accept: application/json'], json_encode($body));
     if (!in_array($code, [200, 201], true) || !is_array($r) || empty($r['client_id'])) throw new RuntimeException("client registration failed ($code): " . substr(json_encode($r), 0, 300));
     file_put_contents("$f.tmp", json_encode($r)); chmod("$f.tmp", 0600); rename("$f.tmp", $f);
     return $r;
+}
+
+// Device flow (RFC 8628): no redirect at all — the host shows a URL + code, the owner approves on any device,
+// the host polls the token endpoint. The metadata advertises the grant; the endpoint path is probed.
+function hf_device_start(): array {
+    $cid = hf_client_id();
+    $last = null;
+    foreach (['/oauth2/device_authorization', '/oauth2/device/code', '/oauth2/device', '/oauth/device/code'] as $path) {
+        [$c, $r] = studio_http('POST', 'https://mcp.higgsfield.ai' . $path, ['Content-Type: application/x-www-form-urlencoded', 'Accept: application/json'],
+            http_build_query(['client_id' => $cid, 'scope' => HF_SCOPE, 'resource' => HF_MCP]));
+        $last = "$path → $c " . substr(is_array($r) ? json_encode($r) : (string) $r, 0, 200);
+        if ($c === 200 && is_array($r) && !empty($r['device_code'])) {
+            $r['started'] = time();
+            file_put_contents(studio_var('hf-device.json'), json_encode($r)); chmod(studio_var('hf-device.json'), 0600);
+            return ['open_in_browser' => $r['verification_uri_complete'] ?? $r['verification_uri'] ?? null,
+                'user_code' => $r['user_code'] ?? null, 'expires_in' => $r['expires_in'] ?? null, 'endpoint' => $path];
+        }
+    }
+    throw new RuntimeException('no device endpoint answered: ' . $last);
+}
+
+function hf_device_poll(): array {
+    $d = @json_decode((string) @file_get_contents(studio_var('hf-device.json')), true);
+    if (!is_array($d) || empty($d['device_code'])) throw new RuntimeException('no device login in progress');
+    [$c, $r] = hf_token_post(['grant_type' => 'urn:ietf:params:oauth:grant-type:device_code', 'device_code' => $d['device_code'], 'resource' => HF_MCP]);
+    if ($c === 200 && is_array($r) && !empty($r['access_token'])) { hf_save_tokens($r); @unlink(studio_var('hf-device.json')); return ['logged_in' => true, 'has_refresh' => !empty($r['refresh_token'])]; }
+    return ['logged_in' => false, 'status' => is_array($r) ? ($r['error'] ?? "http $c") : "http $c"];
 }
 
 function hf_client_id(): string { return (string) hf_client()['client_id']; }
@@ -139,7 +169,9 @@ function hf_session(): string {
 // Registers the client now (or reports why it cannot) so the browser leg never hits a blank 500.
 function job_hf_register(array $a): array {
     if (!empty($a['reset'])) @unlink(studio_var('hf-client.json'));
-    try { $c = hf_client(); return ['registered' => true, 'client_id' => $c['client_id'], 'auth_method' => $c['token_endpoint_auth_method'] ?? null, 'redirect_uris' => $c['redirect_uris'] ?? null]; }
+    $opts = [];
+    if (isset($a['redirect'])) $opts['redirect_uris'] = $a['redirect'] === '' ? [] : [(string) $a['redirect']];
+    try { $c = hf_client($opts); return ['registered' => true, 'client_id' => $c['client_id'], 'auth_method' => $c['token_endpoint_auth_method'] ?? null, 'redirect_uris' => $c['redirect_uris'] ?? null]; }
     catch (Throwable $e) { return ['registered' => false, 'error' => $e->getMessage()]; }
 }
 
@@ -149,6 +181,9 @@ function job_hf_login_status(array $a): array {
     return ['logged_in' => !empty($t['access_token']), 'has_refresh' => !empty($t['refresh_token']),
         'saved_at' => $t['saved_at'] ?? null, 'client_registered' => !empty($c['client_id']), 'login_url' => hf_base() . '/hf-login.php'];
 }
+
+function job_hf_device_start(array $a): array { return hf_device_start(); }
+function job_hf_device_poll(array $a): array { return hf_device_poll(); }
 
 function job_hf_tools(array $a): array {
     $sid = hf_session();
