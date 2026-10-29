@@ -1,6 +1,6 @@
 {
   "_generated_by": "Agent-Project-Backup/Sys.scripts/build-routine-jobs.py — دستی ویرایش نکن",
-  "registry_sha": "4372ab3d576acc38",
+  "registry_sha": "754836eb5369a8fd",
   "jobs": [
     {
       "id": "nightly-pool",
@@ -31,6 +31,21 @@
       "start_within_min": 60,
       "finish_within_min": 180,
       "done_path": "Memory-Workflow/invariants-runs/{run_id}.done.json"
+    },
+    {
+      "id": "routine-selftest",
+      "runbook": "Memory-Routine-Runbook/routine-dispatcher.md",
+      "cron_utc": "43 5 * * *",
+      "tehran": "09:13",
+      "needs_claude": true,
+      "account_class": "repo",
+      "accounts": [
+        "acct-a"
+      ],
+      "mode": "shadow",
+      "start_within_min": 30,
+      "finish_within_min": 60,
+      "done_path": "Memory-Workflow/routine-host/runs/{run_id}.done.json"
     }
   ]
 }
