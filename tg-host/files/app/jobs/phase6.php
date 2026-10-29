@@ -534,19 +534,30 @@ function tg_chain_secrets(): array {
     foreach (TG_CHAIN_SECRET_KEYS as $k) { if (empty($s[$k]) && !empty(tg_secrets()[$k])) $s[$k] = (string) tg_secrets()[$k]; }
     return $s;
 }
-/** Admin op: a single-use intake token, valid 10 minutes; only its sha256 is kept. */
+/** Admin op: a single-use intake token (10 min) and a one-time RSA key; the private half stays in var/ and dies with the token. */
 function tg_chain_intake_token(): array {
     $t = bin2hex(random_bytes(24));
-    tg_write_json(tg_var('chain-intake.json'), ['sha' => hash('sha256', $t), 'exp' => time() + 600]);
-    return ['intake_token' => $t, 'expires_in_s' => 600];
+    $k = openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
+    openssl_pkey_export($k, $priv);
+    $pub = openssl_pkey_get_details($k)['key'];
+    $f = tg_var('chain-intake.json');
+    tg_write_json($f, ['sha' => hash('sha256', $t), 'exp' => time() + 600, 'priv' => $priv]); @chmod($f, 0600);
+    return ['intake_token' => $t, 'expires_in_s' => 600, 'public_key_b64' => base64_encode($pub)];
 }
-/** Door action `intake` (no key; the single-use token is the credential). Values are never echoed. */
+/** Door intake (no key; the single-use token is the credential). The values arrive sealed to the one-time key by the
+ *  handover workflow (RSA-OAEP over an AES-256-CBC key+iv), so whoever relays the blob never sees them. Never echoed. */
 function tg_chain_intake(string $token, array $in): array {
     $f = tg_var('chain-intake.json'); $t = tg_read_json($f);
-    if (is_file($f)) unlink($f); // single use, whatever happens next
+    if (is_file($f)) unlink($f); // single use, whatever happens next — the private key goes with it
     if (!$t || $t['exp'] < time() || !hash_equals($t['sha'], hash('sha256', $token))) return [403, ['error' => 'intake token invalid or used']];
-    $cur = tg_chain_secrets(); $got = [];
-    foreach (TG_CHAIN_SECRET_KEYS as $k) { if (isset($in['secrets'][$k]) && is_string($in['secrets'][$k]) && $in['secrets'][$k] !== '') { $cur[$k] = $in['secrets'][$k]; $got[] = $k; } }
+    $sealed = base64_decode((string) ($in['sealed'] ?? ''), true); $data = base64_decode((string) ($in['data'] ?? ''), true);
+    if (!$sealed || !$data || !openssl_private_decrypt($sealed, $kiv, (string) $t['priv'], OPENSSL_PKCS1_OAEP_PADDING) || strlen($kiv) !== 96 || !ctype_xdigit($kiv))
+        return [400, ['error' => 'sealed key unreadable']];
+    $plain = openssl_decrypt($data, 'aes-256-cbc', hex2bin(substr($kiv, 0, 64)), OPENSSL_RAW_DATA, hex2bin(substr($kiv, 64, 32)));
+    $vals = is_string($plain) ? json_decode($plain, true) : null;
+    if (!is_array($vals)) return [400, ['error' => 'sealed data unreadable']];
+    $cur = tg_read_json(tg_var('chain-secrets.json')) ?? []; $got = [];
+    foreach (TG_CHAIN_SECRET_KEYS as $k) { if (isset($vals[$k]) && is_string($vals[$k]) && $vals[$k] !== '') { $cur[$k] = $vals[$k]; $got[] = $k; } }
     $p = tg_var('chain-secrets.json'); tg_write_json($p, $cur); @chmod($p, 0600);
     tg_log('chain', 'intake keys=' . implode(',', $got));
     return [200, ['ok' => true, 'stored' => $got]];
