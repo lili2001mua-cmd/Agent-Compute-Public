@@ -12,6 +12,8 @@ Watched routines and their limits: `OPS_WATCH` in `files/app/lib.php`.
 
 | scheduled Claude routines (user's decision 1405-08-07: the clock lives on the host, not on the Claude account) | `app/fire.php`: every 48 h at 17:xx UTC (21:17–22:17 Tehran) it POSTs to the routine's fire URL; a non-2xx answer is sent to Telegram. Jobs: `OPS_FIRE`. |
 
+| `auto-pr-stranded-branches.yml` (private repo) | `app/stranded.php`, once a day at 03:xx UTC: every `claude/*` branch of Agent-Project-Backup with hand-written unmerged work and no PR gets one PR (REST only; same rules and the same generated-file list as `Sys.scripts/lib/branch-classify.sh`). Errors go to Telegram. |
+
 ## Doors
 
 - `POST https://ops.hohedoc.ir/beat.php` with `id=<routine>` [`sha=<commit>`]. No key: a forged beat can only
@@ -26,6 +28,7 @@ Watched routines and their limits: `OPS_WATCH` in `files/app/lib.php`.
 <?php return [
   'INVARIANTS_FIRE_URL'   => '<fire URL from the routine page on claude.ai/code/routines>',
   'INVARIANTS_FIRE_TOKEN' => '<token from the same page>',
+  'OPS_GITHUB_TOKEN'      => '<fine-grained: Contents RW + Pull requests RW on the holding repos>',
 ];
 ```
 

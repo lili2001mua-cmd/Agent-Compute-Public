@@ -47,3 +47,7 @@ if (is_file($flag)) {
 // Clock for Claude routines without a schedule of their own (app/fire.php).
 require_once __DIR__ . '/fire.php';
 ops_fire_all();
+
+// auto-pr-stranded-branches, daily (app/stranded.php).
+require_once __DIR__ . '/stranded.php';
+ops_stranded_tick();
