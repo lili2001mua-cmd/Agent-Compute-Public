@@ -1,9 +1,9 @@
 <?php
-// Pull-based deploy for deploy.hohedoc.ir — run by cron, never by a web request.
-// Place at /home/<user>/domains/deploy.hohedoc.ir/deploy.php (next to secrets.php, outside public_html).
-// Cron (every 5 min): /usr/local/bin/php /home/<user>/domains/deploy.hohedoc.ir/deploy.php
+// Pull-based deploy for sites.hohedoc.ir — run by cron, never by a web request.
+// Place at /home/<user>/domains/sites.hohedoc.ir/deploy.php (next to secrets.php, outside public_html).
+// Cron (every 5 min): /usr/local/bin/php /home/<user>/domains/sites.hohedoc.ir/deploy.php
 //
-// It reads deploy-host/manifest.json from our own public repo, and for every listed file whose
+// It reads sites-host/manifest.json from our own public repo, and for every listed file whose
 // sha256 differs from the local copy it downloads the file, checks the sha256, and writes it.
 // Only paths under app/ and public_html/ are accepted. Nothing is ever deleted except files the
 // manifest marks as removed. No secret is read or sent.
@@ -17,7 +17,7 @@ const BASE = __DIR__;
 const LOG = __DIR__ . '/var/deploy.log';
 
 $ref = is_file(REF_FILE) ? trim((string) file_get_contents(REF_FILE)) : DEFAULT_REF;
-$raw = 'https://raw.githubusercontent.com/' . REPO . '/' . $ref . '/deploy-host/';
+$raw = 'https://raw.githubusercontent.com/' . REPO . '/' . $ref . '/sites-host/';
 
 @mkdir(BASE . '/var', 0700, true);
 $lock = fopen(BASE . '/var/deploy.lock', 'c');
@@ -26,7 +26,7 @@ if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) exit;
 function fetch(string $url): ?string {
     $ch = curl_init($url . '?t=' . time());
     curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 60,
-        CURLOPT_FOLLOWLOCATION => true, CURLOPT_USERAGENT => 'deploy-host-deploy']);
+        CURLOPT_FOLLOWLOCATION => true, CURLOPT_USERAGENT => 'sites-host-deploy']);
     $body = curl_exec($ch);
     $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
