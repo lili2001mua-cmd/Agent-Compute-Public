@@ -10,9 +10,11 @@ const OPS_STRANDED_REPO = 'lili2001mua-cmd/Agent-Project-Backup';
 const OPS_STRANDED_EXCLUDE = ['claude/intake-pool'];
 const OPS_STRANDED_HOUR = 3;          // UTC, as the retired cron ('0 3 * * *')
 
+function ops_github_token(): string { return ops_secret('OPS_GITHUB_TOKEN'); }
+
 function ops_gh(string $method, string $path, ?array $body = null, string $accept = 'application/vnd.github+json'): array {
     $ch = curl_init('https://api.github.com' . $path);
-    $h = ['Authorization: Bearer ' . ops_secret('OPS_GITHUB_TOKEN'), 'Accept: ' . $accept,
+    $h = ['Authorization: Bearer ' . ops_github_token(), 'Accept: ' . $accept,
           'X-GitHub-Api-Version: 2022-11-28', 'User-Agent: ops-hohedoc'];
     if ($body !== null) $h[] = 'Content-Type: application/json';
     curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 30, CURLOPT_CUSTOMREQUEST => $method,

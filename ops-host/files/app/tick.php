@@ -51,3 +51,8 @@ ops_fire_all();
 // auto-pr-stranded-branches, daily (app/stranded.php).
 require_once __DIR__ . '/stranded.php';
 ops_stranded_tick();
+
+// delete-branch / reconcile-branch door and the daily token probe (app/branchq.php).
+require_once __DIR__ . '/branchq.php';
+ops_gh_probe();
+ops_branch_tick();
