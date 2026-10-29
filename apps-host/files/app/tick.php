@@ -7,6 +7,10 @@ require __DIR__ . '/jobs.php';
 set_time_limit(0);
 ini_set('memory_limit', '512M');
 file_put_contents(apps_var('last-tick.txt'), (string) time());
+// What the cron itself can see — the Drive leg runs here, not on the web side (booleans only, never a value).
+$cli = [];
+foreach (['ADMIN_KEY', 'DRIVE_OAUTH', 'DRIVE_ROOT_ID'] as $k) $cli[$k] = apps_secret($k) !== '';
+file_put_contents(apps_var('cli-secrets.json'), json_encode($cli));
 foreach (['secrets.php', 'secrets-extra.php'] as $f) if (is_file(APPS_ROOT . "/$f")) @chmod(APPS_ROOT . "/$f", 0600);   // no manual chmod step
 $lock = fopen(apps_var('tick.lock'), 'c');
 if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) exit;   // a long job from an earlier tick is still running

@@ -16,6 +16,7 @@ echo json_encode([
     'deployed' => $deployed,
     'last_tick_age_s' => $lastTick ? time() - $lastTick : null,
     'secrets_present' => $present,
+    'secrets_present_cron' => @json_decode((string) @file_get_contents(apps_var('cli-secrets.json')), true),
     'fileinfo' => class_exists('finfo'),
     'zip' => class_exists('ZipArchive'),
     'queue' => $states,
