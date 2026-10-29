@@ -66,7 +66,7 @@ if ($action === 'submit') {
         $r = explode(':', $rule, 3);
         if ($r[0] === 'int') { if (!is_int($v) || $v < (int) $r[1] || $v > (int) $r[2]) out(400, ['error' => "bad arg $name"]); }
         elseif ($r[0] === 'enum') { if (!in_array($v, explode(',', $r[1]), true)) out(400, ['error' => "bad arg $name"]); }
-        elseif ($r[0] === 'str') { if (!is_string($v) || !preg_match('/^' . $r[1] . '$/u', $v)) out(400, ['error' => "bad arg $name"]); }
+        elseif ($r[0] === 'str') { if (!is_string($v) || !preg_match('/^' . substr($rule, 4) . '$/u', $v)) out(400, ['error' => "bad arg $name"]); } // the pattern may hold ':'
         elseif ($r[0] === 'json') { if (!is_string($v) || strlen($v) > 60000 || !is_array(json_decode($v, true))) out(400, ['error' => "bad arg $name"]); }
         else out(500, ['error' => 'bad rule']);
         $args[$name] = $v;

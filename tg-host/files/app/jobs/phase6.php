@@ -489,7 +489,7 @@ function tg_chain_watchdog(): void {
     $night = $now->format('Y-m-d');
     $r = tg_read_json(tg_var('chain-night.json')) ?? [];
     if (!empty($r[$night]['delivered']) || !empty($r[$night]['off']) || !empty($r[$night]['alert_' . $slot])) return;
-    $s = tg_secrets(); $tok = (string) ($s['TELEGRAM_BOT_TOKEN'] ?? ''); $chat = (string) ($s['TELEGRAM_POOL_CHAT_ID'] ?? '');
+    $s = tg_chain_secrets() + tg_secrets(); $tok = (string) ($s['TELEGRAM_BOT_TOKEN'] ?? ''); $chat = (string) ($s['TELEGRAM_POOL_CHAT_ID'] ?? '');
     $state = empty($r[$night]['start']) ? 'هیچ اجرایی شروع نشد' : 'شروع شد ولی به «تحویل» نرسید';
     $text = "⚠️ زنجیرهٔ چهارگام — شبِ $night : $state (نگهبانِ هاست، " . ($slot === 'morning' ? '۰۵:۰۰' : '۱۶:۰۰') . ' تهران).';
     $sent = false;
