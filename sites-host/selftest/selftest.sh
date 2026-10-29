@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs deploy-host's real tick.php against mock.php (fake GitHub + fake sync.php) and checks:
+# Runs sites-host's real tick.php against mock.php (fake GitHub + fake sync.php) and checks:
 # signed deploy+delete reach the sites, the result is written once, an old request that already has a
 # result is never re-run, a second tick does nothing, and an expired token shows up as last_error.
 set -u
@@ -7,7 +7,7 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 T=$(mktemp -d); trap 'kill $SRV 2>/dev/null; rm -rf "$T"' EXIT
 mkdir -p "$T/site/app" "$T/site/public_html" "$T/mock"
 cp "$HERE/../files/app/"*.php "$T/site/app/"; cp "$HERE/../files/public_html/"*.php "$T/site/public_html/"
-printf "<?php return ['GITHUB_TOKEN' => 't', 'DEPLOY_SECRET' => 'test-deploy-secret'];\n" > "$T/site/secrets.php"
+printf "<?php return ['GITHUB_TOKEN' => 't', 'STYLISTCRM_DEPLOY_SECRET' => 'test-deploy-secret'];\n" > "$T/site/secrets.php"
 MOCK_DIR="$T/mock" php -S 127.0.0.1:8765 "$HERE/mock.php" >/dev/null 2>&1 & SRV=$!; sleep 1
 export DH_GH_API=http://127.0.0.1:8765 DH_SITE_BASE=http://127.0.0.1:8765
 fail=0; check() { if eval "$2"; then echo "PASS $1"; else echo "FAIL $1"; fail=1; fi; }

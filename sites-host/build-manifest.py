@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Rebuild deploy-host/manifest.json from deploy-host/files/ (sha256 per file).
+"""Rebuild sites-host/manifest.json from sites-host/files/ (sha256 per file).
 
-Run after any change under files/:  python3 deploy-host/build-manifest.py
+Run after any change under files/:  python3 sites-host/build-manifest.py
 The host's deploy.php pulls only what this manifest lists.
 """
 import hashlib, json, os, sys
