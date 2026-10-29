@@ -43,3 +43,7 @@ if (is_file($flag)) {
         ops_log("test-alert $nonce sent=" . ($ok ? 1 : 0));
     }
 }
+
+// Clock for Claude routines without a schedule of their own (app/fire.php).
+require_once __DIR__ . '/fire.php';
+ops_fire_all();

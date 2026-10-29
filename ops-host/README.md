@@ -10,6 +10,8 @@ leave GitHub Actions. Its own subdomain under the user's rule (1405-08-07). Same
 
 Watched routines and their limits: `OPS_WATCH` in `files/app/lib.php`.
 
+| scheduled Claude routines (user's decision 1405-08-07: the clock lives on the host, not on the Claude account) | `app/fire.php`: every 48 h at 17:xx UTC (21:17–22:17 Tehran) it POSTs to the routine's fire URL; a non-2xx answer is sent to Telegram. Jobs: `OPS_FIRE`. |
+
 ## Doors
 
 - `POST https://ops.hohedoc.ir/beat.php` with `id=<routine>` [`sha=<commit>`]. No key: a forged beat can only
@@ -18,7 +20,16 @@ Watched routines and their limits: `OPS_WATCH` in `files/app/lib.php`.
 
 ## Secrets
 
-None of its own. `TELEGRAM_BOT_TOKEN` is borrowed from `trainer.hohedoc.ir/secrets.php` by the cron only (the web
+`secrets.php` beside `deploy.php` (outside `public_html`), only for the routine clock:
+
+```php
+<?php return [
+  'INVARIANTS_FIRE_URL'   => '<fire URL from the routine page on claude.ai/code/routines>',
+  'INVARIANTS_FIRE_TOKEN' => '<token from the same page>',
+];
+```
+
+Nothing else of its own. `TELEGRAM_BOT_TOKEN` is borrowed from `trainer.hohedoc.ir/secrets.php` by the cron only (the web
 side cannot see sibling folders). Alerts go to the trainer control channel. No GitHub token is read.
 
 ## Install (once)
