@@ -17,6 +17,7 @@ $t0 = time();
 $reg = include __DIR__ . '/jobs/registry.php';
 require_once __DIR__ . '/jobs/phase1.php';
 foreach (glob(__DIR__ . '/jobs/phase[2-9]*.php') ?: [] as $f) require_once $f;
+if (function_exists('tg_phase2_pre')) tg_phase2_pre();
 
 // media dir: no listing (deploy refuses dot-files, so the tick writes it)
 $m = tg_dir(TG_BASE . '/public_html/m'); @chmod($m, 0755);
@@ -75,4 +76,5 @@ while (time() - $t0 < TG_TICK_BUDGET_S) {
         tg_log('jobs', $j['job'] . ' failed ' . get_class($e));
     }
     @unlink($run);
+    if (!empty($reg[$j['job']]['tg'])) break; // one MadelineProto instance per process; shutdown serializes it
 }
