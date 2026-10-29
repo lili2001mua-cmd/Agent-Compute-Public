@@ -17,6 +17,7 @@ const OPS_WATCH = [
     'invariants-runs'                => 56,
     'nightly-sweep-watchdog-audit'   => 174,
     'claude-utilities-weekly-review' => 174,
+    'skill-freshness'                => 192,   // weekly, in the invariants task (local-skill-freshness.sh)
 ];
 
 function ops_var(string $name): string {
