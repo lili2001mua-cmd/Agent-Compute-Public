@@ -44,9 +44,7 @@ if (is_file($flag)) {
     }
 }
 
-// Clock for Claude routines without a schedule of their own (app/fire.php).
-require_once __DIR__ . '/fire.php';
-ops_fire_all();
+// The clock for Claude routines moved to routine.hohedoc.ir (routine-host/, 1405-08-07): one clock only.
 
 // auto-pr-stranded-branches, daily (app/stranded.php).
 require_once __DIR__ . '/stranded.php';

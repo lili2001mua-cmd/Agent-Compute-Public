@@ -63,3 +63,20 @@ function ops_telegram(string $text): bool {
 function ops_log(string $line): void {
     file_put_contents(ops_var('ops.log'), gmdate('c') . ' ' . $line . "\n", FILE_APPEND | LOCK_EX);
 }
+
+// Secrets in ../secrets.php (+ secrets-extra*.php), outside public_html, never printed.
+function ops_secret(string $key): string {
+    static $s = null;
+    if ($s === null) {
+        $s = [];
+        $files = [OPS_ROOT . '/secrets.php'];
+        foreach (glob(OPS_ROOT . '/secrets-extra*.php') ?: [] as $x) $files[] = $x;
+        foreach ($files as $p) {
+            if (!is_file($p)) continue;
+            @chmod($p, 0600);
+            $part = include $p;
+            if (is_array($part)) $s = array_merge($s, array_filter($part, fn($v) => $v !== '' && $v !== null));
+        }
+    }
+    return (string) ($s[$key] ?? '');
+}

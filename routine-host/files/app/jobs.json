@@ -1,0 +1,36 @@
+{
+  "_generated_by": "Agent-Project-Backup/Sys.scripts/build-routine-jobs.py — دستی ویرایش نکن",
+  "registry_sha": "3358cc43d4de08fd",
+  "jobs": [
+    {
+      "id": "nightly-pool",
+      "runbook": "Memory-Routine-Runbook/nightly-pool.md",
+      "cron_utc": "37 23,4,9 * * *",
+      "tehran": "03:07",
+      "needs_claude": true,
+      "account_class": "drive",
+      "accounts": [
+        "acct-a"
+      ],
+      "mode": "shadow",
+      "start_within_min": 60,
+      "finish_within_min": 240,
+      "done_path": "Memory-Workflow/nightly-pool/runs/{run_id}.done.json"
+    },
+    {
+      "id": "invariants-every-other-day",
+      "runbook": "Agents-Utility/Prompts/Live/invariants-prompt.md",
+      "cron_utc": "47 17 */2 * *",
+      "tehran": "21:17",
+      "needs_claude": true,
+      "account_class": "repo",
+      "accounts": [
+        "acct-a"
+      ],
+      "mode": "shadow",
+      "start_within_min": 60,
+      "finish_within_min": 180,
+      "done_path": "Memory-Workflow/invariants-runs/{run_id}.done.json"
+    }
+  ]
+}

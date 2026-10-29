@@ -1,0 +1,21 @@
+<?php
+// The team's sites. Adding a site = one entry here + its bridge secret in ../secrets.php. Nothing else.
+// Public on purpose (this repo is public): repo names, domains and paths only — never a secret value.
+//   repo     private repo that holds the site code, its queue and its results (same owner as the token)
+//   queue    folder of request files written by a Claude session after the user's typed approval
+//   results  folder the host writes one result file per request into
+//   secret   name of the key in secrets.php that signs requests to this site's bridge (sync.php)
+//   envs     bridge URL per environment; a request may only name an env listed here
+return [
+    'stylistcrm' => [
+        'repo' => 'stylistcrm',
+        'queue' => 'deploy-queue',
+        'results' => 'deploy-results/queue',
+        'secret' => 'STYLISTCRM_DEPLOY_SECRET',
+        'envs' => [
+            'pwa' => 'https://pwa.redlilium.ir/deploy/sync.php',
+            'hub' => 'https://hub.redlilium.ir/deploy/sync.php',
+            'help' => 'https://help.redlilium.ir/public/deploy/sync.php',
+        ],
+    ],
+];
