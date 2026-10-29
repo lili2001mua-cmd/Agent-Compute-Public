@@ -10,7 +10,7 @@ leave GitHub Actions. Its own subdomain under the user's rule (1405-08-07). Same
 
 Watched routines and their limits: `OPS_WATCH` in `files/app/lib.php`.
 
-| scheduled Claude routines | **moved to `routine.hohedoc.ir`** (`routine-host/`, 1405-08-07) — one clock only; `fire.php` was removed here. |
+| scheduled Claude routines | `app/fire.php` fires `invariants` every 48 h **until `routine.hohedoc.ir` is armed** (`routine-host/`, 1405-08-07); that day this file is removed so only one clock remains. Secrets: `INVARIANTS_FIRE_URL` / `INVARIANTS_FIRE_TOKEN` in `secrets.php`. |
 
 | `auto-pr-stranded-branches.yml` (private repo) | `app/stranded.php`, once a day at 03:xx UTC: every `claude/*` branch of Agent-Project-Backup with hand-written unmerged work and no PR gets one PR (REST only; same rules and the same generated-file list as `Sys.scripts/lib/branch-classify.sh`). Errors go to Telegram. |
 
