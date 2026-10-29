@@ -10,7 +10,7 @@ leave GitHub Actions. Its own subdomain under the user's rule (1405-08-07). Same
 
 Watched routines and their limits: `OPS_WATCH` in `files/app/lib.php`.
 
-| scheduled Claude routines (user's decision 1405-08-07: the clock lives on the host, not on the Claude account) | `app/fire.php`: every 48 h at 17:xx UTC (21:17–22:17 Tehran) it POSTs to the routine's fire URL; a non-2xx answer is sent to Telegram. Jobs: `OPS_FIRE`. |
+| scheduled Claude routines | **moved to `routine.hohedoc.ir`** (`routine-host/`, 1405-08-07) — one clock only; `fire.php` was removed here. |
 
 | `auto-pr-stranded-branches.yml` (private repo) | `app/stranded.php`, once a day at 03:xx UTC: every `claude/*` branch of Agent-Project-Backup with hand-written unmerged work and no PR gets one PR (REST only; same rules and the same generated-file list as `Sys.scripts/lib/branch-classify.sh`). Errors go to Telegram. |
 
@@ -22,12 +22,11 @@ Watched routines and their limits: `OPS_WATCH` in `files/app/lib.php`.
 
 ## Secrets
 
-`secrets.php` beside `deploy.php` (outside `public_html`), only for the routine clock:
+`secrets.php` beside `deploy.php` (outside `public_html`). Routine fire keys do **not** live here any more:
+they belong to `routine.hohedoc.ir` (`routine-host/README.md`).
 
 ```php
 <?php return [
-  'INVARIANTS_FIRE_URL'   => '<fire URL from the routine page on claude.ai/code/routines>',
-  'INVARIANTS_FIRE_TOKEN' => '<token from the same page>',
   'OPS_GITHUB_TOKEN'      => '<fine-grained: Contents RW + Pull requests RW on the holding repos>',
 ];
 ```

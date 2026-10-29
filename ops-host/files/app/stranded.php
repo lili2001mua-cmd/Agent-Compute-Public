@@ -4,7 +4,7 @@
 // GitHub REST API only: every claude/* branch with hand-written, unmerged work and no PR (open or closed) gets one
 // PR. Never merges, never closes. Runs once a day from tick.php. Token: OPS_GITHUB_TOKEN in ../secrets.php
 // (fine-grained: Contents read/write + Pull requests read/write on the holding's repos).
-require_once __DIR__ . '/fire.php';   // ops_secret()
+require_once __DIR__ . '/lib.php';    // ops_secret()
 
 const OPS_STRANDED_REPO = 'lili2001mua-cmd/Agent-Project-Backup';
 const OPS_STRANDED_EXCLUDE = ['claude/intake-pool'];

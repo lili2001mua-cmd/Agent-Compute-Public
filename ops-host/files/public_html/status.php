@@ -18,7 +18,6 @@ echo json_encode([
     'last_tick_age_s' => $lastTick ? time() - $lastTick : null,
     'bot_token_seen_by_cron' => @json_decode((string) @file_get_contents(ops_var('cli-bot.json')), true),
     'test_alert' => @json_decode((string) @file_get_contents(ops_var('test-alert.json')), true),
-    'fire' => @json_decode((string) @file_get_contents(ops_var('fire.json')), true),
     'stranded' => (function () { $x = @json_decode((string) @file_get_contents(ops_var('stranded.json')), true); if (isset($x['result']['items'])) unset($x['result']['items']); return $x; })(),
     'routines' => $rows,
 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
