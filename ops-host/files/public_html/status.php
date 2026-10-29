@@ -17,5 +17,6 @@ echo json_encode([
     'deployed' => @json_decode((string) @file_get_contents(ops_var('deployed.json')), true) ?: null,
     'last_tick_age_s' => $lastTick ? time() - $lastTick : null,
     'bot_token_seen_by_cron' => @json_decode((string) @file_get_contents(ops_var('cli-bot.json')), true),
+    'test_alert' => @json_decode((string) @file_get_contents(ops_var('test-alert.json')), true),
     'routines' => $rows,
 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);

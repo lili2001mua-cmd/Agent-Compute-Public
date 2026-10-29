@@ -30,3 +30,16 @@ foreach (OPS_WATCH as $id => $h) {
 }
 ops_save_state($s);
 flock($tlock, LOCK_UN);
+
+// One-shot Telegram test, driven by the repo: when app/test-alert.flag (pulled by deploy.php) has a value this
+// host has not answered yet, send one test message and record the result for status.php (no secret in it).
+$flag = __DIR__ . '/test-alert.flag';
+if (is_file($flag)) {
+    $nonce = trim((string) file_get_contents($flag));
+    $done = @json_decode((string) @file_get_contents(ops_var('test-alert.json')), true) ?: [];
+    if ($nonce !== '' && ($done['nonce'] ?? '') !== $nonce) {
+        $ok = ops_telegram("🧪 آزمایشِ نگهبانِ ops.hohedoc.ir — اگر این پیام را می‌بینی، هشدارِ روتین‌ها به همین کانال می‌رسد. ({$nonce})");
+        file_put_contents(ops_var('test-alert.json'), json_encode(['nonce' => $nonce, 'sent' => $ok, 'at' => gmdate('c')]));
+        ops_log("test-alert $nonce sent=" . ($ok ? 1 : 0));
+    }
+}
