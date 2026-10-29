@@ -11,8 +11,10 @@ function apps_secrets(): array {
     if ($s === null) {
         $s = [];
         // DRIVE_OAUTH alone is read from trainer's secrets.php on the same account, so nobody copies it by hand.
-        $trainer = APPS_ROOT . '/../trainer.hohedoc.ir/secrets.php';
-        if (is_file($trainer)) {
+        // Both of trainer's files: its secrets-move job left DRIVE_OAUTH in secrets-extra.php on the live host.
+        foreach (['secrets.php', 'secrets-extra.php'] as $tf) {
+            $trainer = APPS_ROOT . '/../trainer.hohedoc.ir/' . $tf;
+            if (!is_file($trainer)) continue;
             $t = include $trainer;
             if (is_array($t) && !empty($t['DRIVE_OAUTH'])) $s['DRIVE_OAUTH'] = $t['DRIVE_OAUTH'];
         }
