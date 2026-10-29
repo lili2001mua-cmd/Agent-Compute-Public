@@ -213,13 +213,19 @@ function tg_chain_op($api, string $op, array $a, ?string $idem): array {
             $ids = array_map('intval', (array) ($a['ids'] ?? []));
             if (!$ids || count($ids) > 100) throw new RuntimeException('forward: 1..100 ids');
             $log = tg_fwd_rows();
-            $todo = array_values(array_filter($ids, fn($i) => !isset($log["$key|$i"]['dst_id'])));
+            $prev = array_values(array_filter($ids, fn($i) => !empty($log["$key|$i"]['dst_id'])));
+            if ($prev) { // a copy deleted from the archive since (nightly reset) is forwarded again, not reported as done
+                $got = tg_get_msgs($api, $to, array_map(fn($i) => (int) $log["$key|$i"]['dst_id'], $prev));
+                foreach ($prev as $k => $i) { if (!$got[$k]) unset($log["$key|$i"]['dst_id']); }
+            }
+            $todo = array_values(array_filter($ids, fn($i) => empty($log["$key|$i"]['dst_id'])));
             if ($todo) {
                 tg_rate('forward_day', count($todo));
                 $u = $api->messages->forwardMessages(from_peer: $from, to_peer: $to, id: $todo, drop_author: true, drop_media_captions: !empty($a['drop_media_captions']));
                 $new = tg_update_ids($u);
                 foreach ($todo as $k => $src) { tg_fwd_append(['key' => $key, 'src' => $from, 'src_id' => $src, 'dst' => $to, 'dst_id' => $new[$k] ?? null, 'verified' => false]); }
-                $log = tg_fwd_rows();
+                $fresh = tg_fwd_rows();
+                foreach ($todo as $i) $log["$key|$i"] = $fresh["$key|$i"] ?? [];
             }
             return ['ids' => array_map(fn($i) => $log["$key|$i"]['dst_id'] ?? null, $ids)];
         case 'verify':
@@ -287,28 +293,48 @@ function tg_chain_op($api, string $op, array $a, ?string $idem): array {
             if ($own) { tg_is_channel($peer) ? $api->channels->deleteMessages(channel: $peer, id: $own) : $api->messages->deleteMessages(revoke: true, id: $own); }
             return ['deleted' => $own, 'refused' => array_values(array_diff($ids, $own))];
         case 'delete_source':
+            // ک5 fence, checked at deletion time: each id is a media message this host forwarded in the last 7 days whose copy
+            // is still in the archive with its media, or a media-less companion (the bot's link message) within 20 ids of one.
             $peer = tg_chain_peer($a['peer'], ['source']);
             $key = (string) ($a['key'] ?? '');
             $ids = array_values(array_unique(array_map('intval', (array) ($a['ids'] ?? []))));
             if (!$ids || count($ids) > 60) throw new RuntimeException('delete_source: 1..60 ids');
-            $log = tg_fwd_rows(); $bad = [];
-            foreach ($ids as $i) { $r = $log["$key|$i"] ?? null; if (!$r || empty($r['verified']) || (int) ($r['src'] ?? 0) !== $peer || ($r['verified_at'] ?? 0) < time() - TG_CHAIN_FWD_VERIFY_S) $bad[] = $i; }
-            if ($bad) throw new RuntimeException('DELETE_FENCE: ' . count($bad) . ' id(s) have no verified forward for ' . $key);
-            sort($ids); $digest = hash('sha256', $key . '|' . implode(',', $ids));
+            sort($ids);
+            $rows = [];
+            foreach (tg_fwd_rows() as $r) {
+                if ((int) ($r['src'] ?? 0) === $peer && !empty($r['dst_id']) && ($r['at'] ?? 0) >= time() - TG_CHAIN_FWD_VERIFY_S && ($key === '' || $r['key'] === $key) && in_array((int) $r['src_id'], $ids, true)) $rows[(int) $r['src_id']] = $r;
+            }
+            $ok = [];
+            $byDst = [];
+            foreach ($rows as $src => $r) $byDst[(int) $r['dst']][$src] = (int) $r['dst_id'];
+            foreach ($byDst as $dst => $pairs) {
+                $got = tg_get_msgs($api, $dst, array_values($pairs));
+                $k = 0; foreach ($pairs as $src => $_) { if ($got[$k] && (tg_m_document($got[$k]) || tg_m_photo($got[$k]))) $ok[] = $src; $k++; }
+            }
+            if (!$ok) throw new RuntimeException('DELETE_FENCE: no id has a forwarded copy still in the archive');
+            $cur = tg_get_msgs($api, $peer, $ids); $todo = []; $bad = [];
+            foreach ($ids as $n => $i) {
+                if (!$cur[$n]) continue; // already gone
+                if (in_array($i, $ok, true)) { $todo[] = $i; continue; }
+                $near = array_filter($ok, fn($v) => abs($v - $i) <= 20);
+                if ($near && !tg_m_document($cur[$n]) && !tg_m_photo($cur[$n])) { $todo[] = $i; continue; }
+                $bad[] = $i;
+            }
+            if ($bad) throw new RuntimeException('DELETE_FENCE: ' . count($bad) . ' id(s) without an archived copy: ' . implode(',', array_slice($bad, 0, 10)));
+            $digest = hash('sha256', $key . '|' . implode(',', $ids));
             $cdir = tg_dir(tg_var('confirm'));
             if (empty($a['confirm'])) {
                 $token = bin2hex(random_bytes(16));
                 tg_write_json($cdir . '/' . $token . '.json', ['digest' => $digest, 'expires' => time() + 900]);
-                return ['preview' => true, 'ids' => $ids, 'confirm_token' => $token];
+                return ['preview' => true, 'ids' => $ids, 'to_delete' => $todo, 'confirm_token' => $token];
             }
             $tf = $cdir . '/' . preg_replace('/[^0-9a-f]/', '', (string) $a['confirm']) . '.json';
             $t = tg_read_json($tf); if (is_file($tf)) unlink($tf);
             if (!$t || $t['digest'] !== $digest || $t['expires'] < time()) throw new RuntimeException('DELETE_FENCE: confirm token invalid');
-            tg_rate('delete_night', count($ids));
-            $api->messages->deleteMessages(revoke: true, id: $ids);
+            if ($todo) { tg_rate('delete_night', count($todo)); $api->messages->deleteMessages(revoke: true, id: $todo); }
             $left = array_values(array_filter(array_map(fn($m, $i) => $m ? $i : null, tg_get_msgs($api, $peer, $ids), $ids)));
-            tg_log('chain', 'delete_source requested=' . count($ids) . ' still=' . count($left));
-            return ['deleted' => true, 'still_present' => $left];
+            tg_log('chain', 'delete_source requested=' . count($ids) . ' deleted=' . count($todo) . ' still=' . count($left));
+            return ['deleted' => true, 'pts_count' => count($todo), 'still_present' => $left];
         case 'create_channel':
             $c = tg_chain_chats();
             if (count($c['chats']) >= TG_CHAIN_MAX_CHATS) throw new RuntimeException('CHAIN_CHAT_CAP');

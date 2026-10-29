@@ -16,7 +16,7 @@ function tg_job_roles(array $j): array { return $j['roles'] ?? (($j['role'] ?? '
 /** Chunked upload (ک9): header X-Tg-Upload: <token32>:<index>:<total>:<sha256 of chunk>:<ext>; ≤4 MB a chunk, ≤20 MB a file. */
 function tg_upload_chunk(string $role, string $hdr): void {
     if ($role !== 'chain' && $role !== 'admin') out(403, ['error' => 'chain key required']);
-    if (!preg_match('/^([0-9a-f]{32}):(\d{1,2}):(\d{1,2}):([0-9a-f]{64}):(jpg|jpeg|png|webp|pdf|txt|md|json|mp4|mov|ogg|mp3)$/', $hdr, $m)) out(400, ['error' => 'bad upload header']);
+    if (!preg_match('/^([0-9a-f]{32}):(\d{1,2}):(\d{1,2}):([0-9a-f]{64}):(jpg|jpeg|png|webp|gif|pdf|txt|md|json|mp4|mov|m4v|webm|ogg|mp3)$/', $hdr, $m)) out(400, ['error' => 'bad upload header']);
     [, $tok, $i, $n, $sha, $ext] = $m; $i = (int) $i; $n = (int) $n;
     if ($n < 1 || $n > 5 || $i >= $n) out(400, ['error' => 'bad chunk index']);
     $body = (string) file_get_contents('php://input', false, null, 0, 4 * 1048576 + 1);
