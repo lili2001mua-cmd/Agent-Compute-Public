@@ -120,6 +120,17 @@ function tg_grouping_selftest(): array {
 }
 
 // ---- Telegram helpers ----------------------------------------------------------------------------
+/** Marked (Bot-API) id of a peer: MadelineProto 8 already hands many peers over as ints. */
+function tg_peer_id($p): int {
+    if (is_int($p)) return $p;
+    return match ($p['_'] ?? '') {
+        'peerUser' => (int) $p['user_id'],
+        'peerChat' => -(int) $p['chat_id'],
+        'peerChannel' => -1000000000000 - (int) $p['channel_id'],
+        default => throw new RuntimeException('unknown peer'),
+    };
+}
+
 /** First dialog (Telegram order, all folders) whose display name contains $query, case-insensitive. */
 function tg_find_dialog($api, string $query): ?array {
     $q = mb_strtolower($query);
@@ -129,21 +140,24 @@ function tg_find_dialog($api, string $query): ?array {
         $dialogs = $r['dialogs'] ?? [];
         if (!$dialogs) return null;
         $names = [];
-        foreach ($r['users'] ?? [] as $u) $names['u' . $u['id']] = trim(($u['first_name'] ?? '') . ' ' . ($u['last_name'] ?? ''));
-        foreach ($r['chats'] ?? [] as $c) $names['c' . $c['id']] = (string) ($c['title'] ?? '');
+        foreach ($r['users'] ?? [] as $u) $names[(int) $u['id']] = trim(($u['first_name'] ?? '') . ' ' . ($u['last_name'] ?? ''));
+        foreach ($r['chats'] ?? [] as $c) {
+            $isChannel = str_starts_with((string) ($c['_'] ?? ''), 'channel');
+            $names[$isChannel ? -1000000000000 - (int) $c['id'] : -(int) $c['id']] = (string) ($c['title'] ?? '');
+        }
         $msgs = [];
-        foreach ($r['messages'] ?? [] as $mm) $msgs[$api->getId($mm['peer_id']) . ':' . $mm['id']] = $mm;
+        foreach ($r['messages'] ?? [] as $mm) { if (isset($mm['peer_id'], $mm['id'])) $msgs[tg_peer_id($mm['peer_id']) . ':' . $mm['id']] = $mm; }
         foreach ($dialogs as $d) {
-            $p = $d['peer'];
-            $key = $p['_'] === 'peerUser' ? 'u' . $p['user_id'] : 'c' . ($p['chat_id'] ?? $p['channel_id']);
-            $name = $names[$key] ?? '';
-            if (str_contains(mb_strtolower($name), $q)) return ['id' => $api->getId($p), 'name' => $name];
+            $id = tg_peer_id($d['peer']);
+            $name = $names[$id] ?? '';
+            if (str_contains(mb_strtolower($name), $q)) return ['id' => $id, 'name' => $name];
         }
         if (count($dialogs) < 100 || ($r['_'] ?? '') === 'messages.dialogs') return null;
         $last = end($dialogs);
-        $lm = $msgs[$api->getId($last['peer']) . ':' . $last['top_message']] ?? null;
+        $lid = tg_peer_id($last['peer']);
+        $lm = $msgs[$lid . ':' . $last['top_message']] ?? null;
         if (!$lm) return null;
-        $off = ['date' => (int) $lm['date'], 'id' => (int) $lm['id'], 'peer' => $last['peer']];
+        $off = ['date' => (int) $lm['date'], 'id' => (int) $lm['id'], 'peer' => $lid];
     }
     return null;
 }

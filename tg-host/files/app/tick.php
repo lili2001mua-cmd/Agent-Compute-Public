@@ -72,7 +72,13 @@ while (time() - $t0 < TG_TICK_BUDGET_S) {
         tg_log('jobs', $j['job'] . ' done');
     } catch (Throwable $e) {
         $msg = preg_replace('/[A-Za-z0-9_\-]{20,}/', '…', mb_substr($e->getMessage(), 0, 200));
-        tg_status($id, ['state' => 'failed', 'error' => get_class($e) . ': ' . $msg, 'finished_at' => time()]);
+        // where it broke: the first frames inside our own app/ code (no arguments, so no secret can leak)
+        $at = [];
+        foreach (array_merge([['file' => $e->getFile(), 'line' => $e->getLine()]], $e->getTrace()) as $f) {
+            if (isset($f['file']) && str_starts_with($f['file'], TG_BASE . '/app/')) $at[] = basename($f['file']) . ':' . $f['line'];
+            if (count($at) >= 3) break;
+        }
+        tg_status($id, ['state' => 'failed', 'error' => get_class($e) . ': ' . $msg, 'at' => $at, 'finished_at' => time()]);
         tg_log('jobs', $j['job'] . ' failed ' . get_class($e));
     }
     @unlink($run);
