@@ -21,5 +21,6 @@ return [
     'delete'      => ['role' => 'admin', 'args' => ['query' => 'str:.{1,80}', 'ids' => 'str:[0-9]{1,12}(,[0-9]{1,12}){0,59}', 'confirm' => 'str:([0-9a-f]{32})?'], 'retry' => false, 'tg' => true],
     // phase 6 — the four-step chain (chain-host-migration v4): named ops only, lease-bound, never retried blindly (journal in var/ops)
     'chain_ops'   => ['roles' => ['chain'], 'args' => ['run' => 'str:[A-Za-z0-9_.:-]{6,80}', 'lease' => 'int:1:2000000000', 'ops' => 'json'], 'retry' => false, 'tg' => true],
+    'chain_alert' => ['roles' => [], 'args' => ['text' => 'str:.{1,1000}'], 'retry' => true, 'tg' => true],
     'chain_admin' => ['roles' => ['admin'], 'args' => ['ops' => 'json'], 'retry' => false, 'tg' => true],
 ];

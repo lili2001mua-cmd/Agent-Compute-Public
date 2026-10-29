@@ -464,7 +464,14 @@ function tg_chain_watchdog(): void {
     $state = empty($r[$night]['start']) ? 'هیچ اجرایی شروع نشد' : 'شروع شد ولی به «تحویل» نرسید';
     $text = "⚠️ زنجیرهٔ چهارگام — شبِ $night : $state (نگهبانِ هاست، " . ($slot === 'morning' ? '۰۵:۰۰' : '۱۶:۰۰') . ' تهران).';
     $sent = false;
-    if ($tok !== '' && $chat !== '') {
+    if ($tok === '' || $chat === '') {
+        // no bot secrets on the host: queue an internal job that posts from the host's own session to the first
+        // allowlisted control/archive channel (no door role can submit chain_alert)
+        $id = tg_id();
+        tg_status($id, ['id' => $id, 'job' => 'chain_alert', 'state' => 'queued', 'created_at' => time(), 'role' => 'internal']);
+        tg_write_json(tg_dir(tg_var('queue')) . '/' . time() . '-chain_alert-' . $id . '.json', ['id' => $id, 'job' => 'chain_alert', 'args' => ['text' => $text], 'role' => 'internal', 'attempt' => 0, 'not_before' => 0]);
+        $sent = 'queued';
+    } else {
         $ch = curl_init('https://api.telegram.org/bot' . $tok . '/sendMessage');
         curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_POSTFIELDS => ['chat_id' => $chat, 'text' => $text], CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 20]);
         $sent = curl_exec($ch) !== false && curl_getinfo($ch, CURLINFO_HTTP_CODE) === 200; curl_close($ch);
@@ -472,4 +479,16 @@ function tg_chain_watchdog(): void {
     $r[$night]['alert_' . $slot] = time(); $r[$night]['alert_sent_' . $slot] = $sent;
     tg_write_json(tg_var('chain-night.json'), $r);
     tg_log('chain', "watchdog $slot night=$night sent=" . ($sent ? 1 : 0));
+}
+
+/** Internal (no door role): post a watchdog alert from the host session to the first allowlisted control/archive channel. */
+function job_chain_alert(array $a, callable $hb, string $role = 'read'): array {
+    if ($role !== 'internal') throw new RuntimeException('internal job');
+    $target = null;
+    foreach (['control', 'archive'] as $k) { foreach (tg_chain_chats()['chats'] as $id => $m) { if ($m['kind'] === $k) { $target = (int) $id; break 2; } } }
+    if (!$target) throw new RuntimeException('no control/archive chat to alert');
+    return tg_mp_with(tg_session_dir(), function ($api) use ($a, $target) {
+        $api->messages->sendMessage(peer: $target, message: mb_substr((string) $a['text'], 0, 1000));
+        return ['sent_to' => $target];
+    });
 }
