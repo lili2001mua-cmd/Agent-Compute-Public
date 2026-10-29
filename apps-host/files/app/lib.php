@@ -10,7 +10,6 @@ function apps_secrets(): array {
     static $s = null;
     if ($s === null) {
         $s = [];
-        // DRIVE_OAUTH alone is read from trainer's secrets.php on the same account, so nobody copies it by hand.
         // DRIVE_OAUTH alone is borrowed from a sibling subdomain on the same account, so nobody copies it by hand:
         // trainer's two files first, then studio's (on the live host it sits in studio's own secret file).
         // Only that one key is taken — never the sibling's ADMIN_KEY or anything else.
