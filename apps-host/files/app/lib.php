@@ -10,11 +10,9 @@ function apps_secrets(): array {
     static $s = null;
     if ($s === null) {
         $s = [];
-        // DRIVE_OAUTH alone is borrowed from a sibling subdomain on the same account, so nobody copies it by hand:
-        // trainer's two files first, then studio's (on the live host it sits in studio's own secret file).
-        // Only that one key is taken — never the sibling's ADMIN_KEY or anything else.
-        foreach (['trainer.hohedoc.ir/secrets.php', 'trainer.hohedoc.ir/secrets-extra.php',
-                  'studio.hohedoc.ir/secrets.php', 'studio.hohedoc.ir/secrets-extra.php'] as $tf) {
+        // DRIVE_OAUTH may be borrowed from trainer's files when PHP can see them; on the live host open_basedir
+        // keeps each subdomain in its own folder (tested 1405-08-07), so the key goes into this folder's secrets.php.
+        foreach (['trainer.hohedoc.ir/secrets.php', 'trainer.hohedoc.ir/secrets-extra.php'] as $tf) {
             if (!empty($s['DRIVE_OAUTH'])) break;
             $trainer = APPS_ROOT . '/../' . $tf;
             if (!is_file($trainer)) continue;

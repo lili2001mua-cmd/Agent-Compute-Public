@@ -23,11 +23,12 @@ shows only booleans and versions.
 ```php
 <?php return [
   'ADMIN_KEY'     => '<new random ≥32 chars — not the studio or trainer key>',
+  'DRIVE_OAUTH'   => "CLIENT_ID=…\nCLIENT_SECRET=…\nREFRESH_TOKEN=…",
   'DRIVE_ROOT_ID' => '<Memory-Cloud folder id>',
 ];
 ```
 
-`DRIVE_OAUTH` is read from `../trainer.hohedoc.ir/secrets.php`. `tick.php` sets the secret files to 0600 by itself.
+`DRIVE_OAUTH` goes into this `secrets.php` too (copy it from studio's or trainer's secret file): on the live host `open_basedir` keeps each subdomain in its own folder, so borrowing from a sibling does not work. `tick.php` sets the secret files to 0600 by itself.
 No Telegram session, no GitHub token and no Higgsfield key are read.
 
 ## Install (once)
