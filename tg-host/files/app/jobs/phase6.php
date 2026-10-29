@@ -433,7 +433,11 @@ function job_chain_admin(array $a, callable $hb, string $role = 'read'): array {
                     case 'intake_token':
                         $out[] = tg_chain_intake_token(); break;
                     case 'arm':
-                        if (!empty($args['on'])) file_put_contents(tg_var('chain-armed'), (string) time()); else @unlink(tg_var('chain-armed'));
+                        if (!empty($args['on'])) {
+                            file_put_contents(tg_var('chain-armed'), (string) time());
+                            $self = $api->getSelf(); // the button answers only this account's own taps (ک23)
+                            tg_write_json(tg_var('chain-owner.json'), ['id' => (int) ($self['id'] ?? 0), 'at' => time()]);
+                        } else @unlink(tg_var('chain-armed'));
                         $out[] = ['armed' => !empty($args['on'])]; break;
                     default: throw new RuntimeException('unknown admin op');
                 }
@@ -523,7 +527,7 @@ function job_chain_alert(array $a, callable $hb, string $role = 'read'): array {
 }
 
 // ---- secrets held by the host for the chain (ک25): one-time intake, Drive token vending, Bot API relay ---------
-const TG_CHAIN_SECRET_KEYS = ['DRIVE_OAUTH', 'TELEGRAM_BOT_TOKEN', 'TELEGRAM_POOL_CHAT_ID', 'TG_ARCHIVE_CHAT_ID'];
+const TG_CHAIN_SECRET_KEYS = ['DRIVE_OAUTH', 'TELEGRAM_BOT_TOKEN', 'TELEGRAM_POOL_CHAT_ID', 'TG_ARCHIVE_CHAT_ID', 'ROUTINE_FIRE_URL', 'ROUTINE_FIRE_TOKEN', 'ROUTINE_FIRE_BETA'];
 function tg_chain_secrets(): array { return tg_read_json(tg_var('chain-secrets.json')) ?? []; }
 /** Admin op: a single-use intake token, valid 10 minutes; only its sha256 is kept. */
 function tg_chain_intake_token(): array {
@@ -601,4 +605,42 @@ function tg_chain_drive_token(array $in, array $roles): array {
     $pool = (string) (tg_chain_secrets()['TELEGRAM_POOL_CHAT_ID'] ?? '');
     if ($pool !== '') tg_bot_call('sendMessage', ['chat_id' => $pool, 'text' => "🔑 توکنِ یک‌ساعتهٔ درایو برای زنجیره صادر شد (شمارهٔ $n امروز از ۱۲)" . ($admin ? ' — با کلیدِ مدیر' : '') . '.']);
     return [200, ['ok' => true, 'access_token' => $r['access_token'], 'expires_in' => (int) ($r['expires_in'] ?? 3600), 'mint' => $n]];
+}
+
+// ---- the pull button (ک23): the owner's own tap in Telegram fires the step routine — no phone key, no Actions --------
+/** Poll the bot once a minute; `/pull` (DM) or the pinned inline button (callback «pull») from the owner fires the routine. */
+function tg_chain_button_poll(): void {
+    $s = tg_chain_secrets();
+    if (empty($s['TELEGRAM_BOT_TOKEN']) || empty($s['ROUTINE_FIRE_URL']) || empty($s['ROUTINE_FIRE_TOKEN'])) return;
+    $owner = (int) ((tg_read_json(tg_var('chain-owner.json')) ?? [])['id'] ?? 0);
+    if (!$owner) return;
+    $f = tg_var('chain-button.json');
+    $st = (tg_read_json($f) ?? []) + ['offset' => 0, 'last_fire' => 0, 'last_poll' => 0];
+    if (time() - (int) $st['last_poll'] < 50) return;
+    $st['last_poll'] = time();
+    $r = tg_bot_call('getUpdates', ['offset' => (int) $st['offset'], 'timeout' => 0, 'allowed_updates' => json_encode(['message', 'callback_query'])]);
+    foreach ($r['result'] ?? [] as $u) {
+        $st['offset'] = (int) $u['update_id'] + 1;
+        $cb = $u['callback_query'] ?? null;
+        $from = (int) ($u['message']['from']['id'] ?? $cb['from']['id'] ?? 0);
+        $chat = $u['message']['chat']['id'] ?? $cb['message']['chat']['id'] ?? null;
+        $text = mb_strtolower(trim((string) ($u['message']['text'] ?? $cb['data'] ?? '')));
+        if ($from !== $owner || !in_array($text, ['/pull', 'pull', 'بکش'], true)) continue; // anyone else: silence
+        if (!is_file(tg_var('chain-armed'))) $say = '⏸ زنجیره خاموش است — دکمه کاری نکرد.';
+        elseif (time() - (int) $st['last_fire'] < 1800) $say = '⏳ کمتر از ۳۰ دقیقه از شلیکِ قبلی گذشته؛ همان اجرا در راه است.';
+        else {
+            $ch = curl_init((string) $s['ROUTINE_FIRE_URL']);
+            $hdr = ['Authorization: Bearer ' . $s['ROUTINE_FIRE_TOKEN'], 'Content-Type: application/json', 'anthropic-version: 2023-06-01'];
+            $beta = (string) ($s['ROUTINE_FIRE_BETA'] ?? 'experimental-cc-routine'); if ($beta !== '') $hdr[] = 'anthropic-beta: ' . $beta;
+            curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_HTTPHEADER => $hdr, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 60,
+                CURLOPT_POSTFIELDS => json_encode(['text' => "mode=pull\nquery=Instant Saver\nدکمهٔ کشیدن — رانبوک: Memory-Routine-Runbook/pool-step3.md (بخشِ «حالتِ کشیدن»)"], JSON_UNESCAPED_UNICODE)]);
+            curl_exec($ch); $code = curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
+            if ($code >= 200 && $code < 300) { $st['last_fire'] = time(); $say = '▶️ شروع شد — کشیدنِ تازه‌ترین بستهٔ «Instant Saver».'; }
+            else $say = '⚠️ شلیکِ روتین نشد (HTTP ' . $code . ').';
+            tg_log('chain', 'button fire http=' . $code);
+        }
+        if ($cb) tg_bot_call('answerCallbackQuery', ['callback_query_id' => (string) $cb['id'], 'text' => mb_substr($say, 0, 190)]);
+        elseif ($chat !== null) tg_bot_call('sendMessage', ['chat_id' => (string) $chat, 'text' => $say]); // a DM gets a reply; a channel tap only the toast
+    }
+    tg_write_json($f, $st);
 }

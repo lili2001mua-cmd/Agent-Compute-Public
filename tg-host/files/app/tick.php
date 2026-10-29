@@ -19,6 +19,7 @@ require_once __DIR__ . '/jobs/phase1.php';
 foreach (glob(__DIR__ . '/jobs/phase[2-9]*.php') ?: [] as $f) require_once $f;
 if (function_exists('tg_phase2_pre')) tg_phase2_pre();
 if (function_exists('tg_chain_watchdog')) tg_chain_watchdog(); // dead-man switch, no library load (ک16)
+if (function_exists('tg_chain_button_poll')) tg_chain_button_poll(); // the Telegram «pull» button (ک23), one Bot API call
 
 // media dir: no listing (deploy refuses dot-files, so the tick writes it)
 $m = tg_dir(TG_BASE . '/public_html/m'); @chmod($m, 0755);
