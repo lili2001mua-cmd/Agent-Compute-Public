@@ -49,3 +49,12 @@ if (is_file($flag)) {
 // auto-pr-stranded-branches, daily (app/stranded.php).
 require_once __DIR__ . '/stranded.php';
 ops_stranded_tick();
+
+// delete-branch / reconcile-branch door and the daily token probe (app/branchq.php).
+require_once __DIR__ . '/branchq.php';
+ops_gh_probe();
+ops_branch_tick();
+
+// sync-routing-digest, GitHub half (app/routing.php): every 30 min, writes only on change.
+require_once __DIR__ . '/routing.php';
+ops_routing_tick();

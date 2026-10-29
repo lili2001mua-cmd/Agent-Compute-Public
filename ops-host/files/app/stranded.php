@@ -10,9 +10,11 @@ const OPS_STRANDED_REPO = 'lili2001mua-cmd/Agent-Project-Backup';
 const OPS_STRANDED_EXCLUDE = ['claude/intake-pool'];
 const OPS_STRANDED_HOUR = 3;          // UTC, as the retired cron ('0 3 * * *')
 
+function ops_github_token(): string { return ops_secret('OPS_GITHUB_TOKEN'); }
+
 function ops_gh(string $method, string $path, ?array $body = null, string $accept = 'application/vnd.github+json'): array {
     $ch = curl_init('https://api.github.com' . $path);
-    $h = ['Authorization: Bearer ' . ops_secret('OPS_GITHUB_TOKEN'), 'Accept: ' . $accept,
+    $h = ['Authorization: Bearer ' . ops_github_token(), 'Accept: ' . $accept,
           'X-GitHub-Api-Version: 2022-11-28', 'User-Agent: ops-hohedoc'];
     if ($body !== null) $h[] = 'Content-Type: application/json';
     curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 30, CURLOPT_CUSTOMREQUEST => $method,
@@ -80,11 +82,20 @@ function ops_stranded_run(bool $dry = false): array {
 function ops_stranded_tick(): void {
     $f = ops_var('stranded.json');
     $st = @json_decode((string) @file_get_contents($f), true) ?: [];
-    if (ops_secret('OPS_GITHUB_TOKEN') === '') { $st['token'] = false; file_put_contents($f, json_encode($st)); return; }
-    $st['token'] = true;
+    if (ops_secret('OPS_GITHUB_TOKEN') === '') {
+        $st['token'] = false;
+        // Watchdog half (replaces auto-pr-stranded-branches-watchdog.yml): a missing token is said once, not kept silent.
+        if (empty($st['token_alerted']) && ops_telegram("⚠️ هاستِ ops: کارِ روزانهٔ برنچ‌های رهاشده اجرا نمی‌شود، چون توکنِ گیت‌هاب (OPS_GITHUB_TOKEN) روی هاست نیست.")) $st['token_alerted'] = true;
+        file_put_contents($f, json_encode($st)); return;
+    }
+    $st['token'] = true; $st['token_alerted'] = false;
+    // Watchdog half: the daily job has not finished for 30 h ⇒ one Telegram alert, one recovery message.
+    $late = (int) ($st['at'] ?? 0) > 0 && time() - (int) $st['at'] > 30 * 3600;
+    if ($late && empty($st['late_alerted']) && ops_telegram("⚠️ هاستِ ops: کارِ روزانهٔ برنچ‌های رهاشده بیش از ۳۰ ساعت است اجرا نشده. https://ops.hohedoc.ir/status.php")) $st['late_alerted'] = true;
     $due = (int) gmdate('G') === OPS_STRANDED_HOUR && time() - (int) ($st['at'] ?? 0) > 20 * 3600;
     if (!$due) { file_put_contents($f, json_encode($st)); return; }
     $r = ops_stranded_run(false);
+    if (!empty($st['late_alerted'])) ops_telegram("✅ هاستِ ops: کارِ روزانهٔ برنچ‌های رهاشده دوباره اجرا شد.");
     $st = ['token' => true, 'at' => time(), 'result' => $r];
     file_put_contents($f, json_encode($st, JSON_UNESCAPED_UNICODE));
     ops_log("stranded opened={$r['opened']} errors={$r['errors']}");

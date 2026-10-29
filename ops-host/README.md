@@ -14,6 +14,12 @@ Watched routines and their limits: `OPS_WATCH` in `files/app/lib.php`.
 
 | `auto-pr-stranded-branches.yml` (private repo) | `app/stranded.php`, once a day at 03:xx UTC: every `claude/*` branch of Agent-Project-Backup with hand-written unmerged work and no PR gets one PR (REST only; same rules and the same generated-file list as `Sys.scripts/lib/branch-classify.sh`). Errors go to Telegram. |
 
+| `auto-pr-stranded-branches-watchdog.yml` (private repo) | the same file: one Telegram alert when the daily job has not finished for 30 h (and one when it recovers), and one when `OPS_GITHUB_TOKEN` is missing. |
+
+| `delete-branch.yml` and `reconcile-branch.yml` (five holding repos) | `app/branchq.php`: every tick it reads `Memory-Workflow/branch-ops/queue/<id>.json` on Agent-Project-Backup `main` and answers in `results/<id>.json` (same guards: only fully merged branches are deleted; reconcile rescues RESCUE_RE files, refuses unknown unique files; never `main`). A daily probe checks the token on all five repos. |
+
+| `sync-routing-digest.yml` (GitHub half) | `app/routing.php`: every 30 min it rebuilds the digest and the two consumer hooks from Agent-Project-Backup `main` (byte-identical to `Sys.scripts/sync-routing-digest.py`) and writes them to each repo of `routing-consumers.txt` only when they differ. The Google Drive half needs a service-account key and is not on the host yet. |
+
 ## Doors
 
 - `POST https://ops.hohedoc.ir/beat.php` with `id=<routine>` [`sha=<commit>`]. No key: a forged beat can only
@@ -32,7 +38,7 @@ they belong to `routine.hohedoc.ir` (`routine-host/README.md`).
 ```
 
 Nothing else of its own. `TELEGRAM_BOT_TOKEN` is borrowed from `trainer.hohedoc.ir/secrets.php` by the cron only (the web
-side cannot see sibling folders). Alerts go to the trainer control channel. No GitHub token is read.
+side cannot see sibling folders). Alerts go to the trainer control channel. `OPS_GITHUB_TOKEN` (fine-grained: Contents, Pull requests and Workflows read/write on the five holding repos) is the only GitHub token.
 
 ## Install (once)
 
