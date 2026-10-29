@@ -60,3 +60,14 @@ ops_branch_tick();
 // sync-routing-digest, GitHub half (app/routing.php): every 30 min, writes only on change.
 require_once __DIR__ . '/routing.php';
 ops_routing_tick();
+
+// Google Drive credentials beside secrets.php (the web side cannot read OPS_ROOT): presence only, never content.
+$df = [];
+foreach (['drive-sa.json', 'drive-oauth.env'] as $n) {
+    $p = OPS_ROOT . '/' . $n;
+    if (is_file($p)) @chmod($p, 0600);
+    $df[$n] = is_file($p) && filesize($p) > 0;
+}
+$sa = @json_decode((string) @file_get_contents(OPS_ROOT . '/drive-sa.json'), true);
+$df['sa_valid'] = is_array($sa) && ($sa['type'] ?? '') === 'service_account' && !empty($sa['private_key']);
+file_put_contents(ops_var('drive-files.json'), json_encode($df));
