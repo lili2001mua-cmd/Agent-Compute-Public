@@ -528,7 +528,12 @@ function job_chain_alert(array $a, callable $hb, string $role = 'read'): array {
 
 // ---- secrets held by the host for the chain (ک25): one-time intake, Drive token vending, Bot API relay ---------
 const TG_CHAIN_SECRET_KEYS = ['DRIVE_OAUTH', 'TELEGRAM_BOT_TOKEN', 'TELEGRAM_POOL_CHAT_ID', 'TG_ARCHIVE_CHAT_ID', 'ROUTINE_FIRE_URL', 'ROUTINE_FIRE_TOKEN', 'ROUTINE_FIRE_BETA'];
-function tg_chain_secrets(): array { return tg_read_json(tg_var('chain-secrets.json')) ?? []; }
+/** Handed-over values (var/chain-secrets.json) first; any key the owner put in secrets.php by hand fills the gaps (ک25, option 3). */
+function tg_chain_secrets(): array {
+    $s = tg_read_json(tg_var('chain-secrets.json')) ?? [];
+    foreach (TG_CHAIN_SECRET_KEYS as $k) { if (empty($s[$k]) && !empty(tg_secrets()[$k])) $s[$k] = (string) tg_secrets()[$k]; }
+    return $s;
+}
 /** Admin op: a single-use intake token, valid 10 minutes; only its sha256 is kept. */
 function tg_chain_intake_token(): array {
     $t = bin2hex(random_bytes(24));
