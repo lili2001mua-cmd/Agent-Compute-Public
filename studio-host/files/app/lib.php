@@ -30,7 +30,14 @@ function studio_secret(string $key): string {
     return (string) (studio_secrets()[$key] ?? '');
 }
 
-// Door check: key only from the X-Studio-Key header; after 20 wrong keys in 10 minutes the door stays shut.
+// Door check. Two ways in, both header-only, 20 failures per 10 minutes close the door:
+//  1) X-Studio-Key = ADMIN_KEY (operator / phone).
+//  2) Repo-native, no stored key at all: the caller picks a random nonce, pushes studio-auth/<sha256(nonce)>.json
+//     ({"exp": unix-time, ≤26 h ahead}) to any branch of the public compute repo, then sends X-Studio-Nonce + X-Studio-Ref.
+//     Only someone who can push to the holding's GitHub repo can create that file, and only the hash is public —
+//     so access follows GitHub access, not any Claude account or environment secret.
+const STUDIO_AUTH_REPO = 'lili2001mua-cmd/Agent-Compute-Public';
+
 function studio_key_ok(): bool {
     $f = studio_var('door-fail.json');
     $st = @json_decode((string) @file_get_contents($f), true) ?: ['n' => 0, 't' => 0];
@@ -38,9 +45,26 @@ function studio_key_ok(): bool {
     if ($st['n'] >= 20) return false;
     $want = studio_secret('ADMIN_KEY');
     if (strlen($want) >= 32 && hash_equals($want, (string) ($_SERVER['HTTP_X_STUDIO_KEY'] ?? ''))) return true;
+    if (studio_repo_auth_ok((string) ($_SERVER['HTTP_X_STUDIO_NONCE'] ?? ''), (string) ($_SERVER['HTTP_X_STUDIO_REF'] ?? ''))) return true;
     $st['n']++;
     file_put_contents($f, json_encode($st), LOCK_EX);
     return false;
+}
+
+function studio_repo_auth_ok(string $nonce, string $ref): bool {
+    if (!preg_match('/^[a-f0-9]{64}$/', $nonce)) return false;
+    if (!preg_match('#^[A-Za-z0-9._/-]{1,120}$#', $ref) || str_contains($ref, '..')) return false;
+    $h = hash('sha256', $nonce);
+    $dir = studio_var('auth'); if (!is_dir($dir)) mkdir($dir, 0700, true);
+    $cache = "$dir/$h";
+    $exp = (int) @file_get_contents($cache);
+    if ($exp > time()) return true;
+    [$code, $r] = studio_http('GET', 'https://raw.githubusercontent.com/' . STUDIO_AUTH_REPO . '/' . $ref . '/studio-auth/' . $h . '.json', [], null, 20);
+    if ($code !== 200 || !is_array($r)) return false;
+    $exp = (int) ($r['exp'] ?? 0);
+    if ($exp <= time() || $exp > time() + 26 * 3600) return false;
+    file_put_contents($cache, (string) $exp, LOCK_EX);
+    return true;
 }
 
 function studio_var(string $name): string {
