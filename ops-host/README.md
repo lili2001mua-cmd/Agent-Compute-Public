@@ -18,6 +18,8 @@ Watched routines and their limits: `OPS_WATCH` in `files/app/lib.php`.
 
 | `delete-branch.yml` and `reconcile-branch.yml` (five holding repos) | `app/branchq.php`: every tick it reads `Memory-Workflow/branch-ops/queue/<id>.json` on Agent-Project-Backup `main` and answers in `results/<id>.json` (same guards: only fully merged branches are deleted; reconcile rescues RESCUE_RE files, refuses unknown unique files; never `main`). A daily probe checks the token on all five repos. |
 
+| `sync-routing-digest.yml` (GitHub half) | `app/routing.php`: every 30 min it rebuilds the digest and the two consumer hooks from Agent-Project-Backup `main` (byte-identical to `Sys.scripts/sync-routing-digest.py`) and writes them to each repo of `routing-consumers.txt` only when they differ. The Google Drive half needs a service-account key and is not on the host yet. |
+
 ## Doors
 
 - `POST https://ops.hohedoc.ir/beat.php` with `id=<routine>` [`sha=<commit>`]. No key: a forged beat can only

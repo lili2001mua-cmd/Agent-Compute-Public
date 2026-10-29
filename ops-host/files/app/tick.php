@@ -56,3 +56,7 @@ ops_stranded_tick();
 require_once __DIR__ . '/branchq.php';
 ops_gh_probe();
 ops_branch_tick();
+
+// sync-routing-digest, GitHub half (app/routing.php): every 30 min, writes only on change.
+require_once __DIR__ . '/routing.php';
+ops_routing_tick();

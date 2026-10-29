@@ -22,5 +22,6 @@ echo json_encode([
     'stranded' => (function () { $x = @json_decode((string) @file_get_contents(ops_var('stranded.json')), true); if (isset($x['result']['items'])) unset($x['result']['items']); return $x; })(),
     'gh_probe' => @json_decode((string) @file_get_contents(ops_var('gh-probe.json')), true),
     'branch_ops' => (function () { $x = @json_decode((string) @file_get_contents(ops_var('branch-ops.json')), true); if (isset($x['done'])) $x['done'] = array_slice($x['done'], -10, null, true); return $x; })(),
+    'routing' => (function () { $x = @json_decode((string) @file_get_contents(ops_var('routing.json')), true); if (isset($x['result'])) unset($x['result']); return $x; })(),
     'routines' => $rows,
 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
