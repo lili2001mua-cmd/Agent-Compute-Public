@@ -315,6 +315,10 @@ function job_batches(array $a, callable $hb, string $role = 'read'): array {
             $out['sets'][] = ['text_before' => $b['text_before'] ? tg_m_text($b['text_before']) : null,
                               'text_after' => $b['text_after'] ? tg_m_text($b['text_after']) : null, 'media' => $media];
         }
+        // what this host itself produced — the only ids job_delete will ever accept (72 h, see phase5.php)
+        $ids = [];
+        foreach ($out['sets'] as $st) foreach ($st['media'] as $md) { if (isset($md['file'])) $ids[] = (int) $md['id']; }
+        tg_write_json(tg_var('produced/' . time() . '-' . bin2hex(random_bytes(4)) . '.json'), ['chat_id' => $d['id'], 'ids' => $ids, 'at' => time()]);
         return $out;
     }, 1500);
 }

@@ -17,4 +17,6 @@ return [
     'last_video'  => ['role' => 'read', 'args' => ['query' => 'str:.{1,80}', 'max_scan' => 'int:1:2000'], 'retry' => true, 'tg' => true],
     'fetch'       => ['role' => 'read', 'args' => ['target' => 'str:(saved|all|@?[A-Za-z0-9_]{3,64}|-?[0-9]{1,20})', 'per_chat' => 'int:1:3000', 'all_files' => 'enum:0,1'], 'retry' => true, 'tg' => true],
     'batches'     => ['role' => 'read', 'args' => ['query' => 'str:.{1,80}', 'sets' => 'int:1:200', 'scan' => 'int:1:5000', 'offset' => 'int:0:2000', 'sleep' => 'int:0:120', 'dry' => 'enum:0,1'], 'retry' => true, 'tg' => true],
+    // phase 5 — delete (admin, fenced: allowlisted chat, host-staged ids only, single-use confirm token)
+    'delete'      => ['role' => 'admin', 'args' => ['query' => 'str:.{1,80}', 'ids' => 'str:[0-9]{1,12}(,[0-9]{1,12}){0,59}', 'confirm' => 'str:([0-9a-f]{32})?'], 'retry' => false, 'tg' => true],
 ];
