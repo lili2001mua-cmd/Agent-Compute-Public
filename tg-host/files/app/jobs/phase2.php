@@ -92,7 +92,7 @@ function tg_creds(): array {
 }
 
 /** Open the session at $dir and run $fn($api) under one time budget. */
-function tg_mp_with(string $dir, callable $fn): array {
+function tg_mp_with(string $dir, callable $fn, int $budget = TG_MP_BUDGET_S): array {
     tg_mp_boot();
     $c = tg_creds();
     $settings = new \danog\MadelineProto\Settings;
@@ -105,7 +105,7 @@ function tg_mp_with(string $dir, callable $fn): array {
         $api = new \danog\MadelineProto\API($dir, $settings);
         return $fn($api);
     });
-    return $work->await(new \Amp\TimeoutCancellation(TG_MP_BUDGET_S, 'telegram budget exhausted'));
+    return $work->await(new \Amp\TimeoutCancellation($budget, 'telegram budget exhausted'));
 }
 
 function tg_auth_name(int $s): string {

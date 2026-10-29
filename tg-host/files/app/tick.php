@@ -66,7 +66,7 @@ while (time() - $t0 < TG_TICK_BUDGET_S) {
     try {
         $fn = 'job_' . $j['job'];
         if (!isset($reg[$j['job']]) || !function_exists($fn)) throw new RuntimeException('unknown job');
-        $res = $fn($j['args'] ?? [], $hb);
+        $res = $fn($j['args'] ?? [], $hb, (string) ($j['role'] ?? 'read'));
         tg_write_json(tg_job_dir($id) . '/result.json', $res);
         tg_status($id, ['state' => 'done', 'finished_at' => time()]);
         tg_log('jobs', $j['job'] . ' done');
