@@ -13,8 +13,9 @@ Session side (private repo): `Sys.scripts/app-release.sh drive …` and `Sys.scr
 
 ## Door
 
-`POST https://apps.hohedoc.ir/run.php` with header `X-Apps-Key: <ADMIN_KEY>` and form fields `job=<name>` plus the
-job's arguments. The key is never accepted in a query string. 20 wrong keys in 10 minutes close the door for the rest
+`POST https://apps.hohedoc.ir/run.php` with header `X-Apps-Key: <ADMIN_KEY>`, or — no stored key at all — `X-Apps-Nonce` +
+`X-Apps-Ref` after pushing `apps-auth/<sha256(nonce)>.json` to a branch of this repo (`Sys.scripts/apps_host_auth.py` in the
+private repo does it), and form fields `job=<name>` plus the job's arguments. The key is never accepted in a query string. 20 wrong keys in 10 minutes close the door for the rest
 of the window. Queued jobs answer `{"queued":true,"id":…}`; poll with `job=result&id=<id>`. `status.php` is public and
 shows only booleans and versions.
 
@@ -23,12 +24,11 @@ shows only booleans and versions.
 ```php
 <?php return [
   'ADMIN_KEY'     => '<new random ≥32 chars — not the studio or trainer key>',
-  'DRIVE_OAUTH'   => "CLIENT_ID=…\nCLIENT_SECRET=…\nREFRESH_TOKEN=…",
   'DRIVE_ROOT_ID' => '<Memory-Cloud folder id>',
 ];
 ```
 
-`DRIVE_OAUTH` goes into this `secrets.php` too (copy it from studio's or trainer's secret file): on the live host `open_basedir` keeps each subdomain in its own folder, so borrowing from a sibling does not work. `tick.php` sets the secret files to 0600 by itself.
+`DRIVE_OAUTH` is borrowed from trainer's or studio's secret files. The web side cannot see sibling folders (`open_basedir`), but the cron can, and every Drive upload runs in the cron; `status.php` shows both views (`secrets_present`, `secrets_present_cron`). `tick.php` sets the secret files to 0600 by itself.
 No Telegram session, no GitHub token and no Higgsfield key are read.
 
 ## Install (once)
@@ -38,6 +38,8 @@ No Telegram session, no GitHub token and no Higgsfield key are read.
 3. Cron every 5 min: `/usr/local/bin/php …/apps.hohedoc.ir/deploy.php`
 4. Cron every 1 min: `/usr/local/bin/php …/apps.hohedoc.ir/app/tick.php`
 5. Check `https://apps.hohedoc.ir/status.php`: `secrets_present`, `last_tick_age_s`, `zip`.
-6. Put the same `ADMIN_KEY` into the Claude Code environment as `APPS_ADMIN_KEY` (never into a repo or a chat).
+6. Optional: the same `ADMIN_KEY` as `APPS_ADMIN_KEY` in an operator's environment. Sessions log in through the repo instead.
+
+Live since 1405-08-07: first real upload, a 28 MB app zip, md5 verified by Drive in 79 s.
 
 After any change under `files/`, run `python3 apps-host/build-manifest.py`.
