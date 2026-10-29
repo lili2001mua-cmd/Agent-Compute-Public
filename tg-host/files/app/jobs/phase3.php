@@ -133,6 +133,9 @@ function tg_peer_id($p): int {
 
 /** First dialog (Telegram order, all folders) whose display name contains $query, case-insensitive. */
 function tg_find_dialog($api, string $query): ?array {
+    // ک1: host-owned allowlist by numeric id first; only the admin key may fall back to scanning dialog titles
+    if (function_exists('tg_chain_find') && ($hit = tg_chain_find($query))) return ['id' => (int) $hit['id'], 'name' => (string) ($hit['title'] ?? $hit['label'] ?? '')];
+    if (($GLOBALS['tg_role'] ?? 'read') !== 'admin') return null;
     $q = mb_strtolower($query);
     $off = ['date' => 0, 'id' => 0, 'peer' => ['_' => 'inputPeerEmpty']];
     for ($page = 0; $page < 50; $page++) {

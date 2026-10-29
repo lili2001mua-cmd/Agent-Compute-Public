@@ -101,8 +101,10 @@ function tg_mp_with(string $dir, callable $fn, int $budget = TG_MP_BUDGET_S): ar
         ->setExtra(tg_var('mp-madeline.log'))
         ->setLevel(\danog\MadelineProto\Logger::WARNING)->setMaxSize(2 * 1024 * 1024);
     $settings->getPeer()->setCacheAllPeersOnStartup(false);
-    $work = \Amp\async(function () use ($dir, $settings, $fn) {
-        $api = new \danog\MadelineProto\API($dir, $settings);
+    // one API per session dir per process: a tick can run several Telegram jobs on one loaded session (commission ک19/ک1)
+    static $apis = [];
+    $work = \Amp\async(function () use ($dir, $settings, $fn, &$apis) {
+        $api = $apis[$dir] ??= new \danog\MadelineProto\API($dir, $settings);
         return $fn($api);
     });
     return $work->await(new \Amp\TimeoutCancellation($budget, 'telegram budget exhausted'));
