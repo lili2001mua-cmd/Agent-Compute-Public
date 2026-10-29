@@ -24,5 +24,6 @@ echo json_encode([
     'branch_ops' => (function () { $x = @json_decode((string) @file_get_contents(ops_var('branch-ops.json')), true); if (isset($x['done'])) $x['done'] = array_slice($x['done'], -10, null, true); return $x; })(),
     'routing' => (function () { $x = @json_decode((string) @file_get_contents(ops_var('routing.json')), true); if (isset($x['result'])) unset($x['result']); return $x; })(),
     'drive_files' => @json_decode((string) @file_get_contents(ops_var('drive-files.json')), true),
+    'drive_sync' => (function () { $x = @json_decode((string) @file_get_contents(ops_var('drive-sync.json')), true); if (isset($x['seen'])) unset($x['seen']); return $x; })(),
     'routines' => $rows,
 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
