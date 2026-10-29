@@ -33,6 +33,12 @@ function tg_upload_chunk(string $role, string $hdr): void {
 }
 
 if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') out(405, ['error' => 'POST only']);
+if (isset($_SERVER['HTTP_X_TG_INTAKE'])) {
+    require_once __DIR__ . '/../app/jobs/phase6.php';
+    $in0 = json_decode((string) file_get_contents('php://input', false, null, 0, 65536), true);
+    [$code, $body] = tg_chain_intake((string) $_SERVER['HTTP_X_TG_INTAKE'], is_array($in0) ? $in0 : []);
+    out($code, $body);
+}
 $roles = tg_key_roles((string) ($_SERVER['HTTP_X_TG_KEY'] ?? ''));
 if (!$roles) out(401, ['error' => 'unauthorized']);
 $role = $roles[0];
@@ -90,6 +96,13 @@ if ($action === 'status' || $action === 'result') {
     }
     if (($st['state'] ?? '') !== 'done') out(409, ['error' => 'not done', 'state' => $st['state'] ?? null]);
     out(200, ['ok' => true, 'result' => tg_read_json(tg_job_dir($id) . '/result.json')]);
+}
+if ($action === 'bot' || $action === 'drive_token' || $action === 'config') {
+    if (!array_intersect(['chain', 'admin'], $roles)) out(403, ['error' => 'chain key required']);
+    require_once __DIR__ . '/../app/jobs/phase6.php';
+    if ($action === 'config') { $s = tg_chain_secrets(); out(200, ['ok' => true, 'TELEGRAM_POOL_CHAT_ID' => $s['TELEGRAM_POOL_CHAT_ID'] ?? null, 'TG_ARCHIVE_CHAT_ID' => $s['TG_ARCHIVE_CHAT_ID'] ?? null, 'have' => array_keys($s)]); }
+    [$code, $body] = $action === 'bot' ? tg_chain_bot($in) : tg_chain_drive_token($in, $roles);
+    out($code, $body);
 }
 if ($action === 'lease' || $action === 'beat') {
     if (!array_intersect(['chain', 'admin'], $roles)) out(403, ['error' => 'chain key required']);

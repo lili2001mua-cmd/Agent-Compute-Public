@@ -19,6 +19,7 @@ const TG_CHAIN_OPS_BUDGET_S = 420;
 const TG_CHAIN_RATES = [
     'forward_day' => [300, 86400], 'create_day' => [1, 86400], 'create_week' => [3, 604800],
     'edit_hour' => [30, 3600], 'send_hour' => [60, 3600], 'delete_night' => [300, 86400], 'stage_hour' => [400, 3600],
+    'bot_hour' => [120, 3600], 'drive_mint_day' => [12, 86400],
 ];
 const TG_CHAIN_KINDS_WRITE = ['archive', 'control', 'panel', 'created'];
 
@@ -403,6 +404,8 @@ function job_chain_admin(array $a, callable $hb, string $role = 'read'): array {
                         $peer = tg_chain_peer($args['peer'], ['created']);
                         $api->channels->deleteChannel(channel: $peer);
                         $c = tg_chain_chats(); unset($c['chats'][(string) $peer]); tg_chain_save($c); $out[] = ['deleted' => $peer]; break;
+                    case 'intake_token':
+                        $out[] = tg_chain_intake_token(); break;
                     case 'arm':
                         if (!empty($args['on'])) file_put_contents(tg_var('chain-armed'), (string) time()); else @unlink(tg_var('chain-armed'));
                         $out[] = ['armed' => !empty($args['on'])]; break;
@@ -427,7 +430,7 @@ function tg_chain_lease(array $in): array {
         $op = (string) ($in['op'] ?? 'status'); $run = (string) ($in['run'] ?? ''); $ttl = max(60, min(7200, (int) ($in['ttl'] ?? 900)));
         if (!preg_match('/^[A-Za-z0-9_.:-]{6,80}$/', $run) && $op !== 'status') return [400, ['error' => 'bad run id']];
         $live = $l && $l['exp'] >= $now;
-        if ($op === 'status') return [200, ['ok' => true, 'held' => $live, 'run' => $live ? $l['run'] : null, 'exp' => $live ? $l['exp'] : null]];
+        if ($op === 'status') { $k = include __DIR__ . '/../keys.php'; return [200, ['ok' => true, 'held' => $live, 'run' => $live ? $l['run'] : null, 'exp' => $live ? $l['exp'] : null, 'read_key_holds_chain' => ($k['read'] ?? '') !== '' && ($k['read'] ?? '') === ($k['chain'] ?? '')]]; }
         if ($op === 'acquire') {
             if ($live && $l['run'] !== $run) return [409, ['error' => 'held', 'run' => $l['run'], 'exp' => $l['exp']]];
             $l = ['run' => $run, 'token' => (int) (($l['token'] ?? 0) + 1), 'exp' => $now + $ttl, 'since' => $now];
@@ -491,4 +494,85 @@ function job_chain_alert(array $a, callable $hb, string $role = 'read'): array {
         $api->messages->sendMessage(peer: $target, message: mb_substr((string) $a['text'], 0, 1000));
         return ['sent_to' => $target];
     });
+}
+
+// ---- secrets held by the host for the chain (ک25): one-time intake, Drive token vending, Bot API relay ---------
+const TG_CHAIN_SECRET_KEYS = ['DRIVE_OAUTH', 'TELEGRAM_BOT_TOKEN', 'TELEGRAM_POOL_CHAT_ID', 'TG_ARCHIVE_CHAT_ID'];
+function tg_chain_secrets(): array { return tg_read_json(tg_var('chain-secrets.json')) ?? []; }
+/** Admin op: a single-use intake token, valid 10 minutes; only its sha256 is kept. */
+function tg_chain_intake_token(): array {
+    $t = bin2hex(random_bytes(24));
+    tg_write_json(tg_var('chain-intake.json'), ['sha' => hash('sha256', $t), 'exp' => time() + 600]);
+    return ['intake_token' => $t, 'expires_in_s' => 600];
+}
+/** Door action `intake` (no key; the single-use token is the credential). Values are never echoed. */
+function tg_chain_intake(string $token, array $in): array {
+    $f = tg_var('chain-intake.json'); $t = tg_read_json($f);
+    if (is_file($f)) unlink($f); // single use, whatever happens next
+    if (!$t || $t['exp'] < time() || !hash_equals($t['sha'], hash('sha256', $token))) return [403, ['error' => 'intake token invalid or used']];
+    $cur = tg_chain_secrets(); $got = [];
+    foreach (TG_CHAIN_SECRET_KEYS as $k) { if (isset($in['secrets'][$k]) && is_string($in['secrets'][$k]) && $in['secrets'][$k] !== '') { $cur[$k] = $in['secrets'][$k]; $got[] = $k; } }
+    $p = tg_var('chain-secrets.json'); tg_write_json($p, $cur); @chmod($p, 0600);
+    tg_log('chain', 'intake keys=' . implode(',', $got));
+    return [200, ['ok' => true, 'stored' => $got]];
+}
+function tg_tehran_minutes(): int { $n = new DateTimeImmutable('now', new DateTimeZone('Asia/Tehran')); return (int) $n->format('H') * 60 + (int) $n->format('i'); }
+/** Bot API call with the host-held token; chat ids must be the pool/archive ids or a chain chat (ک25-c). */
+function tg_bot_call(string $method, array $params, array $files = []): array {
+    $s = tg_chain_secrets(); $tok = (string) ($s['TELEGRAM_BOT_TOKEN'] ?? '');
+    if ($tok === '') return ['ok' => false, 'description' => 'no bot token on host'];
+    $ch = curl_init('https://api.telegram.org/bot' . $tok . '/' . $method);
+    $post = $params;
+    foreach ($files as $field => $path) $post[$field] = new CURLFile($path);
+    curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_POSTFIELDS => $post, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 60]);
+    $body = curl_exec($ch); curl_close($ch);
+    $r = is_string($body) ? json_decode($body, true) : null;
+    return is_array($r) ? $r : ['ok' => false, 'description' => 'bot api unreachable'];
+}
+function tg_bot_chat_allowed($chat): bool {
+    $s = tg_chain_secrets(); $c = (string) $chat;
+    if ($c !== '' && ($c === (string) ($s['TELEGRAM_POOL_CHAT_ID'] ?? '') || $c === (string) ($s['TG_ARCHIVE_CHAT_ID'] ?? ''))) return true;
+    return isset(tg_chain_chats()['chats'][$c]);
+}
+/** Door action `bot` (chain/admin): allowlisted methods and chats, rate-capped; files arrive as upload tokens. */
+function tg_chain_bot(array $in): array {
+    $method = (string) ($in['method'] ?? '');
+    if (!in_array($method, ['sendMessage', 'sendPhoto', 'sendDocument', 'editMessageText', 'deleteMessage', 'pinChatMessage', 'unpinChatMessage', 'getMe'], true)) return [403, ['error' => 'method not allowed']];
+    $params = is_array($in['params'] ?? null) ? $in['params'] : [];
+    if ($method !== 'getMe' && !tg_bot_chat_allowed($params['chat_id'] ?? '')) return [403, ['error' => 'chat not allowed']];
+    foreach ($params as $k => $v) { if (is_array($v)) $params[$k] = json_encode($v, JSON_UNESCAPED_UNICODE); } // reply_markup etc.
+    try { tg_rate('bot_hour'); } catch (Throwable $e) { return [429, ['error' => $e->getMessage()]]; }
+    $files = [];
+    foreach ((array) ($in['files'] ?? []) as $field => $tok) {
+        if (!in_array($field, ['photo', 'document'], true)) return [400, ['error' => 'bad file field']];
+        try { $files[$field] = tg_upload_path((string) $tok); } catch (Throwable $e) { return [400, ['error' => $e->getMessage()]]; }
+    }
+    $r = tg_bot_call($method, $params, $files);
+    foreach ($files as $p) @unlink($p);
+    return [200, $r];
+}
+/** Door action `drive_token` (ک25-b): the current chain-lease holder, inside routine windows (admin anytime), ≤12 a day; every mint is announced. */
+function tg_chain_drive_token(array $in, array $roles): array {
+    $admin = in_array('admin', $roles, true);
+    if (!$admin) {
+        try { tg_chain_lease_check((string) ($in['run'] ?? ''), (int) ($in['lease'] ?? 0)); } catch (Throwable $e) { return [409, ['error' => 'lease required']]; }
+        $m = tg_tehran_minutes();
+        $win = ($m >= 165 && $m < 390) || ($m >= 465 && $m < 600) || ($m >= 765 && $m < 900); // 02:45-06:30, 07:45-10:00, 12:45-15:00
+        if (!$win) return [403, ['error' => 'outside chain windows']];
+    }
+    try { tg_rate('drive_mint_day'); } catch (Throwable $e) { return [429, ['error' => 'daily drive token cap reached — minting locked until tomorrow']]; }
+    $raw = (string) (tg_chain_secrets()['DRIVE_OAUTH'] ?? '');
+    $kv = [];
+    foreach (preg_split('/\R/', $raw) as $l) { if (str_contains($l, '=')) { [$k, $v] = explode('=', $l, 2); $kv[trim($k)] = trim(trim($v), "\"'"); } }
+    if (empty($kv['CLIENT_ID']) || empty($kv['CLIENT_SECRET']) || empty($kv['REFRESH_TOKEN'])) return [503, ['error' => 'no drive credentials on host']];
+    $ch = curl_init('https://oauth2.googleapis.com/token');
+    curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 30, CURLOPT_POSTFIELDS => http_build_query([
+        'client_id' => $kv['CLIENT_ID'], 'client_secret' => $kv['CLIENT_SECRET'], 'refresh_token' => $kv['REFRESH_TOKEN'], 'grant_type' => 'refresh_token'])]);
+    $r = json_decode((string) curl_exec($ch), true); curl_close($ch);
+    if (empty($r['access_token'])) return [502, ['error' => 'google refused the refresh']];
+    $n = count((tg_read_json(tg_var('chain-rate.json')) ?? [])['drive_mint_day'] ?? []);
+    tg_log('chain', 'drive token minted #' . $n . ($admin ? ' (admin)' : ''));
+    $pool = (string) (tg_chain_secrets()['TELEGRAM_POOL_CHAT_ID'] ?? '');
+    if ($pool !== '') tg_bot_call('sendMessage', ['chat_id' => $pool, 'text' => "🔑 توکنِ یک‌ساعتهٔ درایو برای زنجیره صادر شد (شمارهٔ $n امروز از ۱۲)" . ($admin ? ' — با کلیدِ مدیر' : '') . '.']);
+    return [200, ['ok' => true, 'access_token' => $r['access_token'], 'expires_in' => (int) ($r['expires_in'] ?? 3600), 'mint' => $n]];
 }
