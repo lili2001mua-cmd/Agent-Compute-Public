@@ -35,8 +35,11 @@ function ops_save_state(array $s): void {
 }
 
 function ops_bot_token(): string {
-    foreach (['trainer.hohedoc.ir/secrets.php', 'trainer.hohedoc.ir/secrets-extra.php'] as $f) {
-        $p = OPS_ROOT . '/../' . $f;
+    // Same file set trainer itself reads: secrets.php plus any secrets-extra*.php (the panel names them).
+    $dir = dirname((string) realpath(OPS_ROOT)) . '/trainer.hohedoc.ir';
+    $files = [$dir . '/secrets.php'];
+    foreach (glob($dir . '/secrets-extra*.php') ?: [] as $x) $files[] = $x;
+    foreach (array_reverse($files) as $p) {
         if (!@is_file($p)) continue;
         $t = include $p;
         if (is_array($t) && !empty($t['TELEGRAM_BOT_TOKEN'])) return (string) $t['TELEGRAM_BOT_TOKEN'];
