@@ -39,7 +39,7 @@ function job_delete(array $a, callable $hb, string $role = 'read'): array {
         }
         $tf = $cdir . '/' . $a['confirm'] . '.json';
         $t = tg_read_json($tf);
-        @unlink($tf); // single use, whatever happens next
+        if (is_file($tf)) unlink($tf); // single use, whatever happens next
         if (!$t || $t['digest'] !== $digest || (int) $t['chat_id'] !== $d['id'] || $t['expires'] < time()) throw new RuntimeException('delete: confirm token invalid, used, expired or for other ids');
         $isChannel = $d['id'] <= -1000000000000;
         $r = $isChannel ? $api->channels->deleteMessages(channel: $d['id'], id: $ids) : $api->messages->deleteMessages(revoke: true, id: $ids);

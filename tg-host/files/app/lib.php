@@ -23,7 +23,8 @@ function tg_write_json(string $path, array $data): void {
     file_put_contents($tmp, json_encode($data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), LOCK_EX);
     rename($tmp, $path);
 }
-function tg_read_json(string $path): ?array { $s = @file_get_contents($path); $d = $s === false ? null : json_decode($s, true); return is_array($d) ? $d : null; }
+// is_file first: inside MadelineProto even an @-silenced warning becomes an exception
+function tg_read_json(string $path): ?array { if (!is_file($path)) return null; $s = @file_get_contents($path); $d = $s === false ? null : json_decode($s, true); return is_array($d) ? $d : null; }
 function tg_id(): string { return bin2hex(random_bytes(16)); }
 function tg_log(string $stream, string $line): void {
     // ⛔ never pass a secret, code, phone or message text here — counts and states only.
