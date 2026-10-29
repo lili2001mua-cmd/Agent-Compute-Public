@@ -1,6 +1,6 @@
 # studio-host — studio.hohedoc.ir
 
-Pull-deployed PHP package for the holding's image/video host. It replaces eight private-repo
+Pull-deployed PHP package for the holding's image/video host. It replaces five private-repo
 GitHub Actions workflows so they spend zero Actions minutes. Same deploy pattern as `trainer-host/`
 (manifest with sha256, `deploy.php` pulled by cron), but a separate subdomain with its own,
 smaller set of secrets.
@@ -12,8 +12,6 @@ smaller set of secrets.
 | `remotion-render.yml` | render inside the Claude Code session, then `asset_upload` | — |
 | `sd-photos-inventory.yml` | `sd_inventory` | queued |
 | `sd-photos-fetch.yml` | `sd_fetch` → zip behind `get.php?t=<token>` (6 h, deleted after first download) | queued |
-| `app-release-publish.yml` + `workout-apk-to-drive.yml` | `app_upload` (→ internal `app_send`): the session builds, signs, runs `release-findings --gate`, zips each apk/aab and posts the zip; Drive path `نسخه‌های نصبی/<App>/v<N>/` | queued (cron) |
-| `workout-pdf-to-drive.yml` | `doc_part` × n (≤32MB each) + `doc_commit` (→ internal `doc_send`): the session renders the PDFs, bundle and clips; the cron joins the parts, checks md5 and type, uploads into an allow-listed folder (`برنامه‌های تمرین` [/subfolder]) | queued (cron) |
 
 ## Higgsfield with the owner's app credits (MCP login)
 
