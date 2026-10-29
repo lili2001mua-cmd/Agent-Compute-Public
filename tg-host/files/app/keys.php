@@ -5,7 +5,7 @@
 //        that needs admin jobs issues a fresh key and replaces this hash through a user-pinned SHA.
 return [
     'read'  => 'b9757d76486f0fd2b99f30f9a777a290ec4a41419676e177afc85d84d8deb9bd',
-    // chain: kept in the PRIVATE repo next to the read key; opens only chain_ops on host-owned allowlisted chats (chain-host-migration ک1-ک6).
-    'chain' => '7a3059c254aca11146d56243567b150d60bf8a892b2af39457d4af51d8b1b1bb',
+    // chain: the same private-repo read key also opens chain_ops (one stored secret, same exposure as a second key in that file).
+    'chain' => 'b9757d76486f0fd2b99f30f9a777a290ec4a41419676e177afc85d84d8deb9bd',
     'admin' => '8f7302974611427664171ec2a6c30152156540e8d7d96711a7dc52566f490083',
 ];

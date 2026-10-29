@@ -33,9 +33,10 @@ function tg_upload_chunk(string $role, string $hdr): void {
 }
 
 if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') out(405, ['error' => 'POST only']);
-$role = tg_key_role((string) ($_SERVER['HTTP_X_TG_KEY'] ?? ''));
-if ($role === null) out(401, ['error' => 'unauthorized']);
-if (isset($_SERVER['HTTP_X_TG_UPLOAD'])) tg_upload_chunk($role, (string) $_SERVER['HTTP_X_TG_UPLOAD']);
+$roles = tg_key_roles((string) ($_SERVER['HTTP_X_TG_KEY'] ?? ''));
+if (!$roles) out(401, ['error' => 'unauthorized']);
+$role = $roles[0];
+if (isset($_SERVER['HTTP_X_TG_UPLOAD'])) tg_upload_chunk(array_intersect(['chain', 'admin'], $roles) ? 'chain' : $role, (string) $_SERVER['HTTP_X_TG_UPLOAD']);
 $in = json_decode((string) file_get_contents('php://input', false, null, 0, 65536), true);
 if (!is_array($in)) out(400, ['error' => 'bad json']);
 $reg = include __DIR__ . '/../app/jobs/registry.php';
@@ -45,7 +46,8 @@ $validId = fn($s) => is_string($s) && preg_match('/^[0-9a-f]{32}$/', $s);
 if ($action === 'submit') {
     $job = (string) ($in['job'] ?? '');
     if (!isset($reg[$job])) out(400, ['error' => 'unknown job']);
-    if (!in_array($role, tg_job_roles($reg[$job]), true)) out(403, ['error' => 'role not allowed for this job']);
+    $role = array_values(array_intersect(tg_job_roles($reg[$job]), $roles))[0] ?? null; // the job's first role this key holds
+    if ($role === null) out(403, ['error' => 'role not allowed for this job']);
     $idem = (string) ($in['idem'] ?? '');
     if (strlen($idem) < 8 || strlen($idem) > 128) out(400, ['error' => 'idem required (8-128 chars)']);
     $idemFile = tg_dir(tg_var('idem')) . '/' . hash('sha256', $role . '|' . $idem);
@@ -77,7 +79,7 @@ if ($action === 'status' || $action === 'result') {
     $id = $in['id'] ?? '';
     if (!$validId($id)) out(400, ['error' => 'bad id']);
     $st = tg_read_json(tg_job_dir($id) . '/status.json');
-    if (!$st || (($st['role'] ?? $role) !== $role && $role !== 'admin')) out(404, ['error' => 'no such job']);
+    if (!$st || (!in_array($st['role'] ?? '', $roles, true) && !in_array('admin', $roles, true))) out(404, ['error' => 'no such job']);
     if ($action === 'status') {
         if (($st['state'] ?? '') === 'queued') {
             $q = glob(tg_var('queue') . '/*.json') ?: []; sort($q);
@@ -90,7 +92,7 @@ if ($action === 'status' || $action === 'result') {
     out(200, ['ok' => true, 'result' => tg_read_json(tg_job_dir($id) . '/result.json')]);
 }
 if ($action === 'lease' || $action === 'beat') {
-    if ($role !== 'chain' && $role !== 'admin') out(403, ['error' => 'chain key required']);
+    if (!array_intersect(['chain', 'admin'], $roles)) out(403, ['error' => 'chain key required']);
     require_once __DIR__ . '/../app/jobs/phase6.php';
     [$code, $body] = $action === 'lease' ? tg_chain_lease($in) : tg_chain_beat($in);
     out($code, $body);

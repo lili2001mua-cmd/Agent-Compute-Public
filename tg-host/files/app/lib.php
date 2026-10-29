@@ -31,12 +31,14 @@ function tg_log(string $stream, string $line): void {
     file_put_contents(tg_var('log-' . $stream . '.log'), gmdate('c') . ' ' . $line . "\n", FILE_APPEND | LOCK_EX);
 }
 /** Role of a presented key: 'admin' | 'read' | null. Only sha256 hashes live in the (public) code. */
-function tg_key_role(string $key): ?string {
-    if (strlen($key) < 32) return null;
+function tg_key_role(string $key): ?string { return tg_key_roles($key)[0] ?? null; }
+/** Every role a presented key holds (one key may hold read + chain). Only sha256 hashes live in the (public) code. */
+function tg_key_roles(string $key): array {
+    if (strlen($key) < 32) return [];
     $hashes = include __DIR__ . '/keys.php';
-    $h = hash('sha256', $key);
-    foreach ($hashes as $role => $hash) { if (is_string($hash) && hash_equals($hash, $h)) return $role; }
-    return null;
+    $h = hash('sha256', $key); $roles = [];
+    foreach ($hashes as $role => $hash) { if (is_string($hash) && $hash !== '' && hash_equals($hash, $h)) $roles[] = $role; }
+    return $roles;
 }
 function tg_dir_bytes(string $dir): int {
     if (!is_dir($dir)) return 0;
