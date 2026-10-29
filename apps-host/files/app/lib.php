@@ -11,9 +11,13 @@ function apps_secrets(): array {
     if ($s === null) {
         $s = [];
         // DRIVE_OAUTH alone is read from trainer's secrets.php on the same account, so nobody copies it by hand.
-        // Both of trainer's files: its secrets-move job left DRIVE_OAUTH in secrets-extra.php on the live host.
-        foreach (['secrets.php', 'secrets-extra.php'] as $tf) {
-            $trainer = APPS_ROOT . '/../trainer.hohedoc.ir/' . $tf;
+        // DRIVE_OAUTH alone is borrowed from a sibling subdomain on the same account, so nobody copies it by hand:
+        // trainer's two files first, then studio's (on the live host it sits in studio's own secret file).
+        // Only that one key is taken — never the sibling's ADMIN_KEY or anything else.
+        foreach (['trainer.hohedoc.ir/secrets.php', 'trainer.hohedoc.ir/secrets-extra.php',
+                  'studio.hohedoc.ir/secrets.php', 'studio.hohedoc.ir/secrets-extra.php'] as $tf) {
+            if (!empty($s['DRIVE_OAUTH'])) break;
+            $trainer = APPS_ROOT . '/../' . $tf;
             if (!is_file($trainer)) continue;
             $t = include $trainer;
             if (is_array($t) && !empty($t['DRIVE_OAUTH'])) $s['DRIVE_OAUTH'] = $t['DRIVE_OAUTH'];
