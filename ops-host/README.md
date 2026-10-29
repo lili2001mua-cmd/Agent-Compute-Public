@@ -14,6 +14,8 @@ Watched routines and their limits: `OPS_WATCH` in `files/app/lib.php`.
 
 | `auto-pr-stranded-branches.yml` (private repo) | `app/stranded.php`, once a day at 03:xx UTC: every `claude/*` branch of Agent-Project-Backup with hand-written unmerged work and no PR gets one PR (REST only; same rules and the same generated-file list as `Sys.scripts/lib/branch-classify.sh`). Errors go to Telegram. |
 
+| `auto-pr-stranded-branches-watchdog.yml` (private repo) | the same file: one Telegram alert when the daily job has not finished for 30 h (and one when it recovers), and one when `OPS_GITHUB_TOKEN` is missing. |
+
 ## Doors
 
 - `POST https://ops.hohedoc.ir/beat.php` with `id=<routine>` [`sha=<commit>`]. No key: a forged beat can only
