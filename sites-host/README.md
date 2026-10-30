@@ -27,6 +27,9 @@ A request has one or more groups, each `{"action", "env", "files"}`:
 | `delete` | removes the files from the site | `lilium-deploy.yml` |
 | `manifest` | pages through the site's file list into `deploy-results/manifest-<env>.txt` (`files: []`) | `lilium-manifest.yml` |
 | `run` | opens one page on the env's own host (`files: ["path?query"]`, never a full URL); body into `deploy-results/run.txt` | `lilium-run.yml` |
+| `pull` | copies site files under the given repo prefixes (`files: ["pwa/public_html/core/"]`, ≤ 2000 files) back into the repo in one commit; only files whose git blob differs | `pull-from-host.yml` (FTP) |
+| `dbdump` | gzip dump of the site's database, kept on this host outside `public_html`; the result file gives a one-time link (`get.php?t=…`, 6 h). Never committed — it holds customer data | `lilium-dbdump.yml` |
+| `parity` | test site vs production site (`prod` in `sites.php`): files, schema, migration ledger, into `deploy-results/parity-<env>.md`; needs `STYLISTCRM_PROD_DEPLOY_SECRET` | `lilium-parity.yml` |
 | `probe` | read-only speed test of the env (`files: ["<label>"]`, 5 runs per URL) into `speed-results/probe-<env>-<label>-<utc>.json` | `lilium-speed-probe.yml` |
 
 A request runs only if it carries a valid `approval` stamp: `host_transfer_gate.py` adds it after
