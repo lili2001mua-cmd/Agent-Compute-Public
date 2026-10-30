@@ -16,7 +16,8 @@ from host_transfer_gate import stamp_mac
 qid = sys.argv[2]
 if qid == "ops":
     req = {"ref": "main", "groups": [{"action": "manifest", "env": "pwa", "files": []},
-                                     {"action": "run", "env": "pwa", "files": ["probe.php?x=1"]}]}
+                                     {"action": "run", "env": "pwa", "files": ["probe.php?x=1"]},
+                                     {"action": "secprobe", "env": "pwa", "files": []}]}
 else:
     req = {"ref": "main", "groups": [{"action": "deploy", "env": "pwa", "files": ["pwa/public_html/a.php"]},
                                      {"action": "delete", "env": "hub", "files": ["hub/public_html/b.php"]}]}
@@ -42,6 +43,7 @@ check "status shows no error" "php $T/site/public_html/status.php | grep -q '\"l
 stamp "$GATE_LIB" ops > "$T/mock/ops.json"; php "$T/site/app/tick.php"
 check "manifest pages through the bridge" "[ \$(grep -c 'sync pwa manifest' $T/mock/calls.log) -eq 2 ] && [ \$(wc -l < $T/mock/manifest-pwa.txt) -eq 3 ]"
 check "run opens the page on the env host" "grep -q 'run probe 1' $T/mock/calls.log && grep -q ran-ok $T/mock/run.txt"
+check "secprobe flags the exposed file, the listing and the leaky error page" "grep -q 'secprobe env' $T/mock/calls.log && grep -q '3 یافتهٔ حساس' $T/mock/security-probe-pwa.md && grep -q 'لیستِ دایرکتوریِ باز' $T/mock/security-probe-pwa.md && grep -q 'استک‌تریس' $T/mock/security-probe-pwa.md && ! grep -q 'DB_PASS' $T/mock/security-probe-pwa.md"
 n=$(grep -c 'put new' $T/mock/calls.log); php "$T/site/app/tick.php"
 check "second tick does not re-run" "[ \$(grep -c 'put new' $T/mock/calls.log) -eq $n ]"
 touch "$T/mock/mode-401"; rm -f "$T/site/var/state.json"; php "$T/site/app/tick.php"

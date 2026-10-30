@@ -229,3 +229,95 @@ function job_speed_probe(array $site, string $env, string $label, int $runs = 5)
     dh_put_file($site, $name, json_encode($rep, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), "speed-probe: $env $label (sites-host)");
     return ['action' => 'probe', 'env' => $env, 'ok' => true, 'file' => $name, 'freshness' => $rep['freshness_test']];
 }
+
+// ---------------------------------------------------------------- security probe (queue action "secprobe")
+// Port of Agent-Project-Backup/Sys.scripts/live-server-probe.sh (owner: Coding-Security/security-audit), which used
+// to run as the live half of stylistcrm-security-scan.yml. Defensive and read-only: a fixed short list of paths on
+// the site's own host, one GET each, no fuzzing. Only codes, types and sizes are written, never a response body.
+const SECPROBE_PATHS = [
+    '/.git/HEAD', '/.git/config',
+    '/.env', '/.env.bak', '/.env.local',
+    '/config/database.php.bak', '/config/database.bak', '/db.php.bak', '/db.bak',
+    '/view/cron%3Fbackup', '/view/cron%3Fbackup.1', '/view/cron%3Fbackup.2',
+    '/snapshot/', '/backup/', '/backups/',
+    '/backup.zip', '/backup.sql', '/db.sql', '/dump.sql', '/database.sql',
+    '/composer.json', '/composer.lock', '/package.json',
+    '/config/application.php', '/config/sms.php', '/config/auth.php',
+    '/phpinfo.php', '/info.php', '/test.php',
+];
+const SECPROBE_UA = 'stylist-security-probe/1.0 (defensive; own-asset)';
+
+// One GET. Returns ['err' => string] when the host was not reached, else code, type, size, headers and, when asked,
+// the first 64 KB of the body (kept in memory only, for the two pattern tests below).
+function secprobe_get(string $url, bool $body = false): array {
+    $h = []; $ch = curl_init($url);
+    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 20, CURLOPT_FOLLOWLOCATION => false,
+        CURLOPT_USERAGENT => SECPROBE_UA,
+        CURLOPT_HEADERFUNCTION => function ($c, $line) use (&$h) {
+            if (strpos($line, ':') !== false) { [$k, $v] = explode(':', $line, 2); $h[strtolower(trim($k))] = trim($v); }
+            return strlen($line);
+        }]);
+    if ($body) curl_setopt($ch, CURLOPT_RANGE, '0-65535');
+    $raw = curl_exec($ch);
+    if ($raw === false) { $e = curl_error($ch); $n = curl_errno($ch); curl_close($ch); return ['err' => "curl $n: " . substr($e, 0, 120)]; }
+    $i = curl_getinfo($ch); curl_close($ch);
+    return ['code' => (int) $i['http_code'], 'type' => (string) ($i['content_type'] ?? ''), 'size' => (int) $i['size_download'],
+            'hdr' => $h, 'body' => $body ? substr((string) $raw, 0, 65536) : ''];
+}
+
+// Same verdicts as the shell script: 200 on a sensitive path = exposure; directory path = exposure only when it lists.
+function secprobe_verdict(string $path, array $r): array {
+    $c = $r['code'];
+    if ($c === 200) {
+        if (substr($path, -1) === '/') {
+            return preg_match('/Index of|<title>Directory|Parent Directory/i', $r['body']) ? ['🔴 لیستِ دایرکتوریِ باز', true] : ['🟠 ۲۰۰ (محتوا؟)', false];
+        }
+        return ['🔴 افشا', true];
+    }
+    if ($c === 401 || $c === 403) return ['🟠 محافظت‌شده', false];
+    if ($c === 301 || $c === 302) return ['↪ ریدایرکت', false];
+    if ($c === 404 || $c === 410) return ['✅', false];
+    return ['؟ ' . $c, false];
+}
+
+function job_security_probe(array $site, string $env, string $qid): array {
+    $u = parse_url(dh_endpoint($site, $env));   // same host rule as dh_run_page (the mock keeps its port)
+    $base = ($u['scheme'] ?? 'https') . '://' . $u['host'] . (isset($u['port']) ? ':' . $u['port'] : '');
+    $md = ["# کاوشِ امنیتیِ سرورِ زنده — " . gmdate('Y-m-d\TH:i:s\Z') . " UTC", '',
+           '> ابزار: `sites.hohedoc.ir` ، کارِ صفِ `secprobe` (نسخهٔ `PHP` ِ `Sys.scripts/live-server-probe.sh` ؛ مالک: `Coding-Security/security-audit`).',
+           '> 🔴 = پاسخِ ۲۰۰ روی مسیرِ حساس (افشا) · 🟠 = ۴۰۱/۴۰۳ (هست ولی محافظت‌شده) · ✅ = ۴۰۴/بسته.', '',
+           "## هدف: `$base`", ''];
+    $found = 0;
+    $root = secprobe_get($base . '/');
+    if (isset($root['err'])) {
+        $md[] = "⛔ **نرسیدن به هاست** (`{$root['err']}`) — این «امن» نیست، «ناسنجیده» است.";
+        $reached = false;
+    } else {
+        $reached = true;
+        $sv = array_filter(['Server' => $root['hdr']['server'] ?? null, 'X-Powered-By' => $root['hdr']['x-powered-by'] ?? null]);
+        $md[] = '**سرآیندِ ریشه:**'; $md[] = '```';
+        $md[] = $sv ? implode("\n", array_map(fn($k, $v) => "$k: $v", array_keys($sv), $sv)) : '(بدونِ Server/X-Powered-By)';
+        $md[] = '```';
+        $err = secprobe_get($base . '/this-path-should-not-exist-' . random_int(1000, 99999) . '-zx', true);
+        if (!isset($err['err']) && preg_match('#stack trace|Fatal error|Warning:.*on line|Whoops|/home/|/var/www/|Uncaught#i', $err['body'])) {
+            $md[] = '🔴 **صفحهٔ خطا استک‌تریس/مسیرِ سرور را لو می‌دهد** (نشانهٔ `debug=true` روی محیط).'; $found++;
+        } else {
+            $md[] = '✅ صفحهٔ خطای مسیرِ ناموجود چیزی لو نمی‌دهد.';
+        }
+        $md[] = ''; $md[] = '| مسیر | کد | نوع | اندازه | حکم |'; $md[] = '|---|---|---|---|---|';
+        foreach (SECPROBE_PATHS as $p) {
+            $r = secprobe_get($base . $p, substr($p, -1) === '/');
+            if (isset($r['err'])) { $md[] = "| `$p` | ⛔ | — | — | نرسید |"; continue; }
+            [$v, $bad] = secprobe_verdict($p, $r);
+            if ($bad) $found++;
+            $md[] = "| `$p` | {$r['code']} | " . ($r['type'] ?: '—') . " | {$r['size']} | $v |";
+        }
+    }
+    $md[] = ''; $md[] = '## جمع‌بندی';
+    $md[] = !$reached ? '⛔ هاست در دسترس نبود — هیچ مسیری سنجیده نشد.'
+          : ($found ? "🔴 **$found یافتهٔ حساس** (افشا). جزئیات بالا."
+                    : '✅ روی مسیرهای سنجیده‌شده افشای آشکاری دیده نشد (این ضامنِ امنیتِ کامل نیست — فقط همین مسیرها).');
+    $name = "deploy-results/security-probe-$env.md";
+    dh_put_file($site, $name, implode("\n", $md) . "\n", "security-probe: $env ($qid, sites-host)");
+    return ['action' => 'secprobe', 'env' => $env, 'ok' => $reached, 'findings' => $found, 'file' => $name];
+}

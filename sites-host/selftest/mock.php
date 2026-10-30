@@ -24,6 +24,14 @@ if (preg_match('#^/(pwa|hub|help)/sync\.php$#', $path, $m)) {
         : ['repo' => $f, 'ok' => true];
     $json(200, ['ok' => true, 'results' => $rows]);
 }
+// secprobe: one exposed file, one listing directory, an error page that leaks a path; everything else 404.
+if ($path === '/.env') { $log('secprobe env'); echo "DB_PASS=x\n"; exit; }
+if ($path === '/backup/') { echo '<title>Index of /backup</title>'; exit; }
+if (strpos($path, '/this-path-should-not-exist-') === 0) { http_response_code(404); echo 'Fatal error in /home/u/x.php'; exit; }
+if (in_array($path, ['/', '/.git/HEAD', '/phpinfo.php'], true) || preg_match('#^/(\\.git|\\.env|config|db|view|snapshot|backups?|dump|database|composer|package|info|test)#', $path)) {
+    if ($path === '/') { header('Server: mock'); echo 'home'; exit; }
+    http_response_code(404); exit;
+}
 if ($path === '/probe.php') { $log('run probe ' . ($qs['x'] ?? '')); echo 'ran-ok'; exit; }
 if (file_exists("$dir/mode-401")) $json(401, ['message' => 'Bad credentials']);
 if ($path === '/user') $json(200, ['login' => 'o']);
@@ -32,11 +40,11 @@ if ($path === "$p/contents/deploy-queue") $json(200, [
     ['type' => 'file', 'name' => 'old.json', 'path' => 'deploy-queue/old.json'],
     ['type' => 'file', 'name' => 'new.json', 'path' => 'deploy-queue/new.json']]
     + (is_file("$dir/ops.json") ? [2 => ['type' => 'file', 'name' => 'ops.json', 'path' => 'deploy-queue/ops.json']] : []));
-if (preg_match("#^$p/contents/(deploy-results/(manifest-\\w+|run)\\.txt)$#", $path, $m) && $_SERVER['REQUEST_METHOD'] === 'PUT') {
+if (preg_match("#^$p/contents/(deploy-results/(manifest-\\w+|run|security-probe-\\w+)\\.(?:txt|md))$#", $path, $m) && $_SERVER['REQUEST_METHOD'] === 'PUT') {
     $f = "$dir/" . basename($m[1]); $log("put " . $m[1]);
     file_put_contents($f, base64_decode(json_decode(file_get_contents('php://input'), true)['content'])); $json(201, []);
 }
-if (preg_match("#^$p/contents/deploy-results/(manifest-\\w+|run)\\.txt$#", $path)) $json(404, []);
+if (preg_match("#^$p/contents/deploy-results/(manifest-\\w+|run|security-probe-\\w+)\\.(?:txt|md)$#", $path)) $json(404, []);
 if ($path === "$p/commits") $json(200, [['sha' => 'c1']]);
 if (preg_match("#^$p/contents/deploy-results/queue/(\w+)\.json$#", $path, $m)) {
     $f = "$dir/result-{$m[1]}.json";

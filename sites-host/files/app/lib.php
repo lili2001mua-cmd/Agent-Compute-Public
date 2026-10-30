@@ -15,7 +15,8 @@ const DH_ROOT = __DIR__ . '/..';
 // deploy/delete write files on the site; manifest lists them (read-only); run opens one page of the site
 // (a page can change data, e.g. a migration runner, so it needs the same approval as a deploy).
 const DH_VALID_ACTION = ['deploy' => 1, 'delete' => 1, 'manifest' => 1, 'run' => 1, 'probe' => 1,   // probe: read-only speed test (jobs.php)
-                         'pull' => 1, 'dbdump' => 1, 'parity' => 1];                            // ops.php
+                         'pull' => 1, 'dbdump' => 1, 'parity' => 1,                             // ops.php
+                         'secprobe' => 1];                                                     // jobs.php
 // Overridable only from the process environment, for the local mock test (sites-host/selftest.sh).
 define('DH_GH_API', getenv('DH_GH_API') ?: 'https://api.github.com');
 
@@ -145,7 +146,7 @@ function dh_read_request(array $site, string $path, string $commit): ?array {
     foreach ($groups as $g) {
         $act = $g['action'] ?? '';
         if (!isset(DH_VALID_ACTION[$act]) || !isset($site['envs'][$g['env'] ?? '']) || !is_array($g['files'] ?? null)) return null;
-        if (!in_array($act, ['manifest', 'dbdump', 'parity'], true) && !$g['files']) return null;
+        if (!in_array($act, ['manifest', 'dbdump', 'parity', 'secprobe'], true) && !$g['files']) return null;
         if ($act === 'pull') foreach ($g['files'] as $pre) if (!preg_match('#^[A-Za-z0-9._/-]+/$#', (string) $pre) || strpos((string) $pre, '..') !== false) return null;
         if ($act === 'run' && (count($g['files']) !== 1 || !dh_run_path_ok((string) $g['files'][0]))) return null;
         if ($act === 'probe' && (count($g['files']) !== 1 || !preg_match('/^[A-Za-z0-9._-]{1,40}$/', (string) $g['files'][0]))) return null;
@@ -252,6 +253,7 @@ function dh_run(string $name, array $site, array $q, string $commit): array {
             if ($g['action'] === 'pull') { $parts[] = dh_pull($site, $g['env'], $g['files'], $q['id']); continue; }
             if ($g['action'] === 'dbdump') { $parts[] = dh_dbdump($site, $g['env'], $q['id']); continue; }
             if ($g['action'] === 'parity') { $parts[] = dh_parity($name, $site, $g['env'], $q['id']); continue; }
+            if ($g['action'] === 'secprobe') { $parts[] = job_security_probe($site, $g['env'], $q['id']); continue; }
             if ($g['action'] === 'probe') { $parts[] = job_speed_probe($site, $g['env'], (string) $g['files'][0]); continue; }
             if ($g['action'] === 'run') { $parts[] = dh_run_page($name, $site, $g['env'], (string) $g['files'][0], $q['id']); continue; }
             $payload = ['action' => $g['action'], 'ref' => $req['ref'] ?? 'main', 'files' => $g['files']];
