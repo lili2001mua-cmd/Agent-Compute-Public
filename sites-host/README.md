@@ -19,6 +19,15 @@ repeated), reads each new request at the commit that wrote it, signs the body li
 `lilium-call.py`, POSTs it to the site's `sync.php`, and writes the result back to `main`.
 Each request runs once. One broken site does not stop the others.
 
+A request has one or more groups, each `{"action", "env", "files"}`:
+
+| action | what the host does | replaces |
+|---|---|---|
+| `deploy` | sends the files (read at the request's commit) to the site | `lilium-deploy.yml` |
+| `delete` | removes the files from the site | `lilium-deploy.yml` |
+| `manifest` | pages through the site's file list into `deploy-results/manifest-<env>.txt` (`files: []`) | `lilium-manifest.yml` |
+| `run` | opens one page on the env's own host (`files: ["path?query"]`, never a full URL); body into `deploy-results/run.txt` | `lilium-run.yml` |
+
 A request runs only if it carries a valid `approval` stamp: `host_transfer_gate.py` adds it after
 the user's typed approval, as an HMAC that only the gate and this host can make. An unstamped request
 (for example one written from a chat without hooks) never runs; `status.php` lists it under
