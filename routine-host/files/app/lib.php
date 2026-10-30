@@ -87,8 +87,14 @@ function r_keys(): array {
         $out['problems'][] = 'a .key file is inside public_html — move it to keys/ (not used)';
     }
     $dir = R_ROOT . '/keys';
-    if (!is_dir($dir)) return $out;
+    if (!is_dir($dir)) @mkdir($dir, 0700, true);        // the host makes its own keys/ folder
     @chmod($dir, 0700);
+    // A key uploaded beside deploy.php (the easiest place in File Manager) is moved into keys/.
+    // A phone often saves it as name.key.txt: the .txt is dropped on the way in.
+    foreach (array_merge(glob(R_ROOT . '/*.key') ?: [], glob(R_ROOT . '/*.key.txt') ?: []) as $loose) {
+        $to = $dir . '/' . preg_replace('/\.txt$/', '', basename($loose));
+        if (!is_file($to)) @rename($loose, $to); else $out['problems'][] = basename($loose) . ': same name already in keys/ (left beside deploy.php)';
+    }
     foreach (glob($dir . '/*.key') ?: [] as $p) {
         @chmod($p, 0600);
         $name = basename($p, '.key');

@@ -55,7 +55,7 @@ token: <token from the routine page>
 ```
 
 `scope` is the dispatcher's name in lower case (`agent-project-backup`, `agent-project-backup-drive`,
-`stylistcrm`). Save it as `domains/routine.hohedoc.ir/keys/<alias>-<scope>.key`, e.g.
+`stylistcrm`). Upload it beside `deploy.php` (the host creates `keys/` itself and moves `*.key` and `*.key.txt` there, dropping `.txt`), or straight into `domains/routine.hohedoc.ir/keys/<alias>-<scope>.key`, e.g.
 `keys/acct-a-agent-project-backup.key` (outside `public_html`). Each routine's `dispatcher:` field in the
 registry names which scope fires it. The host sets the folder to `0700` and the file to `0600`, reads it
 strictly (never `include`), and shows a bad key on the status page by its name only. A `.key` under
