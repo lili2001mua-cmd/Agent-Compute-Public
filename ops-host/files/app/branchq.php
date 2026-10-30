@@ -1,13 +1,16 @@
 <?php
 // delete-branch + reconcile-branch on the host (user's decision 1405-08-07: zero Actions). Same rules as the two
-// workflows in each repo, through the GitHub REST API only, for the five holding repos.
+// workflows in each repo, through the GitHub REST API only, for the holding repos that are not site repos.
 // Door: a request file on Agent-Project-Backup main — Memory-Workflow/branch-ops/queue/<id>.json:
 //   {"repo": "stylistcrm", "action": "delete" | "reconcile", "branches": ["claude/x", ...], "dry_run": false}
 // Only someone who can already push to main can ask, so the door needs no key of its own. The host answers in
 // Memory-Workflow/branch-ops/results/<id>.json (one commit per request). Read every tick (5 min).
 require_once __DIR__ . '/stranded.php';   // ops_gh(), OPS_STRANDED_REPO
 
-const OPS_BRANCH_REPOS = ['Agent-Project-Backup', 'stylistcrm', 'stylistdirectory', 'Gemini-Agent-Backup', 'ChatGPT-Agent-Backup'];
+// stylistcrm and stylistdirectory moved to sites.hohedoc.ir (user's decision 1405-08-08: everything about the sites lives
+// there); a request for them stays in the same queue and sites-host answers it, so this host simply skips it.
+const OPS_BRANCH_REPOS = ['Agent-Project-Backup', 'Gemini-Agent-Backup', 'ChatGPT-Agent-Backup'];
+const OPS_SITE_REPOS = ['stylistcrm', 'stylistdirectory'];
 const OPS_BRANCH_Q = 'Memory-Workflow/branch-ops/queue';
 const OPS_BRANCH_R = 'Memory-Workflow/branch-ops/results';
 const OPS_OWNER = 'lili2001mua-cmd';
@@ -103,11 +106,12 @@ function ops_branch_tick(): void {
             if (!preg_match('/^[A-Za-z0-9._-]+\.json$/', $id) || isset($have[$id]) || isset($st['done'][$id])) continue;
             [$c, $raw] = ops_gh('GET', "$apb/contents/" . OPS_BRANCH_Q . "/$id?ref=main", null, 'application/vnd.github.raw');
             $req = json_decode((string) $raw, true);
+            if (is_array($req) && in_array(strtolower((string) ($req['repo'] ?? '')), OPS_SITE_REPOS, true)) continue;   // sites-host answers it
             $repo = is_array($req) ? ops_repo_ok((string) ($req['repo'] ?? '')) : null;
             $action = $req['action'] ?? '';
             $out = ['id' => $id, 'at' => gmdate('c'), 'repo' => $repo, 'action' => $action, 'dry_run' => (bool) ($req['dry_run'] ?? false), 'items' => []];
             if (!$repo || !in_array($action, ['delete', 'reconcile'], true) || empty($req['branches']) || !is_array($req['branches'])) {
-                $out['error'] = 'bad request: repo must be one of the five, action delete|reconcile, branches a list';
+                $out['error'] = 'bad request: repo must be one of ' . implode(', ', OPS_BRANCH_REPOS) . ', action delete|reconcile, branches a list';
             } else {
                 foreach (array_slice($req['branches'], 0, 30) as $b) $out['items'][] = ops_branch_one($repo, $action, trim((string) $b), $out['dry_run']);
             }
@@ -125,7 +129,7 @@ function ops_branch_tick(): void {
     file_put_contents(ops_var('branch-ops.json'), json_encode($st));
 }
 
-// One probe a day: can the token read and open PRs on each of the five repos? Nothing is written (a PR for a
+// One probe a day: can the token read and open PRs on each repo of OPS_BRANCH_REPOS? Nothing is written (a PR for a
 // branch that does not exist answers 422 when allowed, 403 when not). Booleans only.
 function ops_gh_probe(): void {
     $f = ops_var('gh-probe.json');

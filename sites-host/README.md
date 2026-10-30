@@ -45,6 +45,10 @@ Scheduled read-only jobs (`files/app/jobs.php`, table `DH_JOBS`) run from the sa
 
 Their last result is in `status.php` under `jobs`.
 
+**Branches of the site repos** (`files/app/branches.php`, from `ops.hohedoc.ir` on 1405-08-08): `delete-branch` and
+`reconcile-branch` for every repo in `sites.php`. Same door as before — `Memory-Workflow/branch-ops/queue/<id>.json` on
+Agent-Project-Backup `main`, answer in `results/<id>.json` — this host takes the site repos, ops the rest.
+
 **Drive edit bus** (`files/app/editbus.php`, replaces `drive-edit-drain.yml` and the Apps Script `pollBridge` that woke it):
 every tick it reads `editreq-*.md` from the site's bridge folder, applies `edit` / `delete` to the repo's `main` (one
 commit each, same path guards as the Python drain), answers `read` in `bus-read.md`, logs at the top of `bus-status.md`

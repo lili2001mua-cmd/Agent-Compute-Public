@@ -37,4 +37,12 @@ return [
             'help' => 'https://help.stylistcrm.ir/public/deploy/sync.php',
         ],
     ],
+    // The team's site directory. Its bridge is not wired here yet, so only its branch operations run on this host.
+    'stylistdirectory' => [
+        'repo' => 'stylistdirectory',
+        'queue' => '',
+        'results' => '',
+        'secret' => 'STYLISTDIRECTORY_DEPLOY_SECRET',
+        'envs' => [],
+    ],
 ];
