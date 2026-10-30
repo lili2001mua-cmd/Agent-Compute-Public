@@ -7,6 +7,7 @@
 //   secret   name of the key in secrets.php that signs requests to this site's bridge (sync.php)
 //   stamp    name of the key in secrets.php that checks the user's approval stamp in each request
 //   envs     bridge URL per environment; a request may only name an env listed here
+//   prod     (optional) the production site this test site is compared with by the parity action
 return [
     'stylistcrm' => [
         'repo' => 'stylistcrm',
@@ -14,10 +15,23 @@ return [
         'results' => 'deploy-results/queue',
         'secret' => 'STYLISTCRM_DEPLOY_SECRET',
         'stamp' => 'STYLISTCRM_QUEUE_STAMP_KEY',
+        'prod' => 'stylistcrm-prod',
         'envs' => [
             'pwa' => 'https://pwa.redlilium.ir/deploy/sync.php',
             'hub' => 'https://hub.redlilium.ir/deploy/sync.php',
             'help' => 'https://help.redlilium.ir/public/deploy/sync.php',
+        ],
+    ],
+    // Production copy of the same app; only read by parity (no queue of its own, never deployed to from here).
+    'stylistcrm-prod' => [
+        'repo' => 'stylistcrm',
+        'queue' => '',
+        'results' => '',
+        'secret' => 'STYLISTCRM_PROD_DEPLOY_SECRET',
+        'envs' => [
+            'pwa' => 'https://pwa.stylistcrm.ir/deploy/sync.php',
+            'hub' => 'https://hub.stylistcrm.ir/deploy/sync.php',
+            'help' => 'https://help.stylistcrm.ir/public/deploy/sync.php',
         ],
     ],
 ];
