@@ -45,6 +45,12 @@ Scheduled read-only jobs (`files/app/jobs.php`, table `DH_JOBS`) run from the sa
 
 Their last result is in `status.php` under `jobs`.
 
+**Drive edit bus** (`files/app/editbus.php`, replaces `drive-edit-drain.yml` and the Apps Script `pollBridge` that woke it):
+every tick it reads `editreq-*.md` from the site's bridge folder, applies `edit` / `delete` to the repo's `main` (one
+commit each, same path guards as the Python drain), answers `read` in `bus-read.md`, logs at the top of `bus-status.md`
+and trashes the request. Needs `STYLISTCRM_EDITBUS_FOLDER` in `secrets.php` and a service-account key `drive-sa.json`
+beside it that is Editor on that folder. Result per site in `status.php` under `editbus`.
+
 Every 30 minutes it also sends a read-only `ping` to every environment of every site. Any failure —
 an expired token, a refused signature, a site that is down — lands in `status.php` as `last_error`.
 
@@ -55,7 +61,8 @@ an expired token, a refused signature, a site that is down — lands in `status.
   'GITHUB_TOKEN'             => '<fine-grained token — see below>',
   'STYLISTCRM_DEPLOY_SECRET'   => '<the 'secret' value in deploy/config.php on the stylistcrm sites>',
   'STYLISTCRM_QUEUE_STAMP_KEY' => '<same value as LILIUM_QUEUE_STAMP_KEY in the Claude Code environment>',
-  // two more lines per site, named by its 'secret' and 'stamp' fields in sites.php
+  'STYLISTCRM_EDITBUS_FOLDER'  => '<Drive folder id of the stylistcrm edit bus>',
+  // more lines per site, named by its 'secret', 'stamp' and 'editbus' fields in sites.php
 ];
 ```
 

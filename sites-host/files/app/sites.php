@@ -7,6 +7,8 @@
 //   secret   name of the key in secrets.php that signs requests to this site's bridge (sync.php)
 //   stamp    name of the key in secrets.php that checks the user's approval stamp in each request
 //   envs     bridge URL per environment; a request may only name an env listed here
+//   editbus  (optional) the chat edit bus: secrets.php key holding its Drive folder id (never written here) and the
+//            service-account key file beside secrets.php that can write to that folder
 //   prod     (optional) the production site this test site is compared with by the parity action
 return [
     'stylistcrm' => [
@@ -16,6 +18,7 @@ return [
         'secret' => 'STYLISTCRM_DEPLOY_SECRET',
         'stamp' => 'STYLISTCRM_QUEUE_STAMP_KEY',
         'prod' => 'stylistcrm-prod',
+        'editbus' => ['folder_secret' => 'STYLISTCRM_EDITBUS_FOLDER', 'sa_file' => 'drive-sa.json'],
         'envs' => [
             'pwa' => 'https://pwa.redlilium.ir/deploy/sync.php',
             'hub' => 'https://hub.redlilium.ir/deploy/sync.php',

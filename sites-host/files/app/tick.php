@@ -6,6 +6,7 @@
 if (PHP_SAPI !== 'cli') { http_response_code(404); exit; }
 require __DIR__ . '/jobs.php';
 require __DIR__ . '/ops.php';
+require __DIR__ . '/editbus.php';
 set_time_limit(0);
 file_put_contents(dh_var('last-tick.txt'), (string) time());
 $lock = fopen(dh_var('tick.lock'), 'c');
@@ -15,6 +16,7 @@ try {
     $ping = dh_state()['ping']['at'] ?? '';
     if ($ping === '' || time() - strtotime($ping) > 1800) dh_ping();
     dh_dumps_cleanup();
+    dh_run_editbus();   // each site records its own result; never stops the queue
     dh_run_jobs();      // each job records its own error; a broken queue must not stop the weekly digest
     dh_poll();
     dh_state_set('last_ok', gmdate('c'));
