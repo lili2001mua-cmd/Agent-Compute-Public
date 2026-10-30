@@ -27,8 +27,10 @@ function eb_token(array $site): string {
     $f = (string) ($site['editbus']['sa_file'] ?? '');
     if ($f === '') return '';
     if (isset($cache[$f])) return $cache[$f];
+    // The key may also sit inside secrets.php as DRIVE_SA_JSON (one file to upload instead of two).
+    $inline = trim((string) (dh_secrets()['DRIVE_SA_JSON'] ?? ''));
     $path = $f[0] === '/' ? $f : DH_ROOT . '/' . $f;
-    $sa = @json_decode((string) @file_get_contents($path), true);
+    $sa = @json_decode($inline !== '' ? $inline : (string) @file_get_contents($path), true);
     if (!is_array($sa) || empty($sa['private_key']) || empty($sa['client_email'])) return $cache[$f] = '';
     $now = time();
     $unsigned = eb_b64url(json_encode(['alg' => 'RS256', 'typ' => 'JWT'])) . '.' . eb_b64url(json_encode([
