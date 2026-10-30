@@ -70,7 +70,9 @@ function r_parse_key(string $raw): array {
         $k[$m[1]] = trim($m[2]);
     }
     if (!preg_match('/^acct-[a-z0-9]{1,12}$/', $k['alias'] ?? '')) return ['error' => 'bad alias'];
-    if (!in_array($k['scope'] ?? '', ['repo', 'drive'], true)) return ['error' => 'bad scope'];
+    // scope = the dispatcher's name: the repo slug, plus "-drive" when it carries the Drive connector
+    // (rule 1405-08-08: one dispatcher per repository, named after it).
+    if (!preg_match('/^[a-z0-9][a-z0-9-]{1,48}$/', $k['scope'] ?? '')) return ['error' => 'bad scope'];
     if (!preg_match('#^https://api\.anthropic\.com/[A-Za-z0-9/_.\-]+$#', $k['url'] ?? '')) return ['error' => 'bad url'];
     if (!preg_match('/^\S{20,}$/', $k['token'] ?? '')) return ['error' => 'bad token'];
     if (isset($k['beta']) && !preg_match('/^[a-z0-9\-]{0,64}$/', $k['beta'])) return ['error' => 'bad beta'];

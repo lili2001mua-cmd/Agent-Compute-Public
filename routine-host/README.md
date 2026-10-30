@@ -33,24 +33,33 @@ pulled by cron). Design and the six-expert sign-off: private repo,
 Firing stays **off** until `app/dispatch.flag` says `armed` (a commit in this repo) **and** the host's own
 country probe shows a supported country. Until then every live run becomes a manual package.
 
-## Keys (one per Claude account dispatcher)
+## Keys (one dispatcher per repository, named after it)
 
-In each Claude account, create one routine with **no schedule**, only an **API trigger**, named like
-`dispatcher acct-a repo`. Copy its fire URL and token **exactly** from the routine page into a text file:
+Rule (1405-08-08): in each Claude account, every repository a routine works on gets **its own** dispatcher
+routine, **named exactly after the repository** (`Agent-Project-Backup`, `stylistcrm`, …), so the routine list
+on claude.ai shows at a glance what each one is for. When the same repository also needs the Google Drive
+connector, a second dispatcher is named `<Repository>-drive`. Each dispatcher has **no schedule**, only an
+**API trigger**, the same thin prompt (it reads `Memory-Routine-Runbook/routine-dispatcher.md` from the private
+repo), and these repositories attached: its own repository, plus `Agent-Project-Backup` (where the runbook,
+the registry and the done files live) when it is a different one.
+
+Copy the fire URL and token **exactly** from the routine page into a text file:
 
 ```
 rtk1
 alias: acct-a
-scope: repo
+scope: agent-project-backup
 url: <fire URL from the routine page>
 token: <token from the routine page>
 ```
 
-Save it as `domains/routine.hohedoc.ir/keys/acct-a-repo.key` (outside `public_html`). The host sets the folder to
-`0700` and the file to `0600`, reads it strictly (never `include`), and shows a bad key on the status page by its
-alias only. A `.key` under `public_html` is refused with an alert. `scope` is `repo` (repositories only, no
-connector) or `drive` (with the Google Drive connector). Optional line `beta: <value>` overrides the
-`anthropic-beta` header. Never paste a key into a Claude chat.
+`scope` is the dispatcher's name in lower case (`agent-project-backup`, `agent-project-backup-drive`,
+`stylistcrm`). Save it as `domains/routine.hohedoc.ir/keys/<alias>-<scope>.key`, e.g.
+`keys/acct-a-agent-project-backup.key` (outside `public_html`). Each routine's `dispatcher:` field in the
+registry names which scope fires it. The host sets the folder to `0700` and the file to `0600`, reads it
+strictly (never `include`), and shows a bad key on the status page by its name only. A `.key` under
+`public_html` is refused with an alert. Optional line `beta: <value>` overrides the `anthropic-beta` header.
+Never paste a key into a Claude chat.
 
 To revoke: regenerate the token (or delete the dispatcher) on claude.ai, then replace or delete the file.
 
