@@ -36,12 +36,13 @@ country probe shows a supported country. Until then every live run becomes a man
 ## Keys (one dispatcher per repository, named after it)
 
 Rule (1405-08-08): in each Claude account, every repository a routine works on gets **its own** dispatcher
-routine, **named exactly after the repository** (`Agent-Project-Backup`, `stylistcrm`, …), so the routine list
+routine, **named `<alias>-<Repository>`** (`acct-a-Agent-Project-Backup`, `acct-a-stylistcrm`, …), so the routine list
 on claude.ai shows at a glance what each one is for. When the same repository also needs the Google Drive
 connector, a second dispatcher is named `<Repository>-drive`. Each dispatcher has **no schedule**, only an
 **API trigger**, the same thin prompt (it reads `Memory-Routine-Runbook/routine-dispatcher.md` from the private
-repo), and these repositories attached: its own repository, plus `Agent-Project-Backup` (where the runbook,
-the registry and the done files live) when it is a different one.
+repo), and these repositories attached: its own repository, plus always `Agent-Project-Backup` (the runbook,
+the registry and the done files) and `Agent-Compute-Public` (host packages and the public workflow runner) —
+every holding workflow runs on these three: the host, the private repo and the public repo.
 
 Copy the fire URL and token **exactly** from the routine page into a text file:
 
