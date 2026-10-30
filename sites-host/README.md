@@ -33,6 +33,14 @@ the user's typed approval, as an HMAC that only the gate and this host can make.
 (for example one written from a chat without hooks) never runs; `status.php` lists it under
 `waiting_for_approval`. The selftest stamps its request with the real gate code, so the two stay identical.
 
+Scheduled read-only jobs (`files/app/jobs.php`, table `DH_JOBS`) run from the same tick:
+
+| job | when (UTC) | replaces |
+|---|---|---|
+| `rum-digest` | Saturday 23:17 | `lilium-rum-digest.yml` — reads `storage/rum/<day>.jsonl` through the bridge, writes only aggregates to `speed-results/rum/digest-<from>_<to>.json` (byte-identical to `rum-digest.py`, cells under 20 samples hidden) |
+
+Their last result is in `status.php` under `jobs`.
+
 Every 30 minutes it also sends a read-only `ping` to every environment of every site. Any failure —
 an expired token, a refused signature, a site that is down — lands in `status.php` as `last_error`.
 

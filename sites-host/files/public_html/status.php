@@ -20,5 +20,6 @@ echo json_encode([
     'last_error' => $st['last_error'] ?? null,
     'last_run' => $st['last_run'] ?? null,
     'waiting_for_approval' => $st['waiting_for_approval'] ?? [],
+    'jobs' => $st['jobs'] ?? (object) [],
     'requests_seen' => count($st['done'] ?? []),
 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
