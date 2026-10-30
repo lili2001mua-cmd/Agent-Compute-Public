@@ -22,6 +22,8 @@ $raw = 'https://raw.githubusercontent.com/' . REPO . '/' . $ref . '/sites-host/'
 @mkdir(BASE . '/var', 0700, true);
 $lock = fopen(BASE . '/var/deploy.lock', 'c');
 if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) exit;
+// The secrets file is readable by this account only, whatever permission the upload gave it.
+foreach (['secrets.php', 'secrets-extra.php'] as $f) if (is_file(BASE . '/' . $f)) @chmod(BASE . '/' . $f, 0600);
 
 function fetch(string $url): ?string {
     $ch = curl_init($url . '?t=' . time());
