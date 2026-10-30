@@ -27,6 +27,7 @@ A request has one or more groups, each `{"action", "env", "files"}`:
 | `delete` | removes the files from the site | `lilium-deploy.yml` |
 | `manifest` | pages through the site's file list into `deploy-results/manifest-<env>.txt` (`files: []`) | `lilium-manifest.yml` |
 | `run` | opens one page on the env's own host (`files: ["path?query"]`, never a full URL); body into `deploy-results/run.txt` | `lilium-run.yml` |
+| `probe` | read-only speed test of the env (`files: ["<label>"]`, 5 runs per URL) into `speed-results/probe-<env>-<label>-<utc>.json` | `lilium-speed-probe.yml` |
 
 A request runs only if it carries a valid `approval` stamp: `host_transfer_gate.py` adds it after
 the user's typed approval, as an HMAC that only the gate and this host can make. An unstamped request

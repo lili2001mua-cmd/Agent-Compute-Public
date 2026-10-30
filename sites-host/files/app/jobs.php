@@ -141,3 +141,91 @@ function dh_run_jobs(?string $only = null): array {
     }
     return $done;
 }
+
+// ---------------------------------------------------------------- speed probe (port of .github/scripts/speed-probe.py)
+// Read-only GET/HEAD timings and cache headers of the live site, measured from this host (Germany) — the same
+// vantage point the GitHub runner had. Nothing personal is kept: no cookie, no IP, no page body.
+const PROBE_PATHS = ['/auth/login', '/assets/css/ticktime.css', '/assets/js/jquery.min.js', '/assets/js/custom.js',
+    '/assets/js/chart.js', '/assets/css/toastr.css', '/assets/js/toastr.min.js', '/assets/js/jalalidatepicker.min.js',
+    '/assets/css/jalalidatepicker.min.css', '/assets/stylist/logo.jpg', '/favicon.ico', '/manifest.webmanifest',
+    '/manifest.php', '/service-worker.js', '/version.php', '/assets/js/version-check.js'];
+const PROBE_HDRS = ['cache-control', 'expires', 'etag', 'last-modified', 'content-encoding', 'vary', 'server',
+    'x-litespeed-cache', 'x-cache', 'x-cache-status', 'age', 'cf-cache-status', 'x-proxy-cache',
+    'content-type', 'content-length', 'strict-transport-security', 'x-powered-by'];
+
+// One request; returns timings like curl -w (seconds) and, when asked, the selected response headers or the body.
+function probe_req(string $url, array $hdr = [], bool $follow = false, string $want = 'times') {
+    $h = []; $ch = curl_init($url);
+    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 60, CURLOPT_FOLLOWLOCATION => $follow,
+        CURLOPT_HTTPHEADER => $want === 'times' ? array_merge(['Cache-Control: no-cache'], $hdr) : $hdr,
+        CURLOPT_ENCODING => null, CURLOPT_USERAGENT => 'curl/8',
+        CURLOPT_HEADERFUNCTION => function ($c, $line) use (&$h) {
+            $t = trim($line);
+            if (strncmp($t, 'HTTP/', 5) === 0) { $h = ['status' => $t]; }
+            elseif (strpos($t, ':') !== false) { [$k, $v] = explode(':', $t, 2); $k = strtolower(trim($k)); if (in_array($k, PROBE_HDRS, true)) $h[$k] = trim($v); }
+            return strlen($line);
+        }]);
+    $body = curl_exec($ch);
+    if ($body === false) { $e = curl_error($ch); curl_close($ch); return $want === 'body' ? '' : ['error' => substr($e, 0, 200)]; }
+    $i = curl_getinfo($ch); curl_close($ch);
+    if ($want === 'headers') return $h;
+    if ($want === 'body') return (string) $body;
+    $ver = [1 => '1', 2 => '1.1', 3 => '2', 30 => '3'][(int) ($i['http_version'] ?? 0)] ?? '0';
+    return ['code' => (int) $i['http_code'], 'dns' => $i['namelookup_time'], 'connect' => $i['connect_time'],
+            'tls' => $i['appconnect_time'] ?? 0, 'ttfb' => $i['starttransfer_time'],
+            'total' => $i['total_time'], 'size' => (int) $i['size_download'], 'redirects' => (int) $i['redirect_count'], 'http' => $ver];
+}
+
+function probe_med(array $xs, string $k): ?float {
+    $v = [];
+    foreach ($xs as $x) if (is_array($x) && isset($x[$k])) $v[] = (float) $x[$k];
+    if (!$v) return null;
+    sort($v); $n = count($v);
+    $m = $n % 2 ? $v[intdiv($n, 2)] : ($v[$n / 2 - 1] + $v[$n / 2]) / 2;
+    return round($m, 4, PHP_ROUND_HALF_EVEN);
+}
+
+function job_speed_probe(array $site, string $env, string $label, int $runs = 5): array {
+    $u = parse_url(dh_endpoint($site, $env));
+    $host = $u['host']; $base = 'https://' . $host;
+    $gzip = ['Accept-Encoding: gzip, deflate, br'];
+    $rep = ['base' => $base, 'label' => $label, 'utc' => gmdate('Y-m-d\TH:i:s\Z'),
+            'runner_note' => 'sites.hohedoc.ir (Germany, outside Iran): network times include host-to-site distance; server and header facts are real.',
+            'items' => []];
+    foreach (PROBE_PATHS as $p) {
+        $url = $base . $p;
+        $item = ['path' => $p, 'headers_compressed' => probe_req($url, $gzip, false, 'headers')];
+        $gz = []; for ($i = 0; $i < $runs; $i++) $gz[] = probe_req($url, $gzip);
+        $raw = probe_req($url);
+        $item['runs'] = count($gz);
+        foreach (['dns', 'connect', 'tls', 'ttfb', 'total'] as $k) $item['median_' . $k] = probe_med($gz, $k);
+        $item['code'] = $gz[0]['code'] ?? null;
+        $item['http_version'] = $gz[0]['http'] ?? null;
+        $item['bytes_on_wire'] = $gz[0]['size'] ?? null;
+        $item['bytes_uncompressed'] = $raw['size'] ?? null;
+        $et = $item['headers_compressed']['etag'] ?? null; $lm = $item['headers_compressed']['last-modified'] ?? null;
+        if ($et || $lm) {
+            $c = probe_req($url, [$et ? 'If-None-Match: ' . $et : 'If-Modified-Since: ' . $lm]);
+            $item['revalidate_code'] = $c['code'] ?? null; $item['revalidate_total'] = $c['total'] ?? null;
+        }
+        $errs = array_values(array_filter(array_map(fn($x) => $x['error'] ?? null, $gz)));
+        if ($errs) $item['errors'] = array_slice($errs, 0, 2);
+        $rep['items'][] = $item;
+    }
+    $tok = sprintf('probe%06d', random_int(0, 999999));
+    $fc = [];
+    foreach (['A1' => '?v=probeA', 'A2' => '?v=probeA', 'B_new' => '?v=' . $tok] as $n => $q) $fc[$n] = probe_req($base . '/assets/js/custom.js' . $q, [], false, 'headers');
+    $rep['front_cache_key_test'] = $fc;
+    $page = $env === 'help' ? '/login' : '/auth/login';
+    $html = probe_req($base . $page, [], false, 'body');
+    preg_match_all('#["\'](/(?:public/)?assets/[^"\'?]+\.(?:js|css))(\?v=\d+)?["\']#', $html, $m, PREG_SET_ORDER);
+    $sb = json_decode(probe_req($base . '/version.php', [], false, 'body'), true)['build'] ?? null;
+    $unv = array_values(array_unique(array_map(fn($r) => $r[1], array_filter($m, fn($r) => empty($r[2])))));
+    sort($unv);
+    $rep['freshness_test'] = ['page' => $page, 'asset_refs' => count($m), 'versioned' => count(array_filter($m, fn($r) => !empty($r[2]))),
+        'unversioned' => $unv, 'page_build' => preg_match('/name="app-build" content="(\d+)"/', $html, $mb) ? (int) $mb[1] : null, 'server_build' => $sb];
+    $rep['redirect_http_root'] = probe_req('http://' . $host . '/', [], true);
+    $name = 'speed-results/probe-' . $env . '-' . $label . '-' . gmdate('Ymd-His') . '.json';
+    dh_put_file($site, $name, json_encode($rep, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), "speed-probe: $env $label (sites-host)");
+    return ['action' => 'probe', 'env' => $env, 'ok' => true, 'file' => $name, 'freshness' => $rep['freshness_test']];
+}
