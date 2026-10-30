@@ -19,6 +19,11 @@ repeated), reads each new request at the commit that wrote it, signs the body li
 `lilium-call.py`, POSTs it to the site's `sync.php`, and writes the result back to `main`.
 Each request runs once. One broken site does not stop the others.
 
+A request runs only if it carries a valid `approval` stamp: `host_transfer_gate.py` adds it after
+the user's typed approval, as an HMAC that only the gate and this host can make. An unstamped request
+(for example one written from a chat without hooks) never runs; `status.php` lists it under
+`waiting_for_approval`. The selftest stamps its request with the real gate code, so the two stay identical.
+
 Every 30 minutes it also sends a read-only `ping` to every environment of every site. Any failure —
 an expired token, a refused signature, a site that is down — lands in `status.php` as `last_error`.
 
@@ -27,8 +32,9 @@ an expired token, a refused signature, a site that is down — lands in `status.
 ```php
 <?php return [
   'GITHUB_TOKEN'             => '<fine-grained token — see below>',
-  'STYLISTCRM_DEPLOY_SECRET' => '<same value as deploy/config.php on the stylistcrm sites>',
-  // one more line per site, named by its 'secret' field in sites.php
+  'STYLISTCRM_DEPLOY_SECRET'   => '<the 'secret' value in deploy/config.php on the stylistcrm sites>',
+  'STYLISTCRM_QUEUE_STAMP_KEY' => '<same value as LILIUM_QUEUE_STAMP_KEY in the Claude Code environment>',
+  // two more lines per site, named by its 'secret' and 'stamp' fields in sites.php
 ];
 ```
 

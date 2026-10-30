@@ -8,7 +8,7 @@ header('X-Robots-Tag: noindex');
 
 $st = dh_state();
 $present = [];
-foreach (array_merge(['GITHUB_TOKEN'], array_column(dh_sites(), 'secret')) as $k) $present[$k] = trim((string) (dh_secrets()[$k] ?? '')) !== '';
+foreach (array_merge(['GITHUB_TOKEN'], array_column(dh_sites(), 'secret'), array_column(dh_sites(), 'stamp')) as $k) $present[$k] = trim((string) (dh_secrets()[$k] ?? '')) !== '';
 $lastTick = (int) @file_get_contents(dh_var('last-tick.txt'));
 echo json_encode([
     'php' => PHP_VERSION,
@@ -19,5 +19,6 @@ echo json_encode([
     'last_ok' => $st['last_ok'] ?? null,
     'last_error' => $st['last_error'] ?? null,
     'last_run' => $st['last_run'] ?? null,
+    'waiting_for_approval' => $st['waiting_for_approval'] ?? [],
     'requests_seen' => count($st['done'] ?? []),
 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);

@@ -32,8 +32,6 @@ if (preg_match("#^$p/contents/deploy-results/queue/(\w+)\.json$#", $path, $m)) {
     if ($m[1] === 'old' || is_file($f)) $json(200, ['sha' => 'r1']);
     $json(404, []);
 }
-if ($path === "$p/contents/deploy-queue/new.json") { echo json_encode(['ref' => 'main', 'groups' => [
-    ['action' => 'deploy', 'env' => 'pwa', 'files' => ['pwa/public_html/a.php']],
-    ['action' => 'delete', 'env' => 'hub', 'files' => ['hub/public_html/b.php']]]]); exit; }
+if ($path === "$p/contents/deploy-queue/new.json") { readfile("$dir/new.json"); exit; }
 if ($path === "$p/contents/pwa/public_html/a.php") { echo "<?php echo 1;\n"; exit; }
 $json(404, ['path' => $path]);

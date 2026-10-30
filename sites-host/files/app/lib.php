@@ -221,11 +221,37 @@ function dh_run(string $name, array $site, array $q, string $commit): array {
     return $out;
 }
 
+// ---------------------------------------------------------------- the user's approval, carried in the request
+// A session writes a queue file only after the user's typed "تأیید انتقال به هاست"; host_transfer_gate.py
+// (Agent-Project-Backup) then puts an "approval" stamp in it: HMAC over this exact text with a key only the
+// gate and this host hold. A request without a valid stamp (e.g. written from a chat with no hooks) is never
+// run; it waits and status.php lists it. Text and MAC must stay identical to stamp_message() in the gate.
+const DH_STAMP_MAX_AGE = 21600;            // 6 h, the same window the Google scheduler accepted
+
+function dh_stamp_message(string $id, array $req, int $at, string $quote): string {
+    $lines = ['lilium-queue-stamp/v1', 'id=' . $id, 'ref=' . ((string) ($req['ref'] ?? '') ?: 'main'), 'at=' . $at, 'quote=' . $quote];
+    foreach ($req['groups'] ?? [] as $g) {
+        $lines[] = implode(' ', array_merge([(string) ($g['action'] ?? ''), (string) ($g['env'] ?? '')], array_map('strval', $g['files'] ?? [])));
+    }
+    return implode("\n", $lines);
+}
+
+function dh_stamp_ok(array $site, string $id, array $req): bool {
+    $key = trim((string) (dh_secrets()[$site['stamp'] ?? ''] ?? ''));
+    $a = $req['approval'] ?? null;
+    if ($key === '' || !is_array($a) || ($a['v'] ?? 0) !== 1 || !is_int($a['at'] ?? null) || ($a['quote'] ?? '') === '') return false;
+    $age = time() - $a['at'];
+    if ($age < 0 || $age > DH_STAMP_MAX_AGE) return false;
+    $mac = hash_hmac('sha256', dh_stamp_message($id, $req, $a['at'], (string) $a['quote']), $key);
+    return hash_equals($mac, (string) ($a['mac'] ?? ''));
+}
+
 // ---------------------------------------------------------------- one poll over every site
 // Each request runs once. Requests that already have a result file (run by the Google channel or by
-// lilium-deploy.yml) are only marked done, never re-run. One broken site does not stop the others.
+// lilium-deploy.yml) are only marked done, never re-run. A request without a valid approval stamp waits.
+// One broken site does not stop the others.
 function dh_poll(): int {
-    $ran = 0; $errors = [];
+    $ran = 0; $errors = []; $waiting = [];
     foreach (dh_sites() as $name => $site) {
         try {
             $done = dh_state()['done'] ?? [];
@@ -234,6 +260,8 @@ function dh_poll(): int {
                 if (isset($done[$key])) continue;
                 if (dh_result_exists($site, $q['id'])) { $done[$key] = 'existing'; dh_state_set('done', $done); continue; }
                 $commit = dh_last_commit($site, $q['path']);
+                $req = dh_read_request($site, $q['path'], $commit);
+                if ($req && !dh_stamp_ok($site, $q['id'], $req)) { $waiting[] = $key; continue; }
                 $done[$key] = gmdate('c');      // one-shot, even if the run fails (same as the Google channel)
                 dh_state_set('done', $done);
                 $out = dh_run($name, $site, $q, $commit);
@@ -244,6 +272,7 @@ function dh_poll(): int {
             $errors[] = $name . ': ' . $e->getMessage();
         }
     }
+    dh_state_set('waiting_for_approval', $waiting);
     if ($errors) throw new RuntimeException(implode(' | ', $errors));
     return $ran;
 }

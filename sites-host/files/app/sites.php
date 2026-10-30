@@ -5,6 +5,7 @@
 //   queue    folder of request files written by a Claude session after the user's typed approval
 //   results  folder the host writes one result file per request into
 //   secret   name of the key in secrets.php that signs requests to this site's bridge (sync.php)
+//   stamp    name of the key in secrets.php that checks the user's approval stamp in each request
 //   envs     bridge URL per environment; a request may only name an env listed here
 return [
     'stylistcrm' => [
@@ -12,6 +13,7 @@ return [
         'queue' => 'deploy-queue',
         'results' => 'deploy-results/queue',
         'secret' => 'STYLISTCRM_DEPLOY_SECRET',
+        'stamp' => 'STYLISTCRM_QUEUE_STAMP_KEY',
         'envs' => [
             'pwa' => 'https://pwa.redlilium.ir/deploy/sync.php',
             'hub' => 'https://hub.redlilium.ir/deploy/sync.php',
