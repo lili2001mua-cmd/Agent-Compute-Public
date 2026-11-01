@@ -53,7 +53,7 @@ function studio_key_ok(): bool {
 
 function studio_repo_auth_ok(string $nonce, string $ref): bool {
     if (!preg_match('/^[a-f0-9]{64}$/', $nonce)) return false;
-    if (!preg_match('#^[A-Za-z0-9._/-]{1,120}$#', $ref) || str_contains($ref, '..')) return false;
+    if (!studio_ref_is_branch($ref)) return false;
     $h = hash('sha256', $nonce);
     $dir = studio_var('auth'); if (!is_dir($dir)) mkdir($dir, 0700, true);
     $cache = "$dir/$h";
@@ -64,6 +64,24 @@ function studio_repo_auth_ok(string $nonce, string $ref): bool {
     $exp = (int) ($r['exp'] ?? 0);
     if ($exp <= time() || $exp > time() + 26 * 3600) return false;
     file_put_contents($cache, (string) $exp, LOCK_EX);
+    return true;
+}
+
+// ⛔ Only a real BRANCH proves push access (1405-08-10 · flaw: repo-auth-accepts-pull-request-refs).
+// raw.githubusercontent.com also serves refs/pull/N/head and fork commits through the base repo's URL, and anyone can
+// open a pull request on a public repo. So the shape check is not enough: the ref must be a branch name (no refs/,
+// no pull/, not a bare commit hash) AND the GitHub API must confirm the branch exists. A branch is cached for 1 hour.
+function studio_ref_is_branch(string $ref): bool {
+    if (!preg_match('#^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$#', $ref) || strlen($ref) > 120 || str_contains($ref, '..')) return false;
+    if (preg_match('#^(refs|pull)(/|$)#i', $ref) || preg_match('/^[0-9a-f]{7,40}$/i', $ref)) return false;
+    $dir = studio_var('auth'); if (!is_dir($dir)) mkdir($dir, 0700, true);
+    $cache = "$dir/branch-" . hash('sha256', $ref);
+    $t = (int) @file_get_contents($cache);
+    if ($t > time() - 3600) return true;
+    [$code, $r] = studio_http('GET', 'https://api.github.com/repos/' . STUDIO_AUTH_REPO . '/branches/' . str_replace('%2F', '/', rawurlencode($ref)),
+        ['Accept: application/vnd.github+json'], null, 20);
+    if ($code !== 200 || !is_array($r) || ($r['name'] ?? '') !== $ref) return false;
+    file_put_contents($cache, (string) time(), LOCK_EX);
     return true;
 }
 
