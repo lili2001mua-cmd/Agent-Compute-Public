@@ -26,6 +26,7 @@ if (preg_match('#^/(pwa|hub|help)/sync\.php$#', $path, $m)) {
 }
 // secprobe: one exposed file, one listing directory, an error page that leaks a path; everything else 404.
 if ($path === '/.env') { $log('secprobe env'); echo "DB_PASS=x\n"; exit; }
+if ($path === '/config/sms.php') { exit; }   // runs, prints nothing: not an exposure
 if ($path === '/backup/') { echo '<title>Index of /backup</title>'; exit; }
 if (strpos($path, '/this-path-should-not-exist-') === 0) { http_response_code(404); echo 'Fatal error in /home/u/x.php'; exit; }
 if (in_array($path, ['/', '/.git/HEAD', '/phpinfo.php'], true) || preg_match('#^/(\\.git|\\.env|config|db|view|snapshot|backups?|dump|database|composer|package|info|test)#', $path)) {

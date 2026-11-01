@@ -272,6 +272,9 @@ function secprobe_verdict(string $path, array $r): array {
         if (substr($path, -1) === '/') {
             return preg_match('/Index of|<title>Directory|Parent Directory/i', $r['body']) ? ['🔴 لیستِ دایرکتوریِ باز', true] : ['🟠 ۲۰۰ (محتوا؟)', false];
         }
+        // A .php file that answers 200 with an empty body ran and printed nothing (a config file that only
+        // returns an array): nothing leaked. The shell original called this an exposure (first live run 1405-08-10).
+        if (substr($path, -4) === '.php' && $r['size'] === 0) return ['🟡 اجرا شد، خروجیِ خالی', false];
         return ['🔴 افشا', true];
     }
     if ($c === 401 || $c === 403) return ['🟠 محافظت‌شده', false];
