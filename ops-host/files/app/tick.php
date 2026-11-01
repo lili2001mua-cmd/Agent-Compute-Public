@@ -72,6 +72,3 @@ $sa = @json_decode((string) @file_get_contents(OPS_ROOT . '/drive-sa.json'), tru
 $df['sa_valid'] = is_array($sa) && ($sa['type'] ?? '') === 'service_account' && !empty($sa['private_key']);
 file_put_contents(ops_var('drive-files.json'), json_encode($df));
 
-// sync-routing-digest, Google Drive half (app/drive.php): bridge files + routing card, every 30 min, only on change.
-require_once __DIR__ . '/drive.php';
-ops_drive_tick();
