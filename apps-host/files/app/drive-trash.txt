@@ -1,75 +1,11 @@
-# 1405-08-11 — empty folders inside Memory-Cloud (user: «هر پوشه‌ای که خالی است … حذف کن»).
-# Kept on purpose although empty: Video Under Review (pool intake), termux-manager/tasks, tasks/pending, tasks/done (phone relay queue).
-1m-5rxIOoy8xNffk-ejJfqYiiYH4hOgMw
-16Kbow_55w4yVVI7FLMGcXkmhJYtmJiIn
-1yEnuvkqC6_qAKJ7QxnWJf1JGInutfUqI
-1FiCxNDaoum33aOQklauZgcYcv7ApKxT6
-1Aj_JLZ2rVY544QotlvAWVAghRP4uoEll
-1cCA4Mk4zyVXBb0VFkJXITyQZh_94A-7m
-1VGYNNiKIdLONMiwlQjGWSZTmgu8kFV9w
-1TAl0FGSXX8tMbH-U_AyO2xiNo4ajup4A
-1gWp2XQUHPv2Y_ZbqsWwtAbKql6LBiied
-1dTMfxXTKRJHYca8T12Wi6sES7HSnfEoe
-1ir5bZs7kLMF1KQzv8Q2ULKS3eyTk_343
-1-cP4XM4eVPjcKOEAEMG6HqzCt1gImcxE
-1v9xeugtvVIN1AE5WGVpLBVIYSmFzsmpC
-1VWR7RzbadwI8SMRj1wy-IVAEaxJkOBl9
-1_ZxcFbA1KybswoOIVTQi2qguJ0XsDwtu
-12K1W5JeBaEuc4bBjOmEcecJzdl6qXvv2
-1ngrSge3a0wNeKRiqI6pcgsQvBBXnP6Nw
-18TfaexlMHQZsrlYIGZmAzz8-gYs06XnZ
-1uiNNp7lYB-2MJW2GQ5o1xWgJVY8lizS-
-1RTJ7SDrCUWC5xV5aHqSUj4i4Q2Ol7Ptd
-1yq10jk48Z6XI9-9VAmaw9ZDqXr29_3HU
-13BkPVhy1bARoLFwlhq5Sgf4yfuQTYkhQ
-1JHntA3JUgjOpEaVWqfsZTA0zTWUvPBZ0
-1bGbZjiWtyN5DxJyRFbIg3K3dQEPq7mjR
-1tLGYPtA0dDbpnVCoLMajsoZvePx_CwMM
-1U8B4t7awuH1QDFK-ZSlbkoqKdnjGya07
-1WCJx6ZpS0znmi9I0SwVzD0kCjYOjq-4A
-1tW3BBWgRED7v-8VaDnGFPsYzfmhTFgIe
-1HAQAZfiMSvLZxcdigLXl0m7RCPX6bGa8
-1bP-7ishjQrWnk3C5d2NjTghwMo6ojn5D
-1xEsat3qDxrgPuunDGvj07hkRJM-ljuNI
-1ABOpdFPxo4DLgHM3hxpgQ2BbROAeqKUB
-16r4OLuYfn9Q6tl2986OkHce0OIufMMon
-1p6vwCZ4yXL90RiZRDFuOr1LTtKMYaaNA
-113OLPZfZHEMLWHdio4lD9x2G7qyJqu3_
-1FzH64MC65kvWMfFuOlB7PTm4bmgd3-R7
-1HYAgOkcz4bNHpqZMWb2dBp9XNQvaknCA
-1uOGqcPqfT7x-OkzWPpmYMmywQt48yu1i
-1uAF2D0kRK9JCKRqex3ZkmB1UBfKTC2Y8
-1xGAwDP1Mg2c2ZLoLOP6UGHS-furoM8IP
-1UWA41aWA5q2lzAeCh9ZwPeaOkxKCRsyp
-1Ar5_uQoWebf4k3FyYlorMQDE5-1chIjP
-1pET_bN1X0hihvUJBHjNksMC63mYsL2sM
-1CWmYtiTAWJfkXOdN7k-0DwSpqqoVGCDf
-10eLmwxp2holETfTSnuiCmMVLtCE8CMRm
-1tymxXYa34fR0q4bzaRyTbPpWr1DnRm79
-1ZFg6bDW5hX0AhiSyr0Zrsj50IfSyV8Yp
-1FTuraGSYmssDwMQpCGP_oGaDducLXpQp
-1IzcPUp3-HJzMmFa2ExzcDOLLaEb8W7dv
-14dDDRMFexAKq8L4Xiv8kf7xu3qih-VUr
-1wkX3oAzWdNVllKHsiHrc2BGI3Bfl8KEV
-1UPtSsMH7e8SC7yAv6D4mb3PTIzeDwf7E
-1ghYuo3fPLCsDoRmMjrHqq0JGBEy6NEXi
-1J4X0ch46EFKo5lfrCqJjILhF6sRiOugd
-1AUoHMvnBq8b92SV2vK26fLveNP5OzyeW
-1XJU83nBkod9311WsLc-SVyUxvu0aSXL7
-1tfhpIrnYjH41wNjFtCMDDWqkEOD9Z0EV
-17b-GTZ21NxYI6_vmj9Y1pFLMqEfj7ryy
-1GaeNL8iLGwPoivELE2a0eermbqZTpgZ8
-1KRNjplx2JA0pG-0uag2IrDH95iuV2iKs
-1Mi66ei5glkTspZkYjiN87B_WTJcUC080
-141GgfWQexjC_9Yj15Esf8Ode0X91HylL
-1bWwjkMarbL6IAPBQPXDOB_2O4tH8tk-B
-17tzGqohX-_AT6d8VH8E1bHuIkeG5oQ0I
-16xdtAcpwNPzYDHcRovDc71x-W4JOyQJs
-1M0UJz1xw9q0tD05H0qhfx41bR2tZc_my
-1PEl4SUFcteeqYQmdbu09_WYe2wP0NZBn
-1o67B5J3eaDZ8h2vwDwllWr1g3OWl92yK
-18jt5sVy_juHJd4M81QAmUY43xr8-RovV
-1SkwBfs-NkhiJD5_9OENsn7BPL4gHrdT0
-1-O82HVzUqYyM8Ianw1Fc1eaa1a2znoTW
-1rf5uabR5GjWtBHNCigzPNsq2eDNwrLei
-1gvqL1xVCWkrzp_glRgoG6b4k9ELbP-zt
+# 1405-08-11 — 10 orphan intake-pool bundles with no record in Memory-Workflow/intake-pool/state (user chose option 1).
+1XmJ_oE9jkwRzxPeemz3D-oQRhxbxvBbr  # b8301
+1_YcJEFOQ69iMM6NO4yrY3mjt4oyI-hKk  # b8284
+17XX3B7zViju5zaN9MRsZLqMDRw_xAQsB  # b8282
+1938ncuVEERrHLQ3PKvlJwTQOI_gpYEw0  # b8280
+1dhIJX8247Yxsy5evswmz9Rl_-dayGSA_  # b8278
+1Afugi89__V7VgE_M6MyJmMOEfi49TLfE  # b8276
+1Kw_taGZfz3SHqDYSqo_TfHl0oxKItqAA  # b8274
+1YgD_Z1z75Dg8uUe6pdyPblhIQr3ROQMk  # b6055
+1r0RWUTqr6NPuUXHoxwnv7U3rls_eDBU-  # b4591
+1OnF-HWKn3_hCs8_fVGsdwSEzmvnDQBA5  # b2524
