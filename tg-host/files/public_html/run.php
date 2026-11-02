@@ -40,6 +40,8 @@ if (isset($_SERVER['HTTP_X_TG_INTAKE'])) {
     out($code, $body);
 }
 $roles = tg_key_roles((string) ($_SERVER['HTTP_X_TG_KEY'] ?? ''));
+// No key ⇒ the repo-native pass (X-Tg-Nonce + X-Tg-Ref, READ role only — tg_repo_role in app/lib.php).
+if (!$roles) { $rr = tg_repo_role((string) ($_SERVER['HTTP_X_TG_NONCE'] ?? ''), (string) ($_SERVER['HTTP_X_TG_REF'] ?? '')); if ($rr) $roles = [$rr]; }
 if (!$roles) out(401, ['error' => 'unauthorized']);
 $role = $roles[0];
 if (isset($_SERVER['HTTP_X_TG_UPLOAD'])) tg_upload_chunk(array_intersect(['chain', 'admin'], $roles) ? 'chain' : $role, (string) $_SERVER['HTTP_X_TG_UPLOAD']);
