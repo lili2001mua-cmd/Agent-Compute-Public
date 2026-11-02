@@ -303,8 +303,65 @@ function relay_publish(string $joined, array $a, string $md5): array {
         'home' => 'relay'];
 }
 
+// ---------------------------------------------------------------- Iran relay: read one Iranian page (1405-08-11)
+// Orchestra github-native-doors, section D. The session reaches this door with its GitHub pass; the relay is not reachable
+// from the session and holds no shared secret with this host. So: the task waits here (public_html/relay-tasks.php lists
+// it), the relay's intake/tasks.php pulls it, fetches the page itself (its own allow-list + daily cap per domain), and
+// writes the answer on ITS OWN disk at tasks-out/<out>.json; we read it back from relay.hohe1.ir. Integrity comes from
+// that last step: only the relay can write to relay.hohe1.ir. Nothing here is secret — the pages are public Iranian sites.
+const RELAY_TASKS_URL = 'https://relay.hohe1.ir/intake/tasks.php';
+const RELAY_OUT_BASE = 'https://relay.hohe1.ir/tasks-out/';
+const IRANIAN_COM = ['digikala.com', 'torob.com', 'aparat.com', 'behtarino.com', 'shahrint.com', 'royasho.com',
+    'digistyle.com', 'basalam.com', 'sheypoor.com', 'filimo.com'];   // same list as the relay's run.php
+
+function relay_host_ok(string $host): bool {
+    $host = strtolower($host);
+    if ($host === '' || !preg_match('/^[a-z0-9.-]+$/', $host)) return false;
+    if (substr($host, -3) === '.ir') return true;
+    foreach (IRANIAN_COM as $d) if ($host === $d || substr($host, -strlen($d) - 1) === ".$d") return true;
+    return false;
+}
+function relay_tasks_dir(): string { $d = apps_var('relay-tasks'); if (!is_dir($d)) mkdir($d, 0700, true); return $d; }
+function relay_tasks_list(): array {
+    $out = [];
+    foreach (glob(relay_tasks_dir() . '/*.json') ?: [] as $p) {
+        $t = json_decode((string) file_get_contents($p), true);
+        if (is_array($t) && ($t['at'] ?? 0) > time() - 3600) $out[] = ['id' => $t['id'], 'url' => $t['url'], 'out' => $t['out']];
+        elseif (filemtime($p) < time() - 3600) @unlink($p);
+    }
+    return $out;
+}
+function relay_get(string $url, int $timeout): array {
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => $timeout, CURLOPT_FOLLOWLOCATION => false,
+        CURLOPT_HTTPHEADER => ['User-Agent: apps-host']]);
+    $raw = curl_exec($ch); $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE); $err = curl_error($ch); curl_close($ch);
+    return [$code, is_string($raw) ? $raw : '', $err];
+}
+function run_relay_fetch(array $a): array {
+    $url = trim((string) ($a['url'] ?? ''));
+    $u = parse_url($url);
+    if (!is_array($u) || !in_array(strtolower($u['scheme'] ?? ''), ['http', 'https'], true) || !relay_host_ok((string) ($u['host'] ?? '')))
+        throw new RuntimeException('url must be http(s) on an Iranian domain (.ir or the relay list)');
+    if (strlen($url) > 2000) throw new RuntimeException('url too long');
+    $t = ['id' => bin2hex(random_bytes(16)), 'url' => $url, 'out' => bin2hex(random_bytes(16)), 'at' => time()];
+    $p = relay_tasks_dir() . '/' . $t['id'] . '.json';
+    file_put_contents($p, json_encode($t, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+    try {
+        [$c, $raw, $e] = relay_get(apps_secret('RELAY_TASKS_URL') ?: RELAY_TASKS_URL, 240);
+        $poke = json_decode($raw, true);
+        if ($c !== 200 || !is_array($poke)) throw new RuntimeException('relay tasks.php: ' . ($e !== '' ? "network: $e" : "http-$c " . substr($raw, 0, 160)));
+        [$c2, $raw2, $e2] = relay_get((apps_secret('RELAY_OUT_BASE') ?: RELAY_OUT_BASE) . $t['out'] . '.json', 60);
+        $r = json_decode($raw2, true);
+        if ($c2 !== 200 || !is_array($r) || ($r['id'] ?? '') !== $t['id']) throw new RuntimeException('relay answer missing (http-' . $c2 . '): ' . json_encode($poke['failed'] ?? $poke, JSON_UNESCAPED_UNICODE));
+        return $r;
+    } finally {
+        @unlink($p);
+    }
+}
+
 // ---------------------------------------------------------------- queue (cron-driven, no web time limit)
-const QUEUED = [];                         // nothing is queued straight from the door
+const QUEUED = ['relay_fetch'];            // only relay_fetch is queued straight from the door (GitHub-pass or key)
 const INTERNAL = ['app_send', 'doc_send'];  // only enqueued by the host itself
 
 function queue_dir(): string { $d = apps_var('queue'); if (!is_dir($d)) mkdir($d, 0700, true); return $d; }
