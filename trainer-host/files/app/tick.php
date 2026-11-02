@@ -4,6 +4,8 @@
 // dispatches it on the private repo (Actions runs only on demand). No Telegram, no session here.
 if (PHP_SAPI !== 'cli') { http_response_code(404); exit; }
 require __DIR__ . '/lib.php';
+require_once __DIR__ . '/vault-sync.php';
+hv_sync(TRAINER_ROOT, ['GH_DISPATCH_TOKEN' => 'gh-write-host.php']);   // before the first trainer_secret() call
 // cleanup-spike (one-off, flag-driven; see jobs/cleanup-spike.php): removes the MadelineProto spike leftovers.
 require __DIR__ . '/jobs/cleanup-spike.php';
 cleanup_spike_run();

@@ -4,6 +4,8 @@
 // accept this host every 30 minutes. Every failure is written to state.json so status.php shows it:
 // the Google channel stopped silently for weeks because an unreadable queue looked like an empty one.
 if (PHP_SAPI !== 'cli') { http_response_code(404); exit; }
+require_once __DIR__ . '/vault-sync.php';
+hv_sync(__DIR__ . '/..', ['GITHUB_TOKEN' => 'gh-write-host.php']);   // before the first dh_secret() call
 require __DIR__ . '/jobs.php';
 require __DIR__ . '/ops.php';
 require __DIR__ . '/editbus.php';
