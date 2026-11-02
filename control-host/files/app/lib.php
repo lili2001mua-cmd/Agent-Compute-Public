@@ -1,9 +1,12 @@
 <?php
 // Shared helpers for control.hohedoc.ir — the control server of the My-Control-Project app.
 // Design: Agent-Project-Backup/Memory-Workflow/idea-orchestrations/holding-control-connection/HANDBOOK.md (v4).
-// Secrets live in ../secrets.php (next to deploy.php, outside public_html, never in git):
-//   const GH_TOKEN    = '<fine-grained token: only Agent-Project-Backup · Actions RW · Contents RW · Metadata R>';
-//   const DEVICE_KEYS = ['phone1' => '<base64 32-byte key shown once by the app>'];
+// Secrets (never in git):
+//   GitHub token  = W-HOST, read from the holding vault /home/<user>/holding-vault/gh-write-host.php
+//                   (outside every domain; handbook github-four-tokens). The web side cannot open that
+//                   folder (open_basedir), so the cron copies it into var/gh-token.php (chmod 600).
+//   ../secrets.php = const DEVICE_KEYS = ['phone1' => '<base64 32-byte key shown by the app>'];
+//                   (an old const GH_TOKEN there still works, but the vault wins when both exist)
 // No Claude, Google or Telegram credential is used here. Nothing is ever sent to Claude.
 const CTL_ROOT = __DIR__ . '/..';
 const CTL_REPO = 'lili2001mua-cmd/Agent-Project-Backup';   // the holding's private repo (same as ops-host)
@@ -11,10 +14,45 @@ const CTL_BRANCH = 'main';
 const CTL_SKEW = 300;          // seconds a signed request may be old or early
 const CTL_CHALLENGE_TTL = 600; // second confirmation must come within 10 minutes (HANDBOOK: command life 10 min)
 
+/** Path of the holding vault file: two levels above the domain folder (/home/<user>/holding-vault/). */
+function ctl_vault_file(): string {
+    $root = realpath(CTL_ROOT) ?: CTL_ROOT;
+    return dirname($root, 2) . '/holding-vault/gh-write-host.php';
+}
+
+/** Cron only: copy W-HOST from the vault into var/gh-token.php when it changed. Returns a short state. */
+function ctl_vault_sync(): string {
+    if (PHP_SAPI !== 'cli') return 'web';
+    $f = ctl_vault_file();
+    if (!is_readable($f)) return 'vault missing';
+    $t = include $f;
+    if (!is_string($t) || !preg_match('/^(github_pat_|ghp_)[A-Za-z0-9_]{20,}$/', trim($t))) return 'vault unreadable';
+    $t = trim($t);
+    $dst = ctl_var('gh-token.php');
+    $body = "<?php return '" . $t . "';\n";
+    if (!is_file($dst) || file_get_contents($dst) !== $body) {
+        file_put_contents($dst . '.tmp', $body, LOCK_EX);
+        chmod($dst . '.tmp', 0600);
+        rename($dst . '.tmp', $dst);
+        ctl_log('gh token refreshed from vault');
+    }
+    return 'ok';
+}
+
+/** The GitHub token: the vault copy first, then an old const GH_TOKEN in secrets.php. */
+function ctl_gh_token(): ?string {
+    static $t = null;
+    if ($t !== null) return $t ?: null;
+    $f = ctl_var('gh-token.php');
+    $v = is_file($f) ? include $f : null;
+    $t = is_string($v) && $v !== '' ? $v : (defined('GH_TOKEN') ? (string) GH_TOKEN : '');
+    return $t ?: null;
+}
+
 function ctl_secrets_loaded(): bool {
     $f = CTL_ROOT . '/secrets.php';
     if (is_file($f)) require_once $f;
-    return defined('GH_TOKEN') && defined('DEVICE_KEYS');
+    return defined('DEVICE_KEYS') && ctl_gh_token() !== null;
 }
 
 function ctl_var(string $name): string {
@@ -42,7 +80,7 @@ function ctl_log(string $s): void {
 /** GitHub REST call. Returns [code, decoded-json-or-null, raw]. */
 function gh(string $method, string $path, $body = null): array {
     $ch = curl_init('https://api.github.com' . $path);
-    $h = ['Authorization: Bearer ' . GH_TOKEN, 'Accept: application/vnd.github+json',
+    $h = ['Authorization: Bearer ' . ctl_gh_token(), 'Accept: application/vnd.github+json',
           'X-GitHub-Api-Version: 2022-11-28', 'User-Agent: control-hohedoc'];
     $opt = [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 25, CURLOPT_CUSTOMREQUEST => $method];
     if ($body !== null) { $h[] = 'Content-Type: application/json'; $opt[CURLOPT_POSTFIELDS] = json_encode($body, JSON_UNESCAPED_UNICODE); }

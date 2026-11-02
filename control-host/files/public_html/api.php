@@ -14,8 +14,8 @@ function out(int $code, array $x): void { http_response_code($code); echo json_e
 
 $op = (string) ($_GET['op'] ?? '');
 $secrets = ctl_secrets_loaded();
-if ($op === 'ping') out(200, ['ok' => true, 'secrets' => $secrets, 'time' => time()]);
-if (!$secrets) out(503, ['ok' => false, 'error' => 'secrets.php missing on host']);
+if ($op === 'ping') out(200, ['ok' => true, 'secrets' => $secrets, 'device_keys' => defined('DEVICE_KEYS'), 'gh_token' => ctl_gh_token() !== null, 'time' => time()]);
+if (!$secrets) out(503, ['ok' => false, 'error' => 'secrets missing on host: ' . (defined('DEVICE_KEYS') ? 'GitHub token (vault)' : 'secrets.php')]);
 
 $body = (string) file_get_contents('php://input');
 if (strlen($body) > 4096) out(413, ['ok' => false, 'error' => 'too large']);
