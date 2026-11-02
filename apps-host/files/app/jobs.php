@@ -260,13 +260,43 @@ function relay_index_add(string $dest, array $row): void {
     if (empty($r['ok'])) throw new RuntimeException('relay index write failed: ' . json_encode($r['results'] ?? $r['error'] ?? '?'));
 }
 
+// Secret-free path (user choice 1405-08-11, option 2): the file waits in the outbox here, public_html/outbox.php lists and
+// serves it, and the relay's public_html/intake/pull.php (no secret, fixed source URL) pulls, checks sha256, files it under
+// workout/ and merges index.json/index.html itself. We only poke pull.php and read back what it says it filed.
+const RELAY_PULL_URL = 'https://relay.hohe1.ir/intake/pull.php';
+
+function outbox_dir(): string { $d = apps_var('outbox'); if (!is_dir($d)) mkdir($d, 0700, true); return $d; }
+function outbox_list(): array { return json_decode((string) @file_get_contents(outbox_dir() . '/list.json'), true) ?: []; }
+function outbox_save(array $l): void { $p = outbox_dir() . '/list.json'; file_put_contents("$p.tmp", json_encode(array_values($l), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)); rename("$p.tmp", $p); }
+
+function relay_pull_poke(): array {
+    $ch = curl_init(apps_secret('RELAY_PULL_URL') ?: RELAY_PULL_URL);
+    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 900, CURLOPT_HTTPHEADER => ['User-Agent: apps-host']]);
+    $raw = curl_exec($ch); $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE); $err = curl_error($ch); curl_close($ch);
+    $j = is_string($raw) ? json_decode($raw, true) : null;
+    return is_array($j) ? $j : ['ok' => false, 'error' => $err !== '' ? "network: $err" : "http-$code", 'body' => substr((string) $raw, 0, 200)];
+}
+
 function relay_publish(string $joined, array $a, string $md5): array {
     $dest = DOC_RELAY[(string) $a['folder']]; $sub = (string) $a['subfolder']; $name = (string) $a['name'];
     $href = ($sub !== '' ? "$sub/" : '') . $name;
-    $sha = relay_send_file($joined, "relay/public_html/$dest/$href");
-    $bytes = filesize($joined);
-    relay_index_add($dest, ['name' => ($a['label'] ?? '') !== '' ? $a['label'] : $name, 'folder' => (string) ($a['group'] ?? ''),
-        'href' => $href, 'bytes' => $bytes, 'sha256' => $sha]);
+    $bytes = filesize($joined); $sha = hash_file('sha256', $joined);
+    $row = ['name' => ($a['label'] ?? '') !== '' ? $a['label'] : $name, 'folder' => (string) ($a['group'] ?? ''),
+        'href' => $href, 'bytes' => $bytes, 'sha256' => $sha];
+    if (apps_secret('RELAY_SECRET') !== '') {           // push path, only when the shared secret was placed by hand
+        relay_send_file($joined, "relay/public_html/$dest/$href");
+        relay_index_add($dest, $row);
+    } else {
+        if (!copy($joined, outbox_dir() . "/$sha")) throw new RuntimeException('outbox write failed');
+        $l = array_filter(outbox_list(), fn($r) => ($r['href'] ?? '') !== $href || ($r['dest'] ?? '') !== $dest);
+        $l[] = $row + ['dest' => $dest, 'at' => time()];
+        outbox_save($l);
+        $r = relay_pull_poke();
+        $filed = array_column($r['done'] ?? [], 'sha256', 'href');
+        if (($filed[$href] ?? '') !== $sha) throw new RuntimeException('relay did not file ' . $href . ': ' . json_encode($r['failed'] ?? $r['error'] ?? $r, JSON_UNESCAPED_UNICODE));
+        outbox_save(array_filter(outbox_list(), fn($x) => ($x['sha256'] ?? '') !== $sha));
+        @unlink(outbox_dir() . "/$sha");
+    }
     $url = 'https://relay.hohe1.ir/' . $dest . '/' . $href;
     return ['name' => $name, 'label' => $a['label'] ?? '', 'size' => (string) $bytes, 'webViewLink' => $url, 'url' => $url,
         'md5' => $md5, 'sha256' => $sha, 'verified' => true, 'folder_link' => 'https://relay.hohe1.ir/' . $dest . '/',
