@@ -1,11 +1,6 @@
-# 1405-08-11 — 10 orphan intake-pool bundles with no record in Memory-Workflow/intake-pool/state (user chose option 1).
-1XmJ_oE9jkwRzxPeemz3D-oQRhxbxvBbr  # b8301
-1_YcJEFOQ69iMM6NO4yrY3mjt4oyI-hKk  # b8284
-17XX3B7zViju5zaN9MRsZLqMDRw_xAQsB  # b8282
-1938ncuVEERrHLQ3PKvlJwTQOI_gpYEw0  # b8280
-1dhIJX8247Yxsy5evswmz9Rl_-dayGSA_  # b8278
-1Afugi89__V7VgE_M6MyJmMOEfi49TLfE  # b8276
-1Kw_taGZfz3SHqDYSqo_TfHl0oxKItqAA  # b8274
-1YgD_Z1z75Dg8uUe6pdyPblhIQr3ROQMk  # b6055
-1r0RWUTqr6NPuUXHoxwnv7U3rls_eDBU-  # b4591
-1OnF-HWKn3_hCs8_fVGsdwSEzmvnDQBA5  # b2524
+# 1405-08-11 — intake-pool/Archive video + 4 bundles in intake-pool/drive (user: «گزینه ۱ ولی آنها را پاک کن»).
+11Mc8gfdDkF1nVh7XBzfNbjsE1PX2b4ud  # Archive/4_5992259588794096820.mp4
+1w9FsSsVwAmtkFJKkBh_Y5PGTz0hvzjb5  # drive/1T7gReYy…heic
+1-q4ej-aHcE0Xv4s2cqr6hwvFuESaHhDw  # drive/1R3lUWk-…heic
+1MWBQqadt0nlyhca778lQ6LWf1qWj5Hy7  # drive/1_sCXTjJ…4_5808825993757985869
+1p9jclqVa75h13qmIGg8WvRD_py-aGsms  # drive/1c-odlHn…heic
