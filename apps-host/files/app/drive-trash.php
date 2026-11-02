@@ -5,6 +5,7 @@
 // (Drive empties its trash after 30 days, so a mistake stays recoverable for that long).
 // Progress lives in var/drive-trash.json and is shown on status.php as `drive_trash`.
 // A new list (different content hash) starts a fresh run; an id already done in this run is never re-sent.
+// A line `restore <id>` takes the file back out of the trash instead (1405-08-11).
 
 const DRIVE_TRASH_LIST = __DIR__ . '/drive-trash.txt';
 const DRIVE_TRASH_PER_TICK = 60;
@@ -14,7 +15,7 @@ function drive_trash_ids(): array {
     $ids = [];
     foreach (file(DRIVE_TRASH_LIST, FILE_IGNORE_NEW_LINES) as $l) {
         $l = trim(preg_replace('/#.*/', '', $l));
-        if ($l !== '' && preg_match('/^[A-Za-z0-9_-]{10,80}$/', $l)) $ids[$l] = true;
+        if ($l !== '' && preg_match('/^(restore\s+)?[A-Za-z0-9_-]{10,80}$/', $l)) $ids[preg_replace('/\s+/', ' ', $l)] = true;
     }
     return array_keys($ids);
 }
@@ -28,19 +29,21 @@ function drive_trash_tick(): void {
     if (!$ids || apps_secret('DRIVE_OAUTH') === '') { $st['note'] = $ids ? 'no DRIVE_OAUTH in cron' : 'empty list'; file_put_contents($sp, json_encode($st)); return; }
     $root = apps_secret('DRIVE_ROOT_ID');
     $n = 0;
-    foreach ($ids as $id) {
-        if (isset($st['done'][$id])) continue;
+    foreach ($ids as $line) {
+        $restore = strpos($line, 'restore ') === 0;
+        $id = $restore ? substr($line, 8) : $line;
+        if (isset($st['done'][$line])) continue;
         if ($n >= DRIVE_TRASH_PER_TICK) break;
         $n++;
-        if ($id === $root) { $st['failed'][$id] = 'refused: the Memory-Cloud root itself'; $st['done'][$id] = 0; continue; }
+        if (!$restore && $id === $root) { $st['failed'][$line] = 'refused: the Memory-Cloud root itself'; $st['done'][$line] = 0; continue; }
         try {
-            drive_call('PATCH', '/files/' . rawurlencode($id), ['supportsAllDrives' => 'true'], ['trashed' => true]);
-            $st['done'][$id] = 1;
+            drive_call('PATCH', '/files/' . rawurlencode($id), ['supportsAllDrives' => 'true'], ['trashed' => !$restore]);
+            $st['done'][$line] = 1;
         } catch (Throwable $e) {
             $msg = $e->getMessage();
-            if (strpos($msg, '→ 404') !== false) { $st['done'][$id] = 1; continue; }   // already gone
-            $st['failed'][$id] = substr($msg, 0, 160);
-            $st['done'][$id] = 0;
+            if (!$restore && strpos($msg, '→ 404') !== false) { $st['done'][$line] = 1; continue; }   // already gone
+            $st['failed'][$line] = substr($msg, 0, 160);
+            $st['done'][$line] = 0;
         }
     }
     $st['trashed'] = count(array_filter($st['done']));

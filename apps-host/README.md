@@ -8,7 +8,7 @@ subdomain under the user's rule (1405-08-07): every main topic on the host gets 
 |---|---|---|
 | `app-release-publish.yml` + `workout-apk-to-drive.yml` | `app_upload` (→ internal `app_send`): the Claude session builds, signs, runs `release-findings --gate`, zips each apk/aab and posts the zip (md5 required). Drive: `نسخه‌های نصبی/<App>/v<N>/` | queued (cron) |
 | `workout-pdf-to-drive.yml` | `doc_part` × n (≤32MB each) + `doc_commit` (→ internal `doc_send`): the session renders the PDFs, bundle and clips; the cron joins the parts, checks md5 and type, uploads into an allow-listed folder (`برنامه‌های تمرین` [/subfolder]) | queued (cron) |
-| (bulk Drive cleanup, 1405-08-10) | `app/drive-trash.php`: the session writes Drive ids into `app/drive-trash.txt` and pushes once; every cron tick moves up to 60 of them to the Drive **trash** (never a permanent delete, so 30 days to undo). Progress: `drive_trash` on `status.php`. One push = one approval for any number of files. | cron |
+| (bulk Drive cleanup, 1405-08-10) | `app/drive-trash.php`: the session writes Drive ids into `app/drive-trash.txt` and pushes once; every cron tick moves up to 60 of them to the Drive **trash** (never a permanent delete, so 30 days to undo). Progress: `drive_trash` on `status.php`. One push = one approval for any number of files. A line `restore <id>` brings a file back out of the trash. | cron |
 
 Session side (private repo): `Sys.scripts/app-release.sh drive …` and `Sys.scripts/workout_pdf_drive.py send …`.
 
