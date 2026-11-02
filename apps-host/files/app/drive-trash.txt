@@ -44,11 +44,11 @@
 10xFPpRWyb06rYSzbwQBlwFim4FH-_9xk  # aron-coach-male__motion-pilot-face-check-ex-tr-07-v2__v1.0.png
 1j1Q0r_vT4yMQC4nCoxTHuhlagDg59O3Q  # aron-coach-male__motion-pilot-face-check-ex-bi-11-v5__v1.0.png
 1tHEv5MZl5sZBFzCY-CFpJz3RbN3J_-p5  # aron-coach-male__motion-pilot-face-check-ex-bi-11-v4__v1.0.png
-1Bwa14iZf6PAeLPOGathN9IvgQGNa6GIE  # aron-coach-male__motion-pilot-ex-tr-07-start-v1__v1.0.png
+restore 1Bwa14iZf6PAeLPOGathN9IvgQGNa6GIE  # kept: input of the motion recipe (Video-Picture-Creator JACKET)
 1XOp0WF5z8u-CsPP7-b0LNRNU6Q4o3J1P  # aron-coach-male__motion-pilot-ex-tr-07-pilot-v2__v1.0.mp4
 1cCU8h7atTA1CPT7_hAde2QMESC6WBdBg  # aron-coach-male__motion-pilot-ex-tr-07-pilot-v1__v1.0.mp4
 15w1NOQ01K-HHdwCQ_P8EX5cmmK0_hYu1  # aron-coach-male__motion-pilot-ex-bi-11-start__v1.0.png
-1FTdoQXvdlxb6FNZa_JiPGzCCjI18KaOQ  # aron-coach-male__motion-pilot-ex-bi-11-start-v3__v1.0.png
+restore 1FTdoQXvdlxb6FNZa_JiPGzCCjI18KaOQ  # kept: input of the motion recipe (Video-Picture-Creator JACKET)
 1FaCO5DOzw8fTmsYWtU3ZeTFoMkZ0tp48  # aron-coach-male__motion-pilot-ex-bi-11-start-v2__v1.0.png
 144AnmDfqqZJw33Ccwirwm2YWLBHF-yv2  # aron-coach-male__motion-pilot-ex-bi-11-pilot-v4__v1.0.mp4
 1PSkz-bknUsRfST6eHWxuv2yxRZ_LZTXL  # aron-coach-male__motion-pilot-ex-bi-11-pilot-v3__v1.0.mp4
