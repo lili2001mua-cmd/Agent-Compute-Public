@@ -14,7 +14,7 @@ function out(int $code, array $x): void { http_response_code($code); echo json_e
 
 $op = (string) ($_GET['op'] ?? '');
 $secrets = ctl_secrets_loaded();
-if ($op === 'ping') out(200, ['ok' => true, 'secrets' => $secrets, 'device_keys' => defined('DEVICE_KEYS'), 'gh_token' => ctl_gh_token() !== null, 'time' => time()]);
+if ($op === 'ping') out(200, ['ok' => true, 'secrets' => $secrets, 'device_keys' => defined('DEVICE_KEYS'), 'gh_token' => ctl_gh_token() !== null, 'vault' => ctl_json_read('vault.json', ['state' => 'tick never ran']), 'time' => time()]);
 if (!$secrets) out(503, ['ok' => false, 'error' => 'secrets missing on host: ' . (defined('DEVICE_KEYS') ? 'GitHub token (vault)' : 'secrets.php')]);
 
 $body = (string) file_get_contents('php://input');

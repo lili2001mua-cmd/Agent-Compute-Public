@@ -6,6 +6,7 @@
 require_once __DIR__ . '/lib.php';
 if (PHP_SAPI !== 'cli') { http_response_code(404); exit; }
 $vault = ctl_vault_sync();
+ctl_json_write('vault.json', ['state' => $vault, 'at' => time()]);   // state only, never the token
 if (!ctl_secrets_loaded()) { ctl_json_write('status.json', ['at' => time(), 'error' => 'secrets missing (vault: ' . $vault . ')']); return; }
 
 $lock = fopen(ctl_var('tick.lock'), 'c');
