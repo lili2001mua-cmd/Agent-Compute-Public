@@ -2,7 +2,7 @@
 // Named jobs of apps.hohedoc.ir. Each replaces a private-repo GitHub Actions workflow (user decision 1405-08-07,
 // orchestration app-build-zero-actions in the private repo):
 //   app-release-publish.yml + workout-apk-to-drive.yml → app_upload (inline) → app_send (queued)
-//   workout-pdf-to-drive.yml                           → doc_part × n + doc_commit (inline) → doc_send (queued)
+//   workout-pdf-to-drive.yml                           → doc_part × n + doc_commit (inline) → doc_send (queued) → Iran relay (1405-08-11)
 // The Claude session builds, signs and renders (Java, weasyprint, ffmpeg); this host only puts the bytes on Drive.
 // Queued jobs are picked up by app/tick.php (cron, every minute, no web time limit).
 require_once __DIR__ . '/lib.php';
@@ -81,7 +81,15 @@ function run_app_send(array $a): array {
 // bundle and the clip folder (weasyprint/ffmpeg cannot run here), then sends each file in parts of ≤32MB: the bundle
 // alone was 64.4MB, above the door's single-request limit. doc_part holds a part, doc_commit queues doc_send, and the
 // cron joins the parts, checks the whole md5 and uploads. Destination folders are an allow-list, never a free path.
-const DOC_FOLDERS = ['برنامه‌های تمرین'];
+// 1405-08-11 (user decision): workout programs no longer live on Drive. Their home is the Iran relay
+// https://relay.hohe1.ir/workout/ — folder value "relay:workout". The cron joins the parts, checks md5, then sends the
+// file to the relay's deploy/sync.php (v8 action "chunk", HMAC with RELAY_SECRET from secrets-extra.php) and merges
+// workout/index.json + index.html there. Drive is not touched on this path.
+const DOC_FOLDERS = [];                      // no Drive destination is open any more
+const DOC_RELAY = ['relay:workout' => 'workout'];
+const DOC_RELAY_NAME_RE = '/^[a-z0-9][a-z0-9._-]{0,150}\.(pdf|zip|gif|mp4|webm|png|jpe?g|webp)$/';
+const DOC_RELAY_SUB_RE = '/^[a-z0-9][a-z0-9_-]{0,40}$/';
+const RELAY_CHUNK = 2097152;                 // under the relay's 3MB per-request cap
 const DOC_NAME_RE = '/^(?!\.)[^\/\\\\\x00-\x1f]{1,180}\.(pdf|zip|gif|mp4|webm|png|jpe?g|webp)$/u';
 const DOC_SUB_RE = '/^[\p{L}\p{N}][\p{L}\p{N} ._-]{0,60}$/u';
 const DOC_MAX_PARTS = 64;
@@ -94,6 +102,11 @@ function doc_dir(string $id): string {
 }
 
 function doc_check(string $folder, string $sub, string $name): void {
+    if (isset(DOC_RELAY[$folder])) {
+        if ($sub !== '' && !preg_match(DOC_RELAY_SUB_RE, $sub)) throw new RuntimeException('bad subfolder (a-z 0-9 _ -)');
+        if (!preg_match(DOC_RELAY_NAME_RE, $name)) throw new RuntimeException('bad name for the relay (lowercase latin, media/pdf/zip)');
+        return;
+    }
     if (!in_array($folder, DOC_FOLDERS, true)) throw new RuntimeException('folder not allowed');
     if ($sub !== '' && !preg_match(DOC_SUB_RE, $sub)) throw new RuntimeException('bad subfolder');
     if (!preg_match(DOC_NAME_RE, $name)) throw new RuntimeException('bad name (no slash, media/pdf/zip extension)');
@@ -129,8 +142,10 @@ function job_doc_commit(array $a): array {
     $name = (string) ($a['name'] ?? ''); $folder = (string) ($a['folder'] ?? ''); $sub = (string) ($a['subfolder'] ?? '');
     doc_check($folder, $sub, $name);
     if (!preg_match('/^[a-f0-9]{32}$/', (string) ($a['md5'] ?? ''))) throw new RuntimeException('md5 required');
+    $label = mb_substr(trim((string) ($a['label'] ?? '')), 0, 200);     // Persian display name on the relay index
+    $group = mb_substr(trim((string) ($a['group'] ?? '')), 0, 120);
     return job_enqueue('doc_send', ['upload_id' => $id, 'total' => $total, 'name' => $name, 'md5' => $a['md5'],
-        'folder' => $folder, 'subfolder' => $sub]);
+        'folder' => $folder, 'subfolder' => $sub, 'label' => $label, 'group' => $group]);
 }
 
 function run_doc_send(array $a): array {
@@ -148,6 +163,7 @@ function run_doc_send(array $a): array {
         $md5 = md5_file($joined);
         if ($md5 !== $a['md5']) throw new RuntimeException('joined md5 mismatch');
         doc_mime_ok($joined, $name);
+        if (isset(DOC_RELAY[(string) $a['folder']])) return relay_publish($joined, $a, $md5);
         $folder = drive_ensure_folder((string) $a['folder'], drive_root_id());
         if ($a['subfolder'] !== '') $folder = drive_ensure_folder((string) $a['subfolder'], $folder);
         $ex = drive_find($folder, $name);
@@ -166,6 +182,95 @@ function run_doc_send(array $a): array {
         foreach (glob("$d/*") ?: [] as $x) @unlink($x);
         @rmdir($d);
     }
+}
+
+// ---------------------------------------------------------------- Iran relay (relay.hohe1.ir)
+function relay_call(array $payload): array {
+    $secret = apps_secret('RELAY_SECRET');
+    if ($secret === '') throw new RuntimeException('RELAY_SECRET missing in secrets-extra.php');
+    $url = apps_secret('RELAY_URL') ?: 'https://relay.hohe1.ir/deploy/sync.php';
+    $payload['ts'] = time();
+    $body = json_encode($payload, JSON_UNESCAPED_SLASHES);
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_POSTFIELDS => $body, CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 180, CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'User-Agent: apps-host',
+        'X-Signature: sha256=' . hash_hmac('sha256', $body, $secret)]]);
+    $raw = curl_exec($ch); $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE); $err = curl_error($ch); curl_close($ch);
+    $j = is_string($raw) ? json_decode($raw, true) : null;
+    if (!is_array($j)) return ['ok' => false, 'error' => $err !== '' ? "network: $err" : "http-$code"];
+    return $j;
+}
+
+function relay_send_file(string $path, string $repo): string {
+    $size = filesize($path); $sha = hash_file('sha256', $path);
+    $fh = fopen($path, 'rb'); $off = 0; $tries = 0;
+    try {
+        while ($off < $size) {
+            fseek($fh, $off); $data = fread($fh, RELAY_CHUNK);
+            $r = relay_call(['action' => 'chunk', 'repo' => $repo, 'offset' => $off, 'total' => $size, 'sha256' => $sha,
+                'b64' => base64_encode($data)]);
+            if (!empty($r['ok'])) { $off = (int) ($r['have'] ?? $off + strlen($data)); $tries = 0; if (!empty($r['done'])) return $sha; continue; }
+            if (($r['error'] ?? '') === 'offset-mismatch' && is_int($r['have'] ?? null) && $r['have'] % RELAY_CHUNK === 0 && $r['have'] <= $size) $off = $r['have'];
+            if (++$tries > 4) throw new RuntimeException('relay chunk failed at ' . $off . ': ' . ($r['error'] ?? '?'));
+            sleep(2 ** $tries);
+        }
+    } finally { fclose($fh); }
+    throw new RuntimeException('relay ended without done');
+}
+
+function relay_index_html(string $title, array $rows): string {
+    $groups = [];
+    foreach ($rows as $r) $groups[$r['folder'] ?? ''][] = $r;
+    ksort($groups);
+    $h = fn($x) => htmlspecialchars((string) $x, ENT_QUOTES, 'UTF-8');
+    $human = fn($n) => $n >= 1048576 ? sprintf('%.1f مگابایت', $n / 1048576) : max(1, intdiv((int) $n, 1024)) . ' کیلوبایت';
+    $blocks = '';
+    foreach ($groups as $g => $items) {
+        usort($items, fn($a, $b) => strcmp($a['name'], $b['name']));
+        $li = '';
+        foreach ($items as $r) $li .= '<li><a href="' . $h($r['href']) . '">' . $h($r['name']) . '</a><span>' . $human((int) $r['bytes']) . '</span></li>';
+        $blocks .= '<section>' . ($g !== '' ? '<h2>' . $h($g) . '</h2>' : '') . '<ul>' . $li . '</ul></section>';
+    }
+    return '<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8">'
+        . '<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">'
+        . '<title>' . $h($title) . '</title><style>body{margin:0;background:#f6f5f2;color:#222;line-height:1.8}'
+        . 'main{width:100%;max-width:760px;margin:0 auto;padding:16px;box-sizing:border-box}h2{margin-top:1.5rem}'
+        . 'ul{list-style:none;padding:0;margin:0}li{display:flex;justify-content:space-between;gap:12px;background:#fff;'
+        . 'border-radius:10px;padding:10px 14px;margin:8px 0}a{color:#1a5fb4;text-decoration:none;overflow-wrap:anywhere;min-width:0}'
+        . 'span{color:#777;white-space:nowrap}</style></head><body><main><h1>' . $h($title) . '</h1>' . $blocks . '</main></body></html>';
+}
+
+// Merge one row into <dest>/index.json on the relay (read back with snapshot) and rewrite index.html from it.
+function relay_index_add(string $dest, array $row): void {
+    $repo = "relay/public_html/$dest/index.json";
+    $snap = relay_call(['action' => 'snapshot', 'files' => [$repo]]);
+    $cur = [];
+    $f = $snap['results'][0] ?? [];
+    if (!empty($f['ok']) && isset($f['b64'])) $cur = json_decode((string) base64_decode($f['b64']), true) ?: [];
+    elseif (($f['error'] ?? '') !== 'not-found') throw new RuntimeException('relay index unreadable: ' . ($f['error'] ?? $snap['error'] ?? '?'));
+    $rows = array_values(array_filter($cur['rows'] ?? [], fn($r) => ($r['href'] ?? '') !== $row['href']));
+    $rows[] = $row;
+    $title = $cur['title'] ?? 'برنامه‌های تمرین';
+    $json = json_encode(['title' => $title, 'rows' => $rows], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
+    $html = relay_index_html($title, $rows);
+    $files = [];
+    foreach (["relay/public_html/$dest/index.json" => $json, "relay/public_html/$dest/index.html" => $html] as $rp => $c)
+        $files[] = ['repo' => $rp, 'b64' => base64_encode($c), 'sha256' => hash('sha256', $c)];
+    $r = relay_call(['action' => 'deploy', 'files' => $files]);
+    if (empty($r['ok'])) throw new RuntimeException('relay index write failed: ' . json_encode($r['results'] ?? $r['error'] ?? '?'));
+}
+
+function relay_publish(string $joined, array $a, string $md5): array {
+    $dest = DOC_RELAY[(string) $a['folder']]; $sub = (string) $a['subfolder']; $name = (string) $a['name'];
+    $href = ($sub !== '' ? "$sub/" : '') . $name;
+    $sha = relay_send_file($joined, "relay/public_html/$dest/$href");
+    $bytes = filesize($joined);
+    relay_index_add($dest, ['name' => ($a['label'] ?? '') !== '' ? $a['label'] : $name, 'folder' => (string) ($a['group'] ?? ''),
+        'href' => $href, 'bytes' => $bytes, 'sha256' => $sha]);
+    $url = 'https://relay.hohe1.ir/' . $dest . '/' . $href;
+    return ['name' => $name, 'label' => $a['label'] ?? '', 'size' => (string) $bytes, 'webViewLink' => $url, 'url' => $url,
+        'md5' => $md5, 'sha256' => $sha, 'verified' => true, 'folder_link' => 'https://relay.hohe1.ir/' . $dest . '/',
+        'home' => 'relay'];
 }
 
 // ---------------------------------------------------------------- queue (cron-driven, no web time limit)

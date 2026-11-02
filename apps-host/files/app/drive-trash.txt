@@ -1,6 +1,3 @@
-# 1405-08-11 — intake-pool/Archive video + 4 bundles in intake-pool/drive (user: «گزینه ۱ ولی آنها را پاک کن»).
-11Mc8gfdDkF1nVh7XBzfNbjsE1PX2b4ud  # Archive/4_5992259588794096820.mp4
-1w9FsSsVwAmtkFJKkBh_Y5PGTz0hvzjb5  # drive/1T7gReYy…heic
-1-q4ej-aHcE0Xv4s2cqr6hwvFuESaHhDw  # drive/1R3lUWk-…heic
-1MWBQqadt0nlyhca778lQ6LWf1qWj5Hy7  # drive/1_sCXTjJ…4_5808825993757985869
-1p9jclqVa75h13qmIGg8WvRD_py-aGsms  # drive/1c-odlHn…heic
+# 1405-08-11 — whole «برنامه‌های تمرین» folder with the folder itself (user: «کل پوشه را با خود پوشه پاک کن»).
+# Its 19 files are verified on https://relay.hohe1.ir/workout/ (host manifest, sha256 19/19). Trashing the folder trashes its children.
+1xzxod11NjYhzbUbrO5M0t3Ib8oEiEq4e  # Memory-Cloud/برنامه‌های تمرین

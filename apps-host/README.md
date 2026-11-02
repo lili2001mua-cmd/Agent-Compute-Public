@@ -7,7 +7,7 @@ subdomain under the user's rule (1405-08-07): every main topic on the host gets 
 | private workflow it replaces | job(s) | runs |
 |---|---|---|
 | `app-release-publish.yml` + `workout-apk-to-drive.yml` | `app_upload` (→ internal `app_send`): the Claude session builds, signs, runs `release-findings --gate`, zips each apk/aab and posts the zip (md5 required). Drive: `نسخه‌های نصبی/<App>/v<N>/` | queued (cron) |
-| `workout-pdf-to-drive.yml` | `doc_part` × n (≤32MB each) + `doc_commit` (→ internal `doc_send`): the session renders the PDFs, bundle and clips; the cron joins the parts, checks md5 and type, uploads into an allow-listed folder (`برنامه‌های تمرین` [/subfolder]) | queued (cron) |
+| `workout-pdf-to-drive.yml` | `doc_part` × n (≤32MB each) + `doc_commit` (→ internal `doc_send`): the session renders the PDFs, bundle and clips; the cron joins the parts, checks md5 and type, then (since 1405-08-11) sends it to the Iran relay `https://relay.hohe1.ir/workout/[subfolder/]` with action `chunk` and merges `index.json`/`index.html` there — folder value `relay:workout`; Drive is no longer a destination. Needs `RELAY_SECRET` in `secrets-extra.php` | queued (cron) |
 | (bulk Drive cleanup, 1405-08-10) | `app/drive-trash.php`: the session writes Drive ids into `app/drive-trash.txt` and pushes once; every cron tick moves up to 60 of them to the Drive **trash** (never a permanent delete, so 30 days to undo). Progress: `drive_trash` on `status.php`. One push = one approval for any number of files. A line `restore <id>` brings a file back out of the trash. | cron |
 
 Session side (private repo): `Sys.scripts/app-release.sh drive …` and `Sys.scripts/workout_pdf_drive.py send …`.
@@ -28,6 +28,8 @@ shows only booleans and versions.
   'DRIVE_ROOT_ID' => '<Memory-Cloud folder id>',
 ];
 ```
+
+`secrets-extra.php` (1405-08-11) carries `'RELAY_SECRET' => '<same secret as relay.hohe1.ir/deploy/config.php>'` — workout programs go to the Iran relay; without it `doc_send` fails with `RELAY_SECRET missing`. `status.php` shows `secrets_present.RELAY_SECRET`.
 
 `DRIVE_OAUTH` is borrowed from trainer's or studio's secret files. The web side cannot see sibling folders (`open_basedir`), but the cron can, and every Drive upload runs in the cron; `status.php` shows both views (`secrets_present`, `secrets_present_cron`). `tick.php` sets the secret files to 0600 by itself.
 No Telegram session, no GitHub token and no Higgsfield key are read.
