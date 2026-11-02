@@ -1,2 +1,7 @@
-# 1405-08-11 — older AronAthlete v23 build (user option 2); the newer AronAthlete-v23.zip stays in the same folder.
-1PiB_tGxXNfrQcMhgW_AaXoLkQrFIxCtq  # نسخه‌های نصبی/Workout-Player/v23/AronAthlete-v23-build-1405-07-27.zip
+# 1405-08-11 — all files in Orchestrator-Content-Video-Picture-Creator/video and /motion (user option 3).
+1fOvOsl7v61JkZ3uALiWCiJ8Rk1mUgunp  # sms-forwarder-bazaar-promo-16x9.mp4
+1cUFk190FWlCmrZf0bQ8FpMyHnvCW8Dot  # made-07-minimax-hailuo-2026-06-24.mp4
+1Ydx-jUh2vH57f9xyyQPq9RTIIN6zdTT1  # made-06-kling-3-0-turbo-2026-07-06.mp4
+1qjxauoEvONm1wTMa81wUKwZyAD2l4kat  # made-05-burger-ad-seedance-2-0.mp4
+1BmCIm1oFCYEoSSG30hyN5cK1iHmIE4Ev  # made-03-countdown-5-1.mp4
+16yqy1WRXqZNaADINnwBeVUXfwZMsoTZS  # made-04-countdown-5-1-latin.mp4
