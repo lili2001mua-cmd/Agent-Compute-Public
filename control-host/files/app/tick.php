@@ -5,7 +5,8 @@
 // the phone never costs a GitHub request and never holds a GitHub token.
 require_once __DIR__ . '/lib.php';
 if (PHP_SAPI !== 'cli') { http_response_code(404); exit; }
-if (!ctl_secrets_loaded()) { ctl_json_write('status.json', ['at' => time(), 'error' => 'secrets.php missing']); return; }
+$vault = ctl_vault_sync();
+if (!ctl_secrets_loaded()) { ctl_json_write('status.json', ['at' => time(), 'error' => 'secrets missing (vault: ' . $vault . ')']); return; }
 
 $lock = fopen(ctl_var('tick.lock'), 'c');
 if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) return;

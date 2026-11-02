@@ -13,13 +13,13 @@ Pull-deployed PHP package, same pattern as `ops-host/` (manifest with sha256, `d
 
 Signature: headers `X-HC-Device`, `X-HC-Ts`, `X-HC-Nonce`, `X-HC-Sig` = hex HMAC-SHA256(device key,
 `op \n ts \n nonce \n sha256(body)`). Clock window 300 s, each nonce once. The phone holds only its device
-key (Android Keystore); the GitHub token lives only in `secrets.php` on this host. Nothing here talks to Claude.
+key (Android Keystore); the GitHub token (W-HOST) lives only in `/home/<user>/holding-vault/gh-write-host.php` outside every domain, and the cron copies it into `var/` (handbook `github-four-tokens`). Nothing here talks to Claude.
 
 ## Setup (user, once)
 
 1. DirectAdmin: add subdomain `control.hohedoc.ir` with SSL.
 2. Upload `bootstrap/deploy.php` to `domains/control.hohedoc.ir/` (outside `public_html`).
-3. Copy `bootstrap/secrets.php.example` to `domains/control.hohedoc.ir/secrets.php` and fill both values.
+3. Copy `bootstrap/secrets.php.example` to `domains/control.hohedoc.ir/secrets.php` and put the device key in it (the GitHub token is not here).
 4. Cron every 5 minutes: `/usr/local/bin/php /home/<account>/domains/control.hohedoc.ir/deploy.php`
 5. Check: `https://control.hohedoc.ir/api.php?op=ping` ⇒ `{"ok":true,"secrets":true,…}`.
 
