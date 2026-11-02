@@ -18,6 +18,7 @@ const OPS_WATCH = [
     'nightly-sweep-watchdog-audit'   => 174,
     'claude-utilities-weekly-review' => 174,
     'skill-freshness'                => 192,   // weekly, in the invariants task (local-skill-freshness.sh)
+    'iran-relay'                     => 1,     // relay.hohe1.ir hc-watch.php cron, every ~10 min (1405-08-11); late = Iran host down or its link out cut
 ];
 
 function ops_var(string $name): string {

@@ -8,7 +8,7 @@ leave GitHub Actions. Its own subdomain under the user's rule (1405-08-07). Same
 |---|---|
 | `nightly-sweep-watchdog.yml` (routine freshness) | every push of a routine's ledger (`Memory-Workflow/<id>/…`) to the private repo's `main` sends a beat from that repo's `pre-push` hook (`Sys.scripts/ops-beat.py`) to `beat.php`. `app/tick.php` alerts once on Telegram when a beat is later than its limit, and once more when it recovers. |
 
-Watched routines and their limits: `OPS_WATCH` in `files/app/lib.php`.
+Watched routines and their limits: `OPS_WATCH` in `files/app/lib.php`. Since 1405-08-11 this also watches the Iranian host: `relay.hohe1.ir/hc-watch.php` posts `id=iran-relay` every ~10 minutes; a gap over 1 hour sends one Telegram alert (Iran host down, or its outbound link cut), and `status.php` → `routines.iran-relay.age_h` is how `mcp-connections-audit.py --verify` in the private repo refreshes the Iran row without reaching Iran itself.
 
 | scheduled Claude routines | `app/fire.php` fires `invariants` every 48 h **until `routine.hohedoc.ir` is armed** (`routine-host/`, 1405-08-07); that day this file is removed so only one clock remains. Secrets: `INVARIANTS_FIRE_URL` / `INVARIANTS_FIRE_TOKEN` in `secrets.php`. |
 
