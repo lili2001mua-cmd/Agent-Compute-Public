@@ -37,6 +37,56 @@ function tg_key_role(string $key): ?string {
     foreach ($hashes as $role => $hash) { if (is_string($hash) && hash_equals($hash, $h)) return $role; }
     return null;
 }
+// Repo-native door (1405-08-11 · orchestra github-native-doors): no stored key. The caller picks a random nonce, pushes
+// tg-auth/<sha256(nonce)>.json ({"exp": unix-time, ≤26 h ahead}) to a BRANCH of the public compute repo, then sends
+// X-Tg-Nonce + X-Tg-Ref. ⛔ Only a real branch proves push access: raw.githubusercontent.com also serves refs/pull/N/head
+// and fork commits through this repo's URL (flaw repo-auth-accepts-pull-request-refs), so the GitHub API must confirm
+// the branch. This path grants the READ role only; admin jobs still need the admin key. 20 failures / 10 min close it.
+const TG_AUTH_REPO = 'lili2001mua-cmd/Agent-Compute-Public';
+function tg_https_get(string $url, int $timeout = 20): array {
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => $timeout, CURLOPT_FOLLOWLOCATION => false,
+        CURLOPT_HTTPHEADER => ['Accept: application/vnd.github+json'], CURLOPT_USERAGENT => 'tg-host']);
+    $raw = curl_exec($ch);
+    $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    $j = $raw === false ? null : json_decode((string) $raw, true);
+    return [$code, is_array($j) ? $j : null];
+}
+function tg_ref_is_branch(string $ref): bool {
+    if (!preg_match('#^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$#', $ref) || strlen($ref) > 120 || str_contains($ref, '..')) return false;
+    if (preg_match('#^(refs|pull)(/|$)#i', $ref) || preg_match('/^[0-9a-f]{7,40}$/i', $ref)) return false;
+    $cache = tg_dir(tg_var('auth')) . '/branch-' . hash('sha256', $ref);
+    $t = (int) @file_get_contents($cache);
+    if ($t > time() - 3600) return true;
+    [$code, $r] = tg_https_get('https://api.github.com/repos/' . TG_AUTH_REPO . '/branches/' . str_replace('%2F', '/', rawurlencode($ref)));
+    if ($code !== 200 || !is_array($r) || ($r['name'] ?? '') !== $ref) return false;
+    file_put_contents($cache, (string) time(), LOCK_EX);
+    return true;
+}
+function tg_repo_role(string $nonce, string $ref): ?string {
+    if ($nonce === '' && $ref === '') return null;
+    $f = tg_var('door-fail.json');
+    $st = tg_read_json($f) ?? ['n' => 0, 't' => 0];
+    if (time() - (int) $st['t'] > 600) $st = ['n' => 0, 't' => time()];
+    if ((int) $st['n'] >= 20) return null;
+    $ok = false;
+    if (preg_match('/^[a-f0-9]{64}$/', $nonce) && tg_ref_is_branch($ref)) {
+        $h = hash('sha256', $nonce);
+        $cache = tg_dir(tg_var('auth')) . '/' . $h;
+        $exp = (int) @file_get_contents($cache);
+        if ($exp > time()) $ok = true;
+        else {
+            [$code, $r] = tg_https_get('https://raw.githubusercontent.com/' . TG_AUTH_REPO . '/' . $ref . '/tg-auth/' . $h . '.json');
+            $exp = (int) (($r ?? [])['exp'] ?? 0);
+            if ($code === 200 && $exp > time() && $exp <= time() + 26 * 3600) { file_put_contents($cache, (string) $exp, LOCK_EX); $ok = true; }
+        }
+    }
+    if ($ok) return 'read';
+    $st['n'] = (int) $st['n'] + 1;
+    tg_write_json($f, $st);
+    return null;
+}
 function tg_dir_bytes(string $dir): int {
     if (!is_dir($dir)) return 0;
     $n = 0;

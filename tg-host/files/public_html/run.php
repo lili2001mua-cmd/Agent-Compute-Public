@@ -13,7 +13,9 @@ require __DIR__ . '/../app/lib.php';
 function out(int $code, array $body): void { http_response_code($code); echo json_encode($body, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); exit; }
 
 if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') out(405, ['error' => 'POST only']);
-$role = tg_key_role((string) ($_SERVER['HTTP_X_TG_KEY'] ?? ''));
+// Key header first; else the repo-native pass (X-Tg-Nonce + X-Tg-Ref, READ role only — see tg_repo_role in app/lib.php).
+$role = tg_key_role((string) ($_SERVER['HTTP_X_TG_KEY'] ?? ''))
+    ?? tg_repo_role((string) ($_SERVER['HTTP_X_TG_NONCE'] ?? ''), (string) ($_SERVER['HTTP_X_TG_REF'] ?? ''));
 if ($role === null) out(401, ['error' => 'unauthorized']);
 $in = json_decode((string) file_get_contents('php://input', false, null, 0, 65536), true);
 if (!is_array($in)) out(400, ['error' => 'bad json']);
