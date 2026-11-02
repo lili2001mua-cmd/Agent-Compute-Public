@@ -9,7 +9,7 @@ $cases = ['main' => true, 'refs/pull/1/head' => false, 'pull/1/head' => false, '
   '8db5e73' => false, str_repeat('a', 40) => false, 'no-such-branch-xyz-123' => false,
   '../main' => false, 'main/../x' => false, 'ma in' => false];
 $bad = 0; $total = 0;
-foreach (['studio', 'apps'] as $h) {
+foreach (['studio', 'apps', 'tg'] as $h) {
   $tmp = sys_get_temp_dir() . '/door-ref-' . $h . '-' . getmypid();
   @mkdir("$tmp/app", 0700, true);
   foreach (glob("$root/$h-host/files/app/*.php") as $f) copy($f, "$tmp/app/" . basename($f));
