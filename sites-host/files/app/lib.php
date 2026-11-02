@@ -30,7 +30,7 @@ function dh_secrets(): array {
     static $s = null;
     if ($s === null) {
         $s = [];
-        foreach ([DH_ROOT . '/secrets.php', DH_ROOT . '/secrets-extra.php'] as $p) {
+        foreach (array_merge([DH_ROOT . '/secrets.php'], glob(DH_ROOT . '/secrets-extra*.php') ?: []) as $p) {   // incl. secrets-extra-vault.php (holding vault)
             if (is_file($p)) {
                 $part = include $p;
                 if (is_array($part)) $s = array_merge($s, array_filter($part, fn($v) => $v !== '' && $v !== null));

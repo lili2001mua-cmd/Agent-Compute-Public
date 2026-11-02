@@ -21,6 +21,7 @@ $lastTick = (int) @file_get_contents(r_var('last-tick.txt'));
 $probe = r_read_json('probe.json');
 echo json_encode([
     'php' => PHP_VERSION,
+    'vault' => @json_decode((string) @file_get_contents(R_ROOT . '/var/vault.json'), true) ?: null,   // state + key names only
     'deployed' => r_read_json('deployed.json') ?: null,
     'registry_sha' => r_jobs()['registry_sha'] ?? null,
     'last_tick_age_s' => $lastTick ? time() - $lastTick : null,

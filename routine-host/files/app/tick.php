@@ -3,6 +3,8 @@
 // and say "alive" once a day so that a dead cron shows up as a missing message.
 if (PHP_SAPI !== 'cli') { http_response_code(404); exit; }
 require_once __DIR__ . '/dispatch.php';
+require_once __DIR__ . '/vault-sync.php';
+hv_sync(R_ROOT, ['GITHUB_READ_TOKEN' => 'gh-read-host.php']);   // before the first r_secret() call
 $prev = (int) @file_get_contents(r_var('last-tick.txt'));
 file_put_contents(r_var('last-tick.txt'), (string) time());
 file_put_contents(r_var('cli-bot.json'), json_encode(r_bot_token() !== ''));

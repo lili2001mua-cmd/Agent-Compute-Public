@@ -4,6 +4,8 @@
 // A routine that never beat counts from the day this host first ran, so a fresh install does not alarm at once.
 if (PHP_SAPI !== 'cli') { http_response_code(404); exit; }
 require_once __DIR__ . '/lib.php';
+require_once __DIR__ . '/vault-sync.php';
+hv_sync(OPS_ROOT, ['OPS_GITHUB_TOKEN' => 'gh-write-host.php']);   // before the first ops_secret() call
 file_put_contents(ops_var('last-tick.txt'), (string) time());
 file_put_contents(ops_var('cli-bot.json'), json_encode(ops_bot_token() !== ''));
 $tlock = fopen(ops_var('beats.lock'), 'c');
