@@ -1,5 +1,5 @@
 <?php
-// Cron, every minute: /usr/local/bin/php /home/<user>/domains/deploy.hohedoc.ir/app/tick.php
+// Cron, every minute: /usr/local/bin/php /home/<user>/domains/sites.hohedoc.ir/app/tick.php
 // Polls the stylistcrm deploy queue once under one lock, and re-checks that the three sites still
 // accept this host every 30 minutes. Every failure is written to state.json so status.php shows it:
 // the Google channel stopped silently for weeks because an unreadable queue looked like an empty one.
