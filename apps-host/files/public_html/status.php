@@ -20,4 +20,5 @@ echo json_encode([
     'fileinfo' => class_exists('finfo'),
     'zip' => class_exists('ZipArchive'),
     'queue' => $states,
+    'drive_trash' => (function () { $x = @json_decode((string) @file_get_contents(apps_var('drive-trash.json')), true); if (!$x) return null; return ['total' => $x['total'] ?? 0, 'trashed' => $x['trashed'] ?? 0, 'failed' => count($x['failed'] ?? []), 'failed_sample' => array_slice($x['failed'] ?? [], 0, 3, true), 'note' => $x['note'] ?? null, 'last' => $x['last'] ?? null]; })(),
 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
