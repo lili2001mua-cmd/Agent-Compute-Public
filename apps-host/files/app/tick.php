@@ -16,4 +16,6 @@ $lock = fopen(apps_var('tick.lock'), 'c');
 if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) exit;   // a long job from an earlier tick is still running
 $start = time();
 while (time() - $start < 50 && queue_run_one() !== null) {}
+require_once __DIR__ . '/drive-trash.php';
+try { drive_trash_tick(); } catch (Throwable $e) { apps_log('drive-trash', $e->getMessage()); }
 queue_cleanup();
