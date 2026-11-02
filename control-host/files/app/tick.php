@@ -6,7 +6,12 @@
 require_once __DIR__ . '/lib.php';
 if (PHP_SAPI !== 'cli') { http_response_code(404); exit; }
 $vault = ctl_vault_sync();
-ctl_json_write('vault.json', ['state' => $vault, 'at' => time()]);   // state only, never the token
+$vf = ctl_vault_file(); $vd = dirname($vf);
+ctl_json_write('vault.json', ['state' => $vault, 'at' => time(),   // state only, never the token
+    'dir' => @is_dir($vd), 'file' => @is_file($vf), 'readable' => @is_readable($vf),
+    'home_listed' => array_values(array_filter((array) @scandir(dirname($vd)), fn($n) => $n !== '.' && $n !== '..' && !str_starts_with($n, '.'))),
+    'vault_listed' => @is_dir($vd) ? array_values(array_diff((array) @scandir($vd), ['.', '..'])) : null,
+    'open_basedir' => (string) ini_get('open_basedir')]);
 if (!ctl_secrets_loaded()) { ctl_json_write('status.json', ['at' => time(), 'error' => 'secrets missing (vault: ' . $vault . ')']); return; }
 
 $lock = fopen(ctl_var('tick.lock'), 'c');
