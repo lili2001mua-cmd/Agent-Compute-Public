@@ -17,6 +17,11 @@ const CTL_CHALLENGE_TTL = 600; // second confirmation must come within 10 minute
 /** Path of the holding vault file: two levels above the domain folder (/home/<user>/holding-vault/). */
 function ctl_vault_file(): string {
     $root = realpath(CTL_ROOT) ?: CTL_ROOT;
+    // home/holding-vault first; domains/holding-vault also accepted (still outside every domain, never served)
+    foreach ([dirname($root, 2), dirname($root)] as $base) {
+        $f = $base . '/holding-vault/gh-write-host.php';
+        if (@is_file($f)) return $f;
+    }
     return dirname($root, 2) . '/holding-vault/gh-write-host.php';
 }
 
