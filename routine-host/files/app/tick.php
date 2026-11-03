@@ -17,6 +17,8 @@ elseif (time() - $prev > 15 * 60) r_notify('⚠️ کرونِ routine.hohedoc.ir
 
 r_probe_country();          // daily, armed or not: status.php shows where the host fires from
 r_clock_tick();
+require_once __DIR__ . '/step3-fire.php';
+try { r_step3_fire(); } catch (Throwable $e) { r_log('step3-fire ' . substr($e->getMessage(), 0, 200)); }
 
 // Daily "alive" at 09:xx Tehran: its absence is the alarm for a dead host.
 $day = r_tehran(time(), 'Y-m-d');

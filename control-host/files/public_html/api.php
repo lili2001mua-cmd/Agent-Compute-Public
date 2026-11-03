@@ -6,6 +6,8 @@
 //   POST api.php?op=toggle-confirm  {challenge}  → runs it: GitHub state + registry rows in one [skip ci] commit
 //   POST api.php?op=backup-request  {target: redlilium-db} → one DB dump to the Telegram backup channel (sites cron runs it)
 //   GET  api.php?op=backup-status                 → last backup result + pending count
+//   GET  api.php?op=trainer-board                 → trainer project-control board (app/board.php, cron) + fire states
+//   POST api.php?op=step3-fire     {key}         → routine.hohedoc.ir opens a step-3 session for that bundle
 // Two steps on purpose: the phone asks, shows the summary, the user confirms again (all workflows are critical).
 require __DIR__ . '/../app/lib.php';
 header('Content-Type: application/json; charset=utf-8');
@@ -23,6 +25,14 @@ $body = (string) file_get_contents('php://input');
 if (strlen($body) > 4096) out(413, ['ok' => false, 'error' => 'too large']);
 $why = ctl_auth($op, $body);
 if ($why !== null) { ctl_log("auth fail op=$op $why"); out(401, ['ok' => false, 'error' => $why]); }
+
+if ($op === 'trainer-board' && $_SERVER['REQUEST_METHOD'] === 'GET') {
+    // computed every 5 minutes by the cron from the trainer's records on GitHub (app/board.php); never written by a session
+    $b = @json_decode((string) @file_get_contents(ctl_var('trainer-board') . '/board.json'), true);
+    $st = @json_decode((string) @file_get_contents(ctl_var('trainer-board') . '/board-state.json'), true);
+    $fire = @json_decode((string) @file_get_contents(ctl_var('fire-state.json')), true);   // written by routine.hohedoc.ir
+    out(200, ['ok' => true, 'state' => $st, 'board' => $b, 'fire' => is_array($fire) ? $fire : (object) []]);
+}
 
 if ($op === 'backup-status' && $_SERVER['REQUEST_METHOD'] === 'GET') {
     // written by the sites.hohedoc.ir cron (app/phone-backup.php) into our var/
@@ -72,6 +82,25 @@ if ($op === 'backup-request') {
         'device' => (string) $_SERVER['HTTP_X_HC_DEVICE']]), LOCK_EX);
     ctl_log("backup-request $id");
     out(200, ['ok' => true, 'id' => $id, 'note' => 'the sites.hohedoc.ir cron picks it up within a minute']);
+}
+
+if ($op === 'step3-fire') {
+    // «سشن بساز و اجرا کن»: one bundle waiting in step 3 without a session → routine.hohedoc.ir fires the
+    // account's dispatcher with job=step3-bundle (Memory-Routine-Runbook/step3-bundle.md). We only drop a file.
+    $key = (string) ($in['key'] ?? '');
+    if (!preg_match('/^b[0-9]{1,8}$/', $key)) out(400, ['ok' => false, 'error' => 'bad key']);
+    $b = @json_decode((string) @file_get_contents(ctl_var('trainer-board') . '/board.json'), true) ?: [];
+    $row = null; foreach (($b['bundles'] ?? []) as $x) if (($x['key'] ?? '') === $key) $row = $x;
+    if (!$row || ($row['kind'] ?? '') !== 'nightly') out(409, ['ok' => false, 'error' => 'bundle has a session or is not waiting in step 3']);
+    $dir = ctl_var('fire-req');
+    if (!is_dir($dir)) mkdir($dir, 0700, true);
+    if (glob($dir . '/*.json')) out(409, ['ok' => false, 'error' => 'a session request is already waiting']);
+    $fs = @json_decode((string) @file_get_contents(ctl_var('fire-state.json')), true) ?: [];
+    if (($fs[$key]['state'] ?? '') === 'fired' && time() - (int) ($fs[$key]['at'] ?? 0) < 3600) out(409, ['ok' => false, 'error' => 'a session for this bundle was started less than an hour ago']);
+    file_put_contents($dir . '/' . time() . '-' . $key . '.json', json_encode(['key' => $key, 'at' => time(),
+        'device' => (string) $_SERVER['HTTP_X_HC_DEVICE']]), LOCK_EX);
+    ctl_log("step3-fire request $key");
+    out(200, ['ok' => true, 'key' => $key, 'note' => 'routine.hohedoc.ir fires it within 5 minutes']);
 }
 
 if ($op === 'toggle-confirm') {

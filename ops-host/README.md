@@ -10,7 +10,7 @@ leave GitHub Actions. Its own subdomain under the user's rule (1405-08-07). Same
 
 Watched routines and their limits: `OPS_WATCH` in `files/app/lib.php`. Since 1405-08-11 this also watches the Iranian host: `relay.hohe1.ir/hc-watch.php` posts `id=iran-relay` every ~10 minutes; a gap over 1 hour sends one Telegram alert (Iran host down, or its outbound link cut), and `status.php` → `routines.iran-relay.age_h` is how `mcp-connections-audit.py --verify` in the private repo refreshes the Iran row without reaching Iran itself.
 
-| scheduled Claude routines | `app/fire.php` fires `invariants` every 48 h **until `routine.hohedoc.ir` is armed** (`routine-host/`, 1405-08-07); that day this file is removed so only one clock remains. Secrets: `INVARIANTS_FIRE_URL` / `INVARIANTS_FIRE_TOKEN` in `secrets.php`. |
+| scheduled Claude routines | **moved to `routine.hohedoc.ir`** (`routine-host/`, armed 1405-08-08): one clock only; `fire.php` removed here (its `INVARIANTS_FIRE_*` secrets were never set). |
 
 | `auto-pr-stranded-branches.yml` (private repo) | `app/stranded.php`, once a day at 03:xx UTC: every `claude/*` branch of Agent-Project-Backup with hand-written unmerged work and no PR gets one PR (REST only; same rules and the same generated-file list as `Sys.scripts/lib/branch-classify.sh`). Errors go to Telegram. |
 
