@@ -21,6 +21,15 @@ account: `job=hf_login_link` → open the link in a browser → sign in → toke
 Then `hf_tools` lists the MCP tools and `hf_call` (tool + JSON args) runs one, refreshing tokens itself.
 The client is identified by `public_html/oauth/client.json` (OAuth client-metadata document, PKCE, no secret).
 
+## Extra Google Drive accounts (BACKUP, …) — no GitHub secret
+
+`job=drive_login_link account=BACKUP` → a one-time link (`drive-login.php?k=…`, 15 minutes, single use).
+The first time, that page asks for the Google **Web application** client (id + secret) and stores it in
+`var/drive-web-client.json` (0600). Google returns to `oauth/drive-callback.php`, which stores the account's
+refresh token in `var/drive-accounts/<NAME>.json` (0600). Nothing is printed, nothing goes to GitHub.
+`job=drive_accounts` lists connected accounts; `job=drive_list account=BACKUP` is the read-only proof
+(email, quota, 20 root names). Code: `app/drive_accounts.php`. The main account (`DRIVE_OAUTH`) is untouched.
+
 ## Door
 
 `POST https://studio.hohedoc.ir/run.php` with header `X-Studio-Key: <ADMIN_KEY>` and form fields
