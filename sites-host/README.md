@@ -87,3 +87,13 @@ token. It has no Actions, Admin, Secrets or Workflows permission.
 
 After any change under `files/`, run `bash sites-host/selftest/selftest.sh` and
 `python3 sites-host/build-manifest.py`.
+
+## Phone button: redlilium database → Telegram (`app/phone-backup.php`)
+
+The My-Control-Project app signs `backup-request` to `control.hohedoc.ir`, which only drops a request file in its own
+`var/backup-req/`. This host's minute cron (same hosting user, so it can read the sibling folder) runs the existing
+`dbdump` on `stylistcrm` env `pwa`, sends the gzip with the bot (token borrowed from trainer's secret files, cron only)
+to the private channel «Backup Database redlilium», deletes the local copy, and writes the result to the control
+host's `var/backup-state.json` for the app. One request at a time; files over 49 MB are refused (Bot API limit).
+The device signature plus the phone's biometric prompt stand in for the queue's approval stamp: this action only
+reads the site and writes to the user's own private channel.

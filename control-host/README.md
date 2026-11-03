@@ -25,3 +25,9 @@ key (Android Keystore); the GitHub token (W-HOST) lives only in `/home/<user>/ho
 
 Note: the DirectAdmin subdomain's web root must be `domains/control.hohedoc.ir/public_html`
 (the same layout as the other hohedoc.ir subdomains).
+
+## Database backup button
+
+`POST api.php?op=backup-request {"target":"redlilium-db"}` (signed) drops one request file in `var/backup-req/`;
+`sites.hohedoc.ir` runs it (see `sites-host/README.md`, «Phone button»). `GET api.php?op=backup-status` (signed)
+returns the last result and how many requests are waiting.
