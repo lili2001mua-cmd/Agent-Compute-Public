@@ -153,6 +153,32 @@ function tg_text_args(array $a): array {
     return ['message' => $t, 'entities' => is_array($a['entities'] ?? null) ? $a['entities'] : [], 'no_webpage' => !empty($a['no_webpage'])];
 }
 
+// ---- peer-database self-heal ------------------------------------------------------------------------
+/**
+ * The session can lose its peer database (every chain chat then answers PeerNotInDbException, 1405-08-12):
+ * setCacheAllPeersOnStartup(false) means nothing refills it by itself. Walking the account's dialogs once
+ * caches every peer's access hash again; the failed op is then retried once. One warm per process.
+ */
+function tg_is_peer_not_in_db(Throwable $e): bool { return str_contains(get_class($e), 'PeerNotInDb') || str_contains($e->getMessage(), 'not present in the internal peer database'); }
+function tg_peer_warm($api): bool {
+    static $warmed = false;
+    if ($warmed) return false;
+    $warmed = true;
+    try { $n = count($api->getDialogIds()); }
+    catch (Throwable $e) { $n = -1; tg_log('chain', 'peer warm: getDialogIds ' . tg_rpc_name($e)); }
+    try { $api->messages->getDialogs(offset_peer: ['_' => 'inputPeerEmpty'], limit: 100); }
+    catch (Throwable $e) { tg_log('chain', 'peer warm: getDialogs ' . tg_rpc_name($e)); }
+    tg_log('chain', 'peer warm: ' . $n . ' dialogs walked');
+    return true;
+}
+function tg_chain_op_healed($api, string $op, array $a, ?string $idem): array {
+    try { return tg_chain_op($api, $op, $a, $idem); }
+    catch (Throwable $e) {
+        if (!tg_is_peer_not_in_db($e) || !tg_peer_warm($api)) throw $e;
+        return tg_chain_op($api, $op, $a, $idem);
+    }
+}
+
 // ---- the ops ---------------------------------------------------------------------------------------
 function tg_chain_op($api, string $op, array $a, ?string $idem): array {
     switch ($op) {
@@ -379,7 +405,7 @@ function job_chain_ops(array $a, callable $hb, string $role = 'read'): array {
             $hb(['phase' => 'op', 'n' => $n, 'op' => $op]);
             if ($prev = tg_journal_get($idem)) { $results[] = $prev + ['journalled' => true]; continue; }
             try {
-                $res = tg_chain_op($api, $op, $args, $idem);
+                $res = tg_chain_op_healed($api, $op, $args, $idem);
             } catch (Throwable $e) {
                 $name = tg_rpc_name($e);
                 $results[] = ['error' => $name, 'message' => mb_substr(preg_replace('/[A-Za-z0-9_\-]{25,}/', '…', $e->getMessage()), 0, 200)];
