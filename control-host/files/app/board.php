@@ -208,10 +208,24 @@ function board_build(): array {
                   'closed_utc' => $closedAt, 'closed_j' => $closedAt ? ctl_jalali(strtotime($closedAt)) : '',
                   'date' => min(array_map(fn($e) => (string) ($e['date'] ?? ''), $es)), 'rows' => count($es)];
     }
+    // bundles whose step-3 session left no trace in git (no ledger row, no report, no commit naming them) are
+    // invisible to the five sources; extra.json (host only) puts them back in step 3 without a session so the app
+    // button can run step 3 again (user decision 1405-08-12, first case: b8034).
+    $seenKeys = array_flip(array_column($out, 'key'));
+    foreach ((array) board_read('extra.json', ['b8034' => ['since' => '1405-08-12']]) as $k => $meta) {
+        if (isset($seenKeys[$k]) || !preg_match('/^b[0-9]+$/', $k)) continue;
+        $t = $titles[$k] ?? '';
+        if ($t === '') foreach ((array) ($ni['items'] ?? []) as $r) if (($r['key'] ?? '') === $k) $t = mb_substr((string) ($r['topic'] ?? ''), 0, 45);
+        $t = $t ?: $k;
+        $out[] = ['key' => $k, 'title' => $t, 'step' => '3', 'sub' => 'سشنِ قبلی ردی در گیت‌هاب نگذاشت؛ دوباره اجرا کن',
+                  'flags' => ['سشنِ گامِ ۳ باز شد ولی هیچ ردیفِ نگاشتی ننوشت'], 'session' => null, 'kind' => 'nightly',
+                  'link' => $links[$k] ?? null, 'prompt' => 'گامِ ۳ · ' . $k . ' · ' . mb_substr($t, 0, 60),
+                  'closed_utc' => '', 'closed_j' => '', 'date' => '', 'rows' => 0];
+    }
     usort($out, fn($a, $b) => strcmp($b['date'], $a['date']));
     $count = ['3' => 0, 'up' => 0, '3.6' => 0, '4' => 0];
     foreach ($out as $b) $count[$b['step']]++;
-    return ['at' => time(), 'population' => count($by), 'count' => $count,
+    return ['at' => time(), 'population' => count($out), 'count' => $count,
             'linked' => count(array_filter($out, fn($b) => $b['session'] || $b['kind'] === 'nightly')), 'bundles' => $out];
 }
 
