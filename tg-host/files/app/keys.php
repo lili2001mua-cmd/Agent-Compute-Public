@@ -7,5 +7,5 @@ return [
     'read'  => 'b9757d76486f0fd2b99f30f9a777a290ec4a41419676e177afc85d84d8deb9bd',
     // chain: the same private-repo read key also opens chain_ops (one stored secret, same exposure as a second key in that file).
     'chain' => 'b9757d76486f0fd2b99f30f9a777a290ec4a41419676e177afc85d84d8deb9bd',
-    'admin' => '8f7302974611427664171ec2a6c30152156540e8d7d96711a7dc52566f490083',
+    'admin' => 'b4390bdda4f3974c4e7723f9bd9379504e5f6ad5d6f0aae8b92a207fc46960e1',
 ];
