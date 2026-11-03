@@ -536,15 +536,15 @@ function tg_chain_lease(array $in): array {
     } finally { flock($fh, LOCK_UN); fclose($fh); }
 }
 /** Session heartbeat: start | bundle | stage | delivered | end, for a night (Tehran date of the 03:00 run).
- *  stage carries 'wait3=<n> pending2=<m> total=<t>' (bundles waiting on the owner's step 3 / still owed by step 2). */
+ *  stage carries 'ready=<n> pending2=<m> total=<t>': bundles ready but not delivered / still owed by step 2 — both the chain's debt. */
 function tg_chain_beat(array $in): array {
     $ev = (string) ($in['event'] ?? ''); $night = (string) ($in['night'] ?? '');
     if (!in_array($ev, ['start', 'bundle', 'stage', 'delivered', 'end', 'off'], true) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $night)) return [400, ['error' => 'bad beat']];
     $f = tg_var('chain-night.json'); $r = tg_read_json($f) ?? [];
     $r[$night][$ev] = time(); $r[$night]['last'] = time();
     if ($ev === 'stage') {
-        if (!preg_match('/^wait3=(\d{1,3}) pending2=(\d{1,3}) total=(\d{1,3})$/', (string) ($in['note'] ?? ''), $m)) return [400, ['error' => 'bad stage']];
-        $r[$night]['stage_wait3'] = (int) $m[1]; $r[$night]['stage_pending2'] = (int) $m[2]; $r[$night]['stage_total'] = (int) $m[3];
+        if (!preg_match('/^ready=(\d{1,3}) pending2=(\d{1,3}) total=(\d{1,3})$/', (string) ($in['note'] ?? ''), $m)) return [400, ['error' => 'bad stage']];
+        $r[$night]['stage_ready'] = (int) $m[1]; $r[$night]['stage_pending2'] = (int) $m[2]; $r[$night]['stage_total'] = (int) $m[3];
     } elseif (isset($in['note'])) $r[$night]['note'] = mb_substr((string) $in['note'], 0, 200);
     $r = array_slice($r, -14, null, true);
     tg_write_json($f, $r);
@@ -562,13 +562,16 @@ function tg_chain_watchdog(): void {
     if (!empty($r[$night]['delivered']) || !empty($r[$night]['off']) || !empty($r[$night]['alert_' . $slot])) return;
     $s = tg_chain_secrets() + tg_secrets(); $tok = (string) ($s['TELEGRAM_BOT_TOKEN'] ?? ''); $chat = (string) ($s['TELEGRAM_POOL_CHAT_ID'] ?? '');
     $fa = fn($n) => strtr((string) $n, ['0' => '۰', '1' => '۱', '2' => '۲', '3' => '۳', '4' => '۴', '5' => '۵', '6' => '۶', '7' => '۷', '8' => '۸', '9' => '۹']);
-    $w3 = $r[$night]['stage_wait3'] ?? null; $p2 = $r[$night]['stage_pending2'] ?? null;
+    $rd = $r[$night]['stage_ready'] ?? null; $p2 = $r[$night]['stage_pending2'] ?? null;
     $icon = '⚠️';
     if (empty($r[$night]['start'])) $state = 'هیچ اجرایی شروع نشد';
-    elseif ($w3 !== null && $p2 === 0 && $w3 > 0) {
-        // the chain owes nothing: every open bundle waits on the owner's step-3 session — a reminder, not a breakdown
-        $icon = '⏳'; $state = 'گام‌های ۱ و ۲ تمام شده‌اند؛ منتظرِ گامِ ۳ ِ شما: ' . $fa($w3) . ' بسته (دکمهٔ «سشن بساز و اجرا کن» در اپ). تحویل بعد از گامِ ۳ خودش راه می‌افتد';
-    } elseif ($w3 !== null && $p2 > 0) $state = 'شروع شد ولی به «تحویل» نرسید — هنوز در گامِ ۲: ' . $fa($p2) . ' بسته' . ($w3 > 0 ? ' · منتظرِ گامِ ۳ ِ شما: ' . $fa($w3) . ' بسته' : '');
+    elseif ($rd !== null && ($rd + $p2) > 0) {
+        // both counts are the chain's own debt (the owner's step 3 comes after delivery and never blocks it)
+        $parts = [];
+        if ($p2 > 0) $parts[] = 'هنوز در گامِ ۲: ' . $fa($p2) . ' بسته';
+        if ($rd > 0) $parts[] = 'آماده ولی تحویل‌نشده: ' . $fa($rd) . ' بسته';
+        $state = 'شروع شد ولی به «تحویل» نرسید — ' . implode(' · ', $parts);
+    }
     else $state = 'شروع شد ولی به «تحویل» نرسید';
     $text = "$icon زنجیرهٔ چهارگام — شبِ $night : $state (نگهبانِ هاست، " . ($slot === 'morning' ? '۰۵:۰۰' : '۱۶:۰۰') . ' تهران).';
     $sent = false;
