@@ -39,3 +39,7 @@ Every cron tick (5 min) builds `var/trainer-board/board.json` from the trainer's
 vault token. It is the port of `Sys.scripts/step3-board-build.py`; no session writes anything here and no key lives
 in any Claude account. Titles were seeded once from the repo's `step3-board/titles.json` and now live only here.
 `GET api.php?op=trainer-board` (signed) serves it to the app.
+
+The same tick also builds `queue` inside `board.json`: the «Routine Trainer List» (bundles waiting for step 3 —
+pool status with an archive and not closed, grouped by the identity taxonomy, urgent first). `step3-fire` accepts a
+bundle from either list.

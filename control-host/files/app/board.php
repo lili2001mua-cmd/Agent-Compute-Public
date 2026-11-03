@@ -107,6 +107,58 @@ function board_user_session(string $key, string $night): ?string {
     return $s;
 }
 
+/** Taxonomy roots {id: {title, subs: {id: title}}} — port of nightly_pool.load_taxonomy (no YAML library). */
+function board_taxonomy(string $y): array {
+    $roots = []; $cur = null; $in = false;
+    foreach (preg_split('/\r?\n/', $y) as $line) {
+        if (preg_match('/^roots:\s*$/', $line)) { $in = true; continue; }
+        if ($in && preg_match('/^[A-Za-z_]/', $line)) break;
+        if (!$in) continue;
+        if (preg_match('/^\s{2}- id:\s*([\w-]+)/', $line, $m)) { $cur = $m[1]; $roots[$cur] = ['title' => '', 'subs' => []]; continue; }
+        if ($cur && preg_match('/^\s{4}title:\s*(.+?)\s*$/', $line, $m)) { $roots[$cur]['title'] = $m[1]; continue; }
+        if ($cur && preg_match('/^\s{6}- \{id:\s*([\w-]+),\s*title:\s*([^}]+)\}/', $line, $m)) $roots[$cur]['subs'][$m[1]] = trim($m[2]);
+    }
+    return $roots;
+}
+
+/** The «Routine Trainer List» queue: bundles waiting for step 3 (port of telegram_menu.pending_rows + build_pages
+ *  grouping). Pending = pool status with an archive and not closed; root/sub/plain from the nightly index. */
+function board_queue(array $pc, ?array $ni): array {
+    $tax = board_taxonomy((string) gh_raw('Sys.registry/identity-taxonomy.yaml'));
+    $plain = json_decode((string) gh_raw('Memory-Workflow/nightly-pool/plain.json'), true) ?: [];
+    $idx = []; foreach ((array) ($ni['items'] ?? []) as $r) if (!empty($r['key'])) $idx[$r['key']] = $r;
+    $rows = [];
+    foreach (($pc['statuses'] ?? []) as $s) {
+        if (($s['status'] ?? '') === 'بسته‌شده' || empty($s['archive'])) continue;
+        $k = $s['key']; $i = $idx[$k] ?? []; $a = $s['archive'];
+        $topic = $plain[$k] ?? ($i['plain'] ?? null) ?: ($a['topic'] ?? $i['topic'] ?? '—');
+        $rows[] = ['key' => $k, 'root' => $i['root'] ?? null, 'sub' => $i['sub'] ?? null, 'plain' => $topic,
+                   'urgent' => !empty($s['urgent']), 'link' => $a['link'] ?? null, 'date' => $a['date'] ?? '', 'jalali' => $a['jalali'] ?? ''];
+    }
+    usort($rows, fn($x, $y) => [$y['urgent'], $x['date'], $x['key']] <=> [$x['urgent'], $y['date'], $y['key']]);
+    $groups = [];
+    foreach ($tax as $rid => $r) {
+        $mine = array_values(array_filter($rows, fn($x) => $x['root'] === $rid));
+        if (!$mine) continue;
+        $subs = [];
+        foreach ($r['subs'] as $sid => $st) { $xs = array_values(array_filter($mine, fn($x) => $x['sub'] === $sid)); if ($xs) $subs[] = ['id' => $sid, 'title' => $st, 'keys' => array_column($xs, 'key')]; }
+        $rest = array_values(array_filter($mine, fn($x) => !isset($r['subs'][$x['sub']])));
+        if ($rest) $subs[] = ['id' => 'other', 'title' => 'بی‌زیرشاخه', 'keys' => array_column($rest, 'key')];
+        $groups[] = ['id' => $rid, 'title' => $r['title'], 'count' => count($mine), 'subs' => $subs];
+    }
+    $stray = array_values(array_filter($rows, fn($x) => !isset($tax[$x['root']])));
+    if ($stray) $groups[] = ['id' => 'other', 'title' => 'بی‌دسته', 'count' => count($stray), 'subs' => [['id' => 'other', 'title' => 'بی‌زیرشاخه', 'keys' => array_column($stray, 'key')]]];
+    usort($groups, fn($a, $b) => $b['count'] <=> $a['count']);
+    $items = [];
+    foreach ($rows as $x) {
+        $t = trim(preg_replace('/\s+/', ' ', (string) $x['plain']), " .");
+        $t = ($t === '' || $t === '—') ? '' : (mb_strlen($t) > 60 ? rtrim(mb_substr($t, 0, 59)) . '…' : $t);
+        $items[$x['key']] = ['plain' => $t, 'urgent' => $x['urgent'], 'link' => $x['link'], 'jalali' => $x['jalali'],
+                             'prompt' => 'گامِ ۳ · ' . $x['key'] . ($t !== '' ? ' · ' . $t : '')];
+    }
+    return ['total' => count($rows), 'urgent' => count(array_filter($rows, fn($x) => $x['urgent'])), 'groups' => $groups, 'items' => $items];
+}
+
 function board_build(): array {
     $L = json_decode((string) gh_raw('Memory-Workflow/mapping-ledger/ledger.json'), true)['entries'] ?? null;
     $P = gh_raw('Memory-Workflow/upgrade-adoption/probes.yaml');
@@ -208,10 +260,25 @@ function board_build(): array {
                   'closed_utc' => $closedAt, 'closed_j' => $closedAt ? ctl_jalali(strtotime($closedAt)) : '',
                   'date' => min(array_map(fn($e) => (string) ($e['date'] ?? ''), $es)), 'rows' => count($es)];
     }
+    // bundles whose step-3 session left no trace in git (no ledger row, no report, no commit naming them) are
+    // invisible to the five sources; extra.json (host only) puts them back in step 3 without a session so the app
+    // button can run step 3 again (user decision 1405-08-12, first case: b8034).
+    $seenKeys = array_flip(array_column($out, 'key'));
+    foreach ((array) board_read('extra.json', ['b8034' => ['since' => '1405-08-12']]) as $k => $meta) {
+        if (isset($seenKeys[$k]) || !preg_match('/^b[0-9]+$/', $k)) continue;
+        $t = $titles[$k] ?? '';
+        if ($t === '') foreach ((array) ($ni['items'] ?? []) as $r) if (($r['key'] ?? '') === $k) $t = mb_substr((string) ($r['topic'] ?? ''), 0, 45);
+        $t = $t ?: $k;
+        $out[] = ['key' => $k, 'title' => $t, 'step' => '3', 'sub' => 'سشنِ قبلی ردی در گیت‌هاب نگذاشت؛ دوباره اجرا کن',
+                  'flags' => ['سشنِ گامِ ۳ باز شد ولی هیچ ردیفِ نگاشتی ننوشت'], 'session' => null, 'kind' => 'nightly',
+                  'link' => $links[$k] ?? null, 'prompt' => 'گامِ ۳ · ' . $k . ' · ' . mb_substr($t, 0, 60),
+                  'closed_utc' => '', 'closed_j' => '', 'date' => '', 'rows' => 0];
+    }
     usort($out, fn($a, $b) => strcmp($b['date'], $a['date']));
     $count = ['3' => 0, 'up' => 0, '3.6' => 0, '4' => 0];
     foreach ($out as $b) $count[$b['step']]++;
-    return ['at' => time(), 'population' => count($by), 'count' => $count,
+    $queue = board_queue($pc, is_array($ni) ? $ni : null);
+    return ['at' => time(), 'population' => count($out), 'count' => $count, 'queue' => $queue,
             'linked' => count(array_filter($out, fn($b) => $b['session'] || $b['kind'] === 'nightly')), 'bundles' => $out];
 }
 
