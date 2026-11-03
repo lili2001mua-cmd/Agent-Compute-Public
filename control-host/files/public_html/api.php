@@ -4,6 +4,8 @@
 //   GET  api.php?op=ping                         → unsigned, {"ok":true,"secrets":bool} (no data)
 //   POST api.php?op=toggle-request  {workflow, action: enable|disable, reason}  → challenge
 //   POST api.php?op=toggle-confirm  {challenge}  → runs it: GitHub state + registry rows in one [skip ci] commit
+//   POST api.php?op=backup-request  {target: redlilium-db} → one DB dump to the Telegram backup channel (sites cron runs it)
+//   GET  api.php?op=backup-status                 → last backup result + pending count
 // Two steps on purpose: the phone asks, shows the summary, the user confirms again (all workflows are critical).
 require __DIR__ . '/../app/lib.php';
 header('Content-Type: application/json; charset=utf-8');
@@ -21,6 +23,12 @@ $body = (string) file_get_contents('php://input');
 if (strlen($body) > 4096) out(413, ['ok' => false, 'error' => 'too large']);
 $why = ctl_auth($op, $body);
 if ($why !== null) { ctl_log("auth fail op=$op $why"); out(401, ['ok' => false, 'error' => $why]); }
+
+if ($op === 'backup-status' && $_SERVER['REQUEST_METHOD'] === 'GET') {
+    // written by the sites.hohedoc.ir cron (app/phone-backup.php) into our var/
+    $pending = count(glob(ctl_var('backup-req') . '/*.json') ?: []);
+    out(200, ['ok' => true, 'pending' => $pending, 'last' => ctl_json_read('backup-state.json', null)]);
+}
 
 if ($op === 'status' && $_SERVER['REQUEST_METHOD'] === 'GET') {
     out(200, ['ok' => true] + ctl_json_read('status.json', ['error' => 'no status yet']));
@@ -49,6 +57,21 @@ if ($op === 'toggle-request') {
     ctl_json_write('challenges.json', $ch);
     out(200, ['ok' => true, 'challenge' => $id, 'expires_in' => CTL_CHALLENGE_TTL,
               'summary' => ['workflow' => $wf, 'action' => $action, 'reason' => $reason, 'state_now' => $row['state']]]);
+}
+
+if ($op === 'backup-request') {
+    // One press = one dump of the redlilium database into the private Telegram backup channel.
+    if (($in['target'] ?? '') !== 'redlilium-db') out(400, ['ok' => false, 'error' => 'unknown target']);
+    $dir = ctl_var('backup-req');
+    if (!is_dir($dir)) mkdir($dir, 0700, true);
+    if (glob($dir . '/*.json')) out(409, ['ok' => false, 'error' => 'a backup is already waiting']);
+    $st = ctl_json_read('backup-state.json', []);
+    if (($st['state'] ?? '') === 'running' && time() - (int) ($st['started_at'] ?? 0) < 1200) out(409, ['ok' => false, 'error' => 'a backup is running']);
+    $id = bin2hex(random_bytes(6));
+    file_put_contents($dir . '/' . time() . '-' . $id . '.json', json_encode(['id' => $id, 'target' => 'redlilium-db', 'at' => time(),
+        'device' => (string) $_SERVER['HTTP_X_HC_DEVICE']]), LOCK_EX);
+    ctl_log("backup-request $id");
+    out(200, ['ok' => true, 'id' => $id, 'note' => 'the sites.hohedoc.ir cron picks it up within a minute']);
 }
 
 if ($op === 'toggle-confirm') {

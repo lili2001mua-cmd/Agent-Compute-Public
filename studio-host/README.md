@@ -34,7 +34,7 @@ poll with `job=result&id=<id>`. `status.php` is public and shows only booleans a
 <?php return [
   'ADMIN_KEY'         => '<new random ≥32 chars — not the trainer key>',
   'DRIVE_OAUTH'       => "CLIENT_ID=…\nCLIENT_SECRET=…\nREFRESH_TOKEN=…",
-  'DRIVE_ROOT_ID'     => '<Memory-Cloud folder id>',
+  'DRIVE_ROOT_ID'     => '<My-Drive folder id>',
   'HF_API_KEY_ID'     => '…',
   'HF_API_KEY_SECRET' => '…',
   // 'HF_DAILY_MAX'   => '30',
