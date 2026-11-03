@@ -31,3 +31,11 @@ Note: the DirectAdmin subdomain's web root must be `domains/control.hohedoc.ir/p
 `POST api.php?op=backup-request {"target":"redlilium-db"}` (signed) drops one request file in `var/backup-req/`;
 `sites.hohedoc.ir` runs it (see `sites-host/README.md`, «Phone button»). `GET api.php?op=backup-status` (signed)
 returns the last result and how many requests are waiting.
+
+## Trainer project-control board (`app/board.php`)
+
+Every cron tick (5 min) builds `var/trainer-board/board.json` from the trainer's own records in the private repo
+(mapping ledger, probes, close runs, feedback, pool, report heads, the commits that carry each session), with the
+vault token. It is the port of `Sys.scripts/step3-board-build.py`; no session writes anything here and no key lives
+in any Claude account. Titles were seeded once from the repo's `step3-board/titles.json` and now live only here.
+`GET api.php?op=trainer-board` (signed) serves it to the app.

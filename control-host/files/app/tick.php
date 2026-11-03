@@ -52,3 +52,5 @@ foreach (($wf['workflows'] ?? []) as $w) {
 }
 ctl_json_write('status.json', ['at' => time(), 'repo' => CTL_REPO, 'workflows' => $out]);
 flock($lock, LOCK_UN);
+require_once __DIR__ . '/board.php';
+board_tick();   // trainer project-control board (separate lock; its error never stops the status above)

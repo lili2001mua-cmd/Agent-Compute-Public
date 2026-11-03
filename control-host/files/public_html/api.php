@@ -6,6 +6,7 @@
 //   POST api.php?op=toggle-confirm  {challenge}  → runs it: GitHub state + registry rows in one [skip ci] commit
 //   POST api.php?op=backup-request  {target: redlilium-db} → one DB dump to the Telegram backup channel (sites cron runs it)
 //   GET  api.php?op=backup-status                 → last backup result + pending count
+//   GET  api.php?op=trainer-board                 → trainer project-control board (app/board.php, cron)
 // Two steps on purpose: the phone asks, shows the summary, the user confirms again (all workflows are critical).
 require __DIR__ . '/../app/lib.php';
 header('Content-Type: application/json; charset=utf-8');
@@ -23,6 +24,13 @@ $body = (string) file_get_contents('php://input');
 if (strlen($body) > 4096) out(413, ['ok' => false, 'error' => 'too large']);
 $why = ctl_auth($op, $body);
 if ($why !== null) { ctl_log("auth fail op=$op $why"); out(401, ['ok' => false, 'error' => $why]); }
+
+if ($op === 'trainer-board' && $_SERVER['REQUEST_METHOD'] === 'GET') {
+    // computed every 5 minutes by the cron from the trainer's records on GitHub (app/board.php); never written by a session
+    $b = @json_decode((string) @file_get_contents(ctl_var('trainer-board') . '/board.json'), true);
+    $st = @json_decode((string) @file_get_contents(ctl_var('trainer-board') . '/board-state.json'), true);
+    out(200, ['ok' => true, 'state' => $st, 'board' => $b]);
+}
 
 if ($op === 'backup-status' && $_SERVER['REQUEST_METHOD'] === 'GET') {
     // written by the sites.hohedoc.ir cron (app/phone-backup.php) into our var/
