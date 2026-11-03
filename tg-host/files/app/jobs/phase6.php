@@ -95,7 +95,7 @@ function tg_update_ids(array $u): array {
 }
 function tg_is_channel(int $id): bool { return $id <= -1000000000000; }
 function tg_get_msgs($api, int $peer, array $ids): array {
-    $r = tg_is_channel($peer) ? $api->channels->getMessages(channel: $peer, id: $ids) : $api->messages->getMessages(id: $ids);
+    $r = tg_is_channel($peer) ? $api->channels->getMessages(channel: tg_ip($peer), id: $ids) : $api->messages->getMessages(id: $ids);
     $by = [];
     foreach ($r['messages'] ?? [] as $m) {
         if (($m['_'] ?? '') === 'messageEmpty') continue;
@@ -156,32 +156,69 @@ function tg_text_args(array $a): array {
 // ---- peer-database self-heal ------------------------------------------------------------------------
 /**
  * The session can lose its peer database (every chain chat then answers PeerNotInDbException, 1405-08-12):
- * setCacheAllPeersOnStartup(false) means nothing refills it by itself. Walking the account's dialogs once
- * caches every peer's access hash again; the failed op is then retried once. One warm per process.
+ * setCacheAllPeersOnStartup(false) means nothing refills it by itself. The heal walks the account's dialogs
+ * with raw messages.getDialogs and keeps each allowlisted chat's own input peer (id + access_hash) from the
+ * answer, so later calls carry the access hash themselves and no longer depend on the peer database.
+ * The failed op is retried once. One walk per process; its counts are kept for `peer_health`.
  */
+$GLOBALS['tg_ip_map'] = [];
+$GLOBALS['tg_peer_diag'] = null;
 function tg_is_peer_not_in_db(Throwable $e): bool { return str_contains(get_class($e), 'PeerNotInDb') || str_contains($e->getMessage(), 'not present in the internal peer database'); }
-function tg_peer_warm($api): bool {
-    static $warmed = false;
-    if ($warmed) return false;
-    $warmed = true;
-    try { $n = count($api->getDialogIds()); }
-    catch (Throwable $e) { $n = -1; tg_log('chain', 'peer warm: getDialogIds ' . tg_rpc_name($e)); }
-    try { $api->messages->getDialogs(offset_peer: ['_' => 'inputPeerEmpty'], limit: 100); }
-    catch (Throwable $e) { tg_log('chain', 'peer warm: getDialogs ' . tg_rpc_name($e)); }
-    tg_log('chain', 'peer warm: ' . $n . ' dialogs walked');
-    return true;
+/** The input peer for a chain chat id: the access-hash form once the heal found it, else the id itself. */
+function tg_ip(int $id) { return $GLOBALS['tg_ip_map'][$id] ?? $id; }
+function tg_peer_warm($api): array {
+    if ($GLOBALS['tg_peer_diag'] !== null) return $GLOBALS['tg_peer_diag'];
+    $want = array_map('intval', array_keys(tg_chain_chats()['chats']));
+    $d = ['pages' => 0, 'dialogs' => 0, 'found' => [], 'missing' => [], 'errors' => []];
+    $off = ['date' => 0, 'id' => 0, 'peer' => ['_' => 'inputPeerEmpty']];
+    try {
+        for ($page = 0; $page < 20; $page++) {
+            $r = $api->messages->getDialogs(offset_date: $off['date'], offset_id: $off['id'], offset_peer: $off['peer'], limit: 100, hash: 0);
+            $d['pages']++;
+            $dialogs = $r['dialogs'] ?? []; $d['dialogs'] += count($dialogs);
+            $inputs = [];
+            foreach ($r['users'] ?? [] as $u) if (isset($u['id'], $u['access_hash'])) $inputs[(int) $u['id']] = ['_' => 'inputPeerUser', 'user_id' => (int) $u['id'], 'access_hash' => $u['access_hash']];
+            foreach ($r['chats'] ?? [] as $c) {
+                if (!isset($c['id'])) continue;
+                if (str_starts_with((string) ($c['_'] ?? ''), 'channel')) { if (isset($c['access_hash'])) $inputs[-1000000000000 - (int) $c['id']] = ['_' => 'inputPeerChannel', 'channel_id' => (int) $c['id'], 'access_hash' => $c['access_hash']]; }
+                else $inputs[-(int) $c['id']] = ['_' => 'inputPeerChat', 'chat_id' => (int) $c['id']];
+            }
+            foreach ($want as $id) if (isset($inputs[$id])) $GLOBALS['tg_ip_map'][$id] = $inputs[$id];
+            if (!array_diff($want, array_keys($GLOBALS['tg_ip_map']))) break;
+            if (count($dialogs) < 100 || ($r['_'] ?? '') === 'messages.dialogs') break;
+            $msgs = [];
+            foreach ($r['messages'] ?? [] as $m) if (isset($m['peer_id'], $m['id'])) $msgs[tg_peer_id($m['peer_id']) . ':' . $m['id']] = $m;
+            $last = end($dialogs); $lid = tg_peer_id($last['peer']);
+            $lm = $msgs[$lid . ':' . ($last['top_message'] ?? 0)] ?? null;
+            if (!$lm) break;
+            $off = ['date' => (int) $lm['date'], 'id' => (int) $lm['id'], 'peer' => $inputs[$lid] ?? $lid];
+        }
+    } catch (Throwable $e) { $d['errors'][] = tg_rpc_name($e) . ': ' . mb_substr($e->getMessage(), 0, 120); }
+    $d['found'] = array_values(array_intersect($want, array_keys($GLOBALS['tg_ip_map'])));
+    $d['missing'] = array_values(array_diff($want, $d['found']));
+    tg_log('chain', 'peer warm: pages=' . $d['pages'] . ' dialogs=' . $d['dialogs'] . ' found=' . count($d['found']) . ' missing=' . count($d['missing']) . ($d['errors'] ? ' error=' . $d['errors'][0] : ''));
+    return $GLOBALS['tg_peer_diag'] = $d;
 }
 function tg_chain_op_healed($api, string $op, array $a, ?string $idem): array {
     try { return tg_chain_op($api, $op, $a, $idem); }
     catch (Throwable $e) {
-        if (!tg_is_peer_not_in_db($e) || !tg_peer_warm($api)) throw $e;
-        return tg_chain_op($api, $op, $a, $idem);
+        if (!tg_is_peer_not_in_db($e)) throw $e;
+        $fresh = $GLOBALS['tg_peer_diag'] === null;
+        $d = tg_peer_warm($api);
+        if ($fresh) {
+            try { return tg_chain_op($api, $op, $a, $idem); }
+            catch (Throwable $e2) { if (!tg_is_peer_not_in_db($e2)) throw $e2; }
+        }
+        throw new RuntimeException('PEER_NOT_IN_DB after heal: dialogs=' . $d['dialogs'] . ' found=' . count($d['found']) . ' missing=' . implode(',', $d['missing']) . ($d['errors'] ? ' error=' . $d['errors'][0] : ''));
     }
 }
 
 // ---- the ops ---------------------------------------------------------------------------------------
 function tg_chain_op($api, string $op, array $a, ?string $idem): array {
     switch ($op) {
+        case 'peer_health':
+            // read-only: walk dialogs once and report counts and which allowlisted chats now carry an access hash
+            return ['peer_health' => tg_peer_warm($api)];
         case 'dialogs':
             $out = [];
             foreach (tg_chain_chats()['chats'] as $id => $m) $out[] = ['id' => (int) $id] + $m;
@@ -191,7 +228,7 @@ function tg_chain_op($api, string $op, array $a, ?string $idem): array {
             return ['chat' => $hit];
         case 'entity':
             $id = tg_chain_peer($a['peer']);
-            $info = $api->getInfo($id);
+            $info = $api->getInfo(tg_ip($id));
             return ['entity' => tg_tl_clean($info['Chat'] ?? $info['User'] ?? null), 'type' => $info['type'] ?? null];
         case 'history':
             $peer = tg_chain_peer($a['peer']);
@@ -200,7 +237,7 @@ function tg_chain_op($api, string $op, array $a, ?string $idem): array {
             $out = []; $off = (int) ($a['offset_id'] ?? 0);
             while (count($out) < $limit) {
                 $n = min(100, $limit - count($out));
-                $r = $api->messages->getHistory(peer: $peer, offset_id: $off, limit: $n);
+                $r = $api->messages->getHistory(peer: tg_ip($peer), offset_id: $off, limit: $n);
                 $ms = $r['messages'] ?? [];
                 $stop = false;
                 foreach ($ms as $m) {
@@ -247,7 +284,7 @@ function tg_chain_op($api, string $op, array $a, ?string $idem): array {
             $todo = array_values(array_filter($ids, fn($i) => empty($log["$key|$i"]['dst_id'])));
             if ($todo) {
                 tg_rate('forward_day', count($todo));
-                $u = $api->messages->forwardMessages(from_peer: $from, to_peer: $to, id: $todo, drop_author: true, drop_media_captions: !empty($a['drop_media_captions']));
+                $u = $api->messages->forwardMessages(from_peer: tg_ip($from), to_peer: tg_ip($to), id: $todo, drop_author: true, drop_media_captions: !empty($a['drop_media_captions']));
                 $new = tg_update_ids($u);
                 foreach ($todo as $k => $src) { tg_fwd_append(['key' => $key, 'src' => $from, 'src_id' => $src, 'dst' => $to, 'dst_id' => $new[$k] ?? null, 'verified' => false]); }
                 $fresh = tg_fwd_rows();
@@ -273,7 +310,7 @@ function tg_chain_op($api, string $op, array $a, ?string $idem): array {
             $peer = tg_chain_peer($a['peer'], TG_CHAIN_KINDS_WRITE);
             tg_rate('send_hour');
             $t = tg_text_args($a);
-            $u = $api->messages->sendMessage(peer: $peer, message: $t['message'], entities: $t['entities'], no_webpage: $t['no_webpage'],
+            $u = $api->messages->sendMessage(peer: tg_ip($peer), message: $t['message'], entities: $t['entities'], no_webpage: $t['no_webpage'],
                 reply_to: !empty($a['reply_to']) ? ['_' => 'inputReplyToMessage', 'reply_to_msg_id' => (int) $a['reply_to']] : null);
             $ids = tg_update_ids($u);
             return ['ids' => $ids, 'messages' => $ids ? tg_get_msgs($api, $peer, $ids) : []];
@@ -281,12 +318,12 @@ function tg_chain_op($api, string $op, array $a, ?string $idem): array {
             $peer = tg_chain_peer($a['peer'], TG_CHAIN_KINDS_WRITE);
             tg_rate('edit_hour');
             $t = tg_text_args($a);
-            $api->messages->editMessage(peer: $peer, id: (int) $a['id'], message: $t['message'], entities: $t['entities'], no_webpage: $t['no_webpage']);
+            $api->messages->editMessage(peer: tg_ip($peer), id: (int) $a['id'], message: $t['message'], entities: $t['entities'], no_webpage: $t['no_webpage']);
             return ['messages' => tg_get_msgs($api, $peer, [(int) $a['id']])];
         case 'pin':
             $peer = tg_chain_peer($a['peer'], TG_CHAIN_KINDS_WRITE);
             tg_rate('edit_hour');
-            $api->messages->updatePinnedMessage(peer: $peer, id: (int) $a['id'], silent: !empty($a['silent']), unpin: !empty($a['unpin']));
+            $api->messages->updatePinnedMessage(peer: tg_ip($peer), id: (int) $a['id'], silent: !empty($a['silent']), unpin: !empty($a['unpin']));
             return ['ok' => true];
         case 'send_media':
             $peer = tg_chain_peer($a['peer'], TG_CHAIN_KINDS_WRITE);
@@ -298,14 +335,14 @@ function tg_chain_op($api, string $op, array $a, ?string $idem): array {
                 $t = tg_text_args(['text' => $a['caption'] ?? '', 'entities' => $a['entities'] ?? []]);
                 $reply = !empty($a['reply_to']) ? ['_' => 'inputReplyToMessage', 'reply_to_msg_id' => (int) $a['reply_to']] : null;
                 if (count($items) === 1) {
-                    $u = $api->messages->sendMedia(peer: $peer, media: tg_input_media($api, $items[0], $cleanup), message: $t['message'], entities: $t['entities'], reply_to: $reply);
+                    $u = $api->messages->sendMedia(peer: tg_ip($peer), media: tg_input_media($api, $items[0], $cleanup), message: $t['message'], entities: $t['entities'], reply_to: $reply);
                 } else {
                     $multi = [];
                     foreach ($items as $k => $it) {
-                        $uploaded = $api->messages->uploadMedia(peer: $peer, media: tg_input_media($api, $it, $cleanup));
+                        $uploaded = $api->messages->uploadMedia(peer: tg_ip($peer), media: tg_input_media($api, $it, $cleanup));
                         $multi[] = ['_' => 'inputSingleMedia', 'media' => $uploaded, 'message' => $k === 0 ? $t['message'] : '', 'entities' => $k === 0 ? $t['entities'] : []];
                     }
-                    $u = $api->messages->sendMultiMedia(peer: $peer, multi_media: $multi, reply_to: $reply);
+                    $u = $api->messages->sendMultiMedia(peer: tg_ip($peer), multi_media: $multi, reply_to: $reply);
                 }
             } finally { foreach ($cleanup as $p) @unlink($p); }
             $ids = tg_update_ids($u);
@@ -316,7 +353,7 @@ function tg_chain_op($api, string $op, array $a, ?string $idem): array {
             tg_rate('edit_hour');
             $own = [];
             foreach (tg_get_msgs($api, $peer, $ids) as $i => $m) { if ($m && !empty($m['out'])) $own[] = $ids[$i]; }
-            if ($own) { tg_is_channel($peer) ? $api->channels->deleteMessages(channel: $peer, id: $own) : $api->messages->deleteMessages(revoke: true, id: $own); }
+            if ($own) { tg_is_channel($peer) ? $api->channels->deleteMessages(channel: tg_ip($peer), id: $own) : $api->messages->deleteMessages(revoke: true, id: $own); }
             return ['deleted' => $own, 'refused' => array_values(array_diff($ids, $own))];
         case 'delete_source':
             // ک5 fence, checked at deletion time: each id is a media message this host forwarded in the last 7 days whose copy
@@ -375,7 +412,7 @@ function tg_chain_op($api, string $op, array $a, ?string $idem): array {
             $peer = tg_chain_peer($a['peer'], TG_CHAIN_KINDS_WRITE);
             tg_rate('edit_hour');
             $title = mb_substr((string) ($a['title'] ?? ''), 0, 128);
-            try { $api->channels->editTitle(channel: $peer, title: $title); }
+            try { $api->channels->editTitle(channel: tg_ip($peer), title: $title); }
             catch (\danog\MadelineProto\RPCErrorException $e) { if ($e->rpc !== 'CHAT_NOT_MODIFIED') throw $e; }
             $c = tg_chain_chats(); $c['chats'][(string) $peer]['title'] = $title; tg_chain_save($c);
             return ['ok' => true, 'title' => $title];
@@ -383,7 +420,7 @@ function tg_chain_op($api, string $op, array $a, ?string $idem): array {
             $peer = tg_chain_peer($a['peer'], TG_CHAIN_KINDS_WRITE);
             tg_rate('edit_hour');
             $path = tg_upload_path((string) ($a['upload'] ?? ''));
-            try { $api->channels->editPhoto(channel: $peer, photo: ['_' => 'inputChatUploadedPhoto', 'file' => $api->upload($path, 'photo.jpg')]); }
+            try { $api->channels->editPhoto(channel: tg_ip($peer), photo: ['_' => 'inputChatUploadedPhoto', 'file' => $api->upload($path, 'photo.jpg')]); }
             finally { @unlink($path); }
             return ['ok' => true];
     }
@@ -450,11 +487,11 @@ function job_chain_admin(array $a, callable $hb, string $role = 'read'): array {
                     case 'edit_admin':
                         $peer = tg_chain_peer($args['peer'], TG_CHAIN_KINDS_WRITE);
                         $bot = (string) $args['bot']; if (!preg_match('/^@?[A-Za-z0-9_]{5,32}bot$/i', $bot)) throw new RuntimeException('not a bot username');
-                        $api->channels->editAdmin(channel: $peer, user_id: $bot, rank: 'menu', admin_rights: ['_' => 'chatAdminRights', 'post_messages' => true, 'edit_messages' => true, 'delete_messages' => true, 'pin_messages' => true]);
+                        $api->channels->editAdmin(channel: tg_ip($peer), user_id: $bot, rank: 'menu', admin_rights: ['_' => 'chatAdminRights', 'post_messages' => true, 'edit_messages' => true, 'delete_messages' => true, 'pin_messages' => true]);
                         $out[] = ['ok' => true]; break;
                     case 'delete_channel':
                         $peer = tg_chain_peer($args['peer'], ['created']);
-                        $api->channels->deleteChannel(channel: $peer);
+                        $api->channels->deleteChannel(channel: tg_ip($peer));
                         $c = tg_chain_chats(); unset($c['chats'][(string) $peer]); tg_chain_save($c); $out[] = ['deleted' => $peer]; break;
                     case 'intake_token':
                         $out[] = tg_chain_intake_token(); break;
