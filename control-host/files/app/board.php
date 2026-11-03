@@ -274,6 +274,17 @@ function board_build(): array {
                   'link' => $links[$k] ?? null, 'prompt' => 'گامِ ۳ · ' . $k . ' · ' . mb_substr($t, 0, 60),
                   'closed_utc' => '', 'closed_j' => '', 'date' => '', 'rows' => 0];
     }
+    // a session the app button already made (routine host, fire-state.json) counts as the user's session even
+    // before it writes anything to git — otherwise the bundle stays «بی‌سشن» while it is running (lesson b8034).
+    $fire = @json_decode((string) @file_get_contents(ctl_var('fire-state.json')), true) ?: [];
+    foreach ($out as &$b) {
+        $f = $fire[$b['key']] ?? null;
+        if ($b['kind'] === 'nightly' && is_array($f) && ($f['state'] ?? '') === 'fired' && !empty($f['session'])) {
+            $b['kind'] = 'opened'; $b['session'] = (string) $f['session']; $b['prompt'] = null;
+            $b['sub'] = 'سشن با دکمهٔ اپ ساخته شد؛ گزارش را ببین';
+        }
+    }
+    unset($b);
     usort($out, fn($a, $b) => strcmp($b['date'], $a['date']));
     $count = ['3' => 0, 'up' => 0, '3.6' => 0, '4' => 0];
     foreach ($out as $b) $count[$b['step']]++;
