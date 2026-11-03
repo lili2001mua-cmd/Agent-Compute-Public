@@ -14,6 +14,7 @@ foreach (OPS_WATCH as $id => $h) {
 $lastTick = (int) @file_get_contents(ops_var('last-tick.txt'));
 echo json_encode([
     'php' => PHP_VERSION,
+    'vault' => @json_decode((string) @file_get_contents(OPS_ROOT . '/var/vault.json'), true) ?: null,   // state + key names only
     'deployed' => @json_decode((string) @file_get_contents(ops_var('deployed.json')), true) ?: null,
     'last_tick_age_s' => $lastTick ? time() - $lastTick : null,
     'bot_token_seen_by_cron' => @json_decode((string) @file_get_contents(ops_var('cli-bot.json')), true),

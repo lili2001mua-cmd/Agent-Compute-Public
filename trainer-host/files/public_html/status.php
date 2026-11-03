@@ -11,6 +11,7 @@ foreach (trainer_secrets() as $k => $v) $present[$k] = $v !== '';
 
 echo json_encode([
     'php' => PHP_VERSION,
+    'vault' => @json_decode((string) @file_get_contents(TRAINER_ROOT . '/var/vault.json'), true) ?: null,   // state + key names only
     'deployed' => $deployed,
     'last_tick_age_s' => $lastTick ? time() - $lastTick : null,
     'secrets_present' => $present,

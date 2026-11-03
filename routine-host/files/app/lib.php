@@ -41,6 +41,8 @@ function r_secret(string $key): string {
         $s = [];
         $p = R_ROOT . '/secrets.php';
         if (is_file($p)) { @chmod($p, 0600); $x = include $p; if (is_array($x)) $s = $x; }
+        // ../secrets-extra-vault.php: the holding-vault token, written by app/vault-sync.php (wins over secrets.php)
+        foreach (glob(R_ROOT . '/secrets-extra*.php') ?: [] as $e) { $x = include $e; if (is_array($x)) $s = array_merge($s, array_filter($x, fn($v) => $v !== '' && $v !== null)); }
     }
     return (string) ($s[$key] ?? '');
 }
