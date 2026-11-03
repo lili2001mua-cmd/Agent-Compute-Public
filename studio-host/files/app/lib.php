@@ -118,7 +118,7 @@ const DRIVE_API = 'https://www.googleapis.com/drive/v3';
 const DRIVE_UPLOAD = 'https://www.googleapis.com/upload/drive/v3/files';
 const FOLDER_MIME = 'application/vnd.google-apps.folder';
 
-// Memory-Cloud folder id comes from the DRIVE_ROOT_ID secret (same value as pool_media_backend.POOL_PARENT_FOLDER_ID
+// My-Drive folder id comes from the DRIVE_ROOT_ID secret (same value as pool_media_backend.POOL_PARENT_FOLDER_ID
 // in the private repo) — kept out of this public code.
 function drive_root_id(): string {
     $id = studio_secret('DRIVE_ROOT_ID');

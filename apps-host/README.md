@@ -25,7 +25,7 @@ shows only booleans and versions.
 ```php
 <?php return [
   'ADMIN_KEY'     => '<new random ≥32 chars — not the studio or trainer key>',
-  'DRIVE_ROOT_ID' => '<Memory-Cloud folder id>',
+  'DRIVE_ROOT_ID' => '<My-Drive folder id>',
 ];
 ```
 

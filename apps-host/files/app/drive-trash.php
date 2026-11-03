@@ -35,7 +35,7 @@ function drive_trash_tick(): void {
         if (isset($st['done'][$line])) continue;
         if ($n >= DRIVE_TRASH_PER_TICK) break;
         $n++;
-        if (!$restore && $id === $root) { $st['failed'][$line] = 'refused: the Memory-Cloud root itself'; $st['done'][$line] = 0; continue; }
+        if (!$restore && $id === $root) { $st['failed'][$line] = 'refused: the My-Drive root itself'; $st['done'][$line] = 0; continue; }
         try {
             drive_call('PATCH', '/files/' . rawurlencode($id), ['supportsAllDrives' => 'true'], ['trashed' => !$restore]);
             $st['done'][$line] = 1;
