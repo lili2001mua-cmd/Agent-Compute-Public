@@ -1,6 +1,6 @@
 {
   "_generated_by": "Agent-Project-Backup/Sys.scripts/build-routine-jobs.py — دستی ویرایش نکن",
-  "registry_sha": "93fee3ef0031384d",
+  "registry_sha": "eaa9a03a3fbf7366",
   "jobs": [
     {
       "id": "nightly-pool",
@@ -31,6 +31,21 @@
       "start_within_min": 60,
       "finish_within_min": 180,
       "done_path": "Memory-Workflow/invariants-runs/{run_id}.done.json"
+    },
+    {
+      "id": "step3-bundle",
+      "runbook": "Memory-Routine-Runbook/step3-bundle.md",
+      "cron_utc": "0 0 31 2 *",
+      "tehran": "—",
+      "needs_claude": true,
+      "account_class": "agent-project-backup",
+      "accounts": [
+        "acct-a"
+      ],
+      "mode": "shadow",
+      "start_within_min": 30,
+      "finish_within_min": 120,
+      "done_path": "Memory-Workflow/routine-host/runs/{run_id}.done.json"
     },
     {
       "id": "routine-selftest",

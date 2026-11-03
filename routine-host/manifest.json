@@ -1,11 +1,12 @@
 {
-  "version": "20261103110156",
+  "version": "20261103122918",
   "files": {
     "app/dispatch.flag": "dc083dbe056a217097b6d6aba9e34f057b5f728b2fa63d0099a5e3c3f297cb5a",
     "app/dispatch.php": "42eac9c41a20d12183840dd788cdb5730a3ec2ab7a9bb895fe0eca82eb94728d",
-    "app/jobs.json": "697db61b58a6331a27fe258ff059db493ce8404f03fc84b500fe5a5ccbbcef91",
+    "app/jobs.json": "d7236a983d51eee788c1526f50de528e05a6640a03d3b5c522101c5071ed142a",
     "app/lib.php": "388776edce3da780f445109e6ca4fcbfc11d8bd6bdf26d7ae2e60154d33e6510",
-    "app/tick.php": "40f8788aed20261dedd2b50827477a0bb280190ed90b645af8d929427c53b483",
+    "app/step3-fire.php": "26f27d81f55081c52f2a568da62a17d3f3f94463c3f4e6cec3dac7c2fb057c08",
+    "app/tick.php": "64220a72c2a628014ab44f61122d7bb47af97a89a510ee136a8080ce818b937a",
     "app/vault-sync.php": "03c50c26e4c2fb51b9e42779564bd4a6a658505b8fd8197b56252ff6a3153d04",
     "public_html/.htaccess": "43d17cc38be53900cb3c677a197aa0c1ba8fc4cf2c5190674dccaaf07bc90fbb",
     "public_html/beat.php": "71ae6edc8fb2789d7e8612d50ea2b37a07102255021c9c5924c668ecc13857e3",
