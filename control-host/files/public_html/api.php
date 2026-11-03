@@ -91,7 +91,9 @@ if ($op === 'step3-fire') {
     if (!preg_match('/^b[0-9]{1,8}$/', $key)) out(400, ['ok' => false, 'error' => 'bad key']);
     $b = @json_decode((string) @file_get_contents(ctl_var('trainer-board') . '/board.json'), true) ?: [];
     $row = null; foreach (($b['bundles'] ?? []) as $x) if (($x['key'] ?? '') === $key) $row = $x;
-    if (!$row || ($row['kind'] ?? '') !== 'nightly') out(409, ['ok' => false, 'error' => 'bundle has a session or is not waiting in step 3']);
+    // allowed: a board bundle waiting in step 3 without a session, or a queue bundle (Routine Trainer List) not yet mapped
+    $ok = $row ? (($row['kind'] ?? '') === 'nightly') : isset($b['queue']['items'][$key]);
+    if (!$ok) out(409, ['ok' => false, 'error' => 'bundle has a session or is not waiting in step 3']);
     $dir = ctl_var('fire-req');
     if (!is_dir($dir)) mkdir($dir, 0700, true);
     if (glob($dir . '/*.json')) out(409, ['ok' => false, 'error' => 'a session request is already waiting']);
