@@ -96,7 +96,9 @@ function tg_mp_with(string $dir, callable $fn, int $budget = TG_MP_BUDGET_S): ar
     tg_mp_boot();
     $c = tg_creds();
     $settings = new \danog\MadelineProto\Settings;
-    $settings->getAppInfo()->setApiId((int) $c['TG_API_ID'])->setApiHash($c['TG_API_HASH']);
+    $settings->getAppInfo()->setApiId((int) $c['TG_API_ID'])->setApiHash($c['TG_API_HASH'])
+        // the name the account owner sees under Settings > Devices — so this session is never ended by mistake (1405-08-12)
+        ->setDeviceModel('Trainer Chain Host - do not end')->setSystemVersion('tg.hohedoc.ir')->setAppVersion('chain');
     $settings->getLogger()->setType(\danog\MadelineProto\Logger::FILE_LOGGER)
         ->setExtra(tg_var('mp-madeline.log'))
         ->setLevel(\danog\MadelineProto\Logger::WARNING)->setMaxSize(2 * 1024 * 1024);
