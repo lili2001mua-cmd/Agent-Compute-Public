@@ -215,6 +215,11 @@ def normalize(url):
 
 
 def fetch(url, timeout, max_bytes):
+    # Iranian sites never go out from here: the holding's relay inside Iran fetches them
+    # (iran_relay.py). Every caller of this function - site_crawl, harvest - inherits it.
+    import iran_relay
+    if iran_relay.should_route(url):
+        return iran_relay.fetch(url, timeout=max(timeout, 30), max_bytes=max_bytes)
     req = urlrequest.Request(normalize(url), headers={
         "User-Agent": UA,
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",

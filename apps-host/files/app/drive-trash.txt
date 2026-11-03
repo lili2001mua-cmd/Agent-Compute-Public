@@ -1,0 +1,7 @@
+# 1405-08-12 — نسخه‌های نصبی/My-Control-Project: only the latest (v7) stays; v1–v6 folders go with their zips (user: «آخرین نسخه فقط بماند»).
+1otvMglm22hFws2i8E2vDOgAe5Fa1NxbN  # v1
+1eULw7rTsID0JLopgeZr9dnAxQ02tx1Le  # v2
+16ZWoJs5U7VBkabsz3VZQj6dgBr1ib1L-  # v3
+1DrU8u6qlzPdvBvS4LeddIGge43_SKR1F  # v4
+1CoS2n_uqhx4o_5zngQdCLnw2gU7j1vxo  # v5
+1nrbBecjYapwZCAujgCoxumXlZXiyHSyQ  # v6

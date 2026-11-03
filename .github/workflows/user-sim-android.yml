@@ -1,0 +1,71 @@
+# User-simulator visit on an Android emulator (public repo: Actions minutes are free here).
+# Moved from the private repo on 1405-08-07 so the private quota spends nothing. The app file must be
+# reachable at a public https URL (for example a release asset of this repo) - this repo holds no secrets.
+name: user-sim-android
+on:
+  workflow_dispatch:
+    inputs:
+      app_url:
+        description: "Public https URL of the .apk"
+        required: true
+      api_level:
+        description: "Android API level"
+        required: false
+        default: "30"
+      dwell_seconds:
+        description: "Seconds to wait after the app opens"
+        required: false
+        default: "12"
+      note:
+        description: "Scenario note printed in the report"
+        required: false
+        default: ""
+permissions:
+  contents: read
+concurrency:
+  group: user-sim-android
+  cancel-in-progress: true
+jobs:
+  emulator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules >/dev/null
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+      - name: Download the app
+        id: app
+        env:
+          URL: ${{ inputs.app_url }}
+        run: |
+          set -euo pipefail
+          case "$URL" in https://*) ;; *) echo "::error::app_url must be https"; exit 1;; esac
+          F="$RUNNER_TEMP/app.apk"; curl -fsSL "$URL" -o "$F"; test -s "$F"
+          echo "apk=$F" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        env:
+          DWELL: ${{ inputs.dwell_seconds }}
+          NOTE: ${{ inputs.note }}
+        with:
+          api-level: ${{ inputs.api_level }}
+          target: google_apis
+          arch: x86_64
+          profile: pixel_5
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: bash user-sim/user-sim-android-visit.sh "${{ steps.app.outputs.apk }}" "$DWELL" "$NOTE"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: user-sim-android-${{ github.run_id }}
+          path: user-sim-out/**
+          if-no-files-found: warn
+          retention-days: 14

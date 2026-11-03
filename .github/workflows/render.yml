@@ -40,6 +40,7 @@ jobs:
           SCROLL: ${{ inputs.scroll }}
           WAIT: ${{ inputs.wait }}
           SHOTS: ${{ inputs.shots }}
+          IRAN_RELAY_RUN_KEY: ${{ secrets.IRAN_RELAY_RUN_KEY }}   # Iranian URLs go through relay.hohe1.ir
         run: |
           set -u
           mkdir -p out

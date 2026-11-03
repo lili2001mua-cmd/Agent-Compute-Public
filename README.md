@@ -49,3 +49,10 @@ the caller passes it at dispatch time and reads the answer back as an artifact.
   query-string URLs. That rule is applied only to URLs carrying a query.
 - No secrets, no stored data. Every input arrives through workflow inputs; output
   leaves as a short-retention artifact.
+
+## User simulators (moved here 1405-08-07)
+
+`user-sim-android`, `user-sim-apple` and `user-sim-windows` open an app on an emulator or a real runner OS and
+return screenshots as an artifact. They live here because Actions minutes on a public repo are free (the private
+repo's quota spends nothing, and macOS/Windows are not multiplied). Input `app_url` must be a public https URL;
+the app file is therefore public. Scripts: `user-sim/`.

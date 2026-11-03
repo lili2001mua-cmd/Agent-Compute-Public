@@ -1,0 +1,99 @@
+# sites-host — sites.hohedoc.ir
+
+One door between the team's sites and GitHub, with zero GitHub Actions minutes however often the
+sites change. Most sites are hosted inside Iran, which the Claude environment cannot reach; this
+host (Germany) can. Adding a site = one entry in `files/app/sites.php` + its bridge secret in
+`secrets.php`. No new workflow, no new subdomain.
+
+It replaces the Google Apps Script channel (`stylistcrm/Sys.scripts/apps-script/lilium-deploy.gs`),
+which stopped after 1405-07-20 without any visible error. `lilium-deploy.yml` stays as the fallback.
+
+The user's approval stays in the chat: a session writes a queue file only after
+«تأیید انتقال به هاست». This host only executes what is already on `main`.
+
+## How it works
+
+Cron runs `app/tick.php` every minute. For every site it lists the queue, skips any request that
+already has a result file (so requests the Google channel or Actions already ran are never
+repeated), reads each new request at the commit that wrote it, signs the body like
+`lilium-call.py`, POSTs it to the site's `sync.php`, and writes the result back to `main`.
+Each request runs once. One broken site does not stop the others.
+
+A request has one or more groups, each `{"action", "env", "files"}`:
+
+| action | what the host does | replaces |
+|---|---|---|
+| `deploy` | sends the files (read at the request's commit) to the site | `lilium-deploy.yml` |
+| `delete` | removes the files from the site | `lilium-deploy.yml` |
+| `manifest` | pages through the site's file list into `deploy-results/manifest-<env>.txt` (`files: []`) | `lilium-manifest.yml` |
+| `run` | opens one page on the env's own host (`files: ["path?query"]`, never a full URL); body into `deploy-results/run.txt` | `lilium-run.yml` |
+| `pull` | copies site files under the given repo prefixes (`files: ["pwa/public_html/core/"]`, ≤ 2000 files) back into the repo in one commit; only files whose git blob differs | `pull-from-host.yml` (FTP) |
+| `dbdump` | gzip dump of the site's database, kept on this host outside `public_html`; the result file gives a one-time link (`get.php?t=…`, 6 h). Never committed — it holds customer data | `lilium-dbdump.yml` |
+| `parity` | test site vs production site (`prod` in `sites.php`): files, schema, migration ledger, into `deploy-results/parity-<env>.md`; needs `STYLISTCRM_PROD_DEPLOY_SECRET` | `lilium-parity.yml` |
+| `probe` | read-only speed test of the env (`files: ["<label>"]`, 5 runs per URL) into `speed-results/probe-<env>-<label>-<utc>.json` | `lilium-speed-probe.yml` |
+| `secprobe` | defensive exposure check of the env's own host (`files: []`): root headers, error-page leak, a fixed list of ~30 sensitive paths (`.env`, `.git/`, dumps, backups, `phpinfo`); codes, types and sizes only, never a body, into `deploy-results/security-probe-<env>.md` | live half of `stylistcrm-security-scan.yml` (Agent-Project-Backup) |
+
+A request runs only if it carries a valid `approval` stamp: `host_transfer_gate.py` adds it after
+the user's typed approval, as an HMAC that only the gate and this host can make. An unstamped request
+(for example one written from a chat without hooks) never runs; `status.php` lists it under
+`waiting_for_approval`. The selftest stamps its request with the real gate code, so the two stay identical.
+
+Scheduled read-only jobs (`files/app/jobs.php`, table `DH_JOBS`) run from the same tick:
+
+| job | when (UTC) | replaces |
+|---|---|---|
+| `rum-digest` | Saturday 23:17 | `lilium-rum-digest.yml` — reads `storage/rum/<day>.jsonl` through the bridge, writes only aggregates to `speed-results/rum/digest-<from>_<to>.json` (byte-identical to `rum-digest.py`, cells under 20 samples hidden) |
+
+Their last result is in `status.php` under `jobs`.
+
+**Branches of the site repos** (`files/app/branches.php`, from `ops.hohedoc.ir` on 1405-08-08): `delete-branch` and
+`reconcile-branch` for every repo in `sites.php`. Same door as before — `Memory-Workflow/branch-ops/queue/<id>.json` on
+Agent-Project-Backup `main`, answer in `results/<id>.json` — this host takes the site repos, ops the rest.
+
+**Drive edit bus** (`files/app/editbus.php`, replaces `drive-edit-drain.yml` and the Apps Script `pollBridge` that woke it):
+every tick it reads `editreq-*.md` from the site's bridge folder, applies `edit` / `delete` to the repo's `main` (one
+commit each, same path guards as the Python drain), answers `read` in `bus-read.md`, logs at the top of `bus-status.md`
+and trashes the request. Needs `STYLISTCRM_EDITBUS_FOLDER` in `secrets.php` and a service-account key `drive-sa.json`
+beside it that is Editor on that folder. Result per site in `status.php` under `editbus`.
+
+Every 30 minutes it also sends a read-only `ping` to every environment of every site. Any failure —
+an expired token, a refused signature, a site that is down — lands in `status.php` as `last_error`.
+
+## Secrets (`secrets.php` beside `deploy.php`, outside `public_html`, chmod 600)
+
+```php
+<?php return [
+  'GITHUB_TOKEN'             => '<fine-grained token — see below>',
+  'STYLISTCRM_DEPLOY_SECRET'   => '<the 'secret' value in deploy/config.php on the stylistcrm sites>',
+  'STYLISTCRM_QUEUE_STAMP_KEY' => '<same value as LILIUM_QUEUE_STAMP_KEY in the Claude Code environment>',
+  'STYLISTCRM_EDITBUS_FOLDER'  => '<Drive folder id of the stylistcrm edit bus>',
+  // more lines per site, named by its 'secret', 'stamp' and 'editbus' fields in sites.php
+];
+```
+
+The token is fine-grained, "All repositories" of the holding's account, with only
+`Contents: Read and write` (Metadata read is implied). New site repos are covered without a new
+token. It has no Actions, Admin, Secrets or Workflows permission.
+
+## Install (once)
+
+1. Create subdomain `sites.hohedoc.ir` with SSL in DirectAdmin.
+2. Upload `bootstrap/deploy.php` and `secrets.php` to `domains/sites.hohedoc.ir/`.
+3. Cron every 5 min: `/usr/local/bin/php /home/<user>/domains/sites.hohedoc.ir/deploy.php`
+4. Cron every 1 min: `/usr/local/bin/php /home/<user>/domains/sites.hohedoc.ir/app/tick.php`
+5. Open `https://sites.hohedoc.ir/status.php`: every secret `true`, every `ping` `ok: true`,
+   `last_error: null`.
+6. Turn off the Google trigger for `liliumPollDeploy`, so two runners never share one queue.
+
+After any change under `files/`, run `bash sites-host/selftest/selftest.sh` and
+`python3 sites-host/build-manifest.py`.
+
+## Phone button: redlilium database → Telegram (`app/phone-backup.php`)
+
+The My-Control-Project app signs `backup-request` to `control.hohedoc.ir`, which only drops a request file in its own
+`var/backup-req/`. This host's minute cron (same hosting user, so it can read the sibling folder) runs the existing
+`dbdump` on `stylistcrm` env `pwa`, sends the gzip with the bot (token borrowed from trainer's secret files, cron only)
+to the private channel «Backup Database redlilium», deletes the local copy, and writes the result to the control
+host's `var/backup-state.json` for the app. One request at a time; files over 49 MB are refused (Bot API limit).
+The device signature plus the phone's biometric prompt stand in for the queue's approval stamp: this action only
+reads the site and writes to the user's own private channel.

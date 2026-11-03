@@ -1,0 +1,53 @@
+# User-simulator visit on the iOS simulator (public repo: macOS minutes are free here, not x10 of the private quota).
+# Moved from the private repo on 1405-08-07. app_url = public https URL of a .zip that holds the .app bundle.
+name: user-sim-apple
+on:
+  workflow_dispatch:
+    inputs:
+      app_url:
+        description: "Public https URL of a .zip holding the simulator .app"
+        required: true
+      device:
+        description: "Simulated device"
+        required: false
+        default: "iPhone 15"
+      dwell_seconds:
+        description: "Seconds to wait after the app opens"
+        required: false
+        default: "12"
+permissions:
+  contents: read
+concurrency:
+  group: user-sim-apple
+  cancel-in-progress: true
+jobs:
+  visit:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Download the app
+        id: app
+        env:
+          URL: ${{ inputs.app_url }}
+        run: |
+          set -euo pipefail
+          case "$URL" in https://*) ;; *) echo "::error::app_url must be https"; exit 1;; esac
+          curl -fsSL "$URL" -o "$RUNNER_TEMP/app.zip"; mkdir -p "$RUNNER_TEMP/app"; unzip -q "$RUNNER_TEMP/app.zip" -d "$RUNNER_TEMP/app"
+          A="$(find "$RUNNER_TEMP/app" -maxdepth 3 -name '*.app' -type d | head -1)"; test -n "$A"
+          echo "path=$A" >> "$GITHUB_OUTPUT"
+      - name: Visit
+        env:
+          APP: ${{ steps.app.outputs.path }}
+          DEVICE: ${{ inputs.device }}
+          DWELL: ${{ inputs.dwell_seconds }}
+        run: bash user-sim/user-sim-apple-visit.sh "$APP" "$DEVICE" "$DWELL"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: user-sim-apple-${{ github.run_id }}
+          path: user-sim-out/**
+          if-no-files-found: warn
+          retention-days: 14

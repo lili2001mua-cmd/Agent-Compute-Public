@@ -1,0 +1,171 @@
+{
+  "_generated_by": "Agent-Project-Backup/Sys.scripts/build-routine-jobs.py — دستی ویرایش نکن",
+  "registry_sha": "6768e02345375bf1",
+  "jobs": [
+    {
+      "id": "nightly-pool",
+      "runbook": "Memory-Routine-Runbook/nightly-pool.md",
+      "cron_utc": "37 23,4,9 * * *",
+      "tehran": "03:07",
+      "needs_claude": true,
+      "account_class": "agent-project-backup",
+      "accounts": [
+        "acct-a"
+      ],
+      "mode": "live",
+      "start_within_min": 60,
+      "finish_within_min": 240,
+      "done_path": "Memory-Workflow/nightly-pool/runs/{run_id}.done.json"
+    },
+    {
+      "id": "invariants-every-other-day",
+      "runbook": "Agents-Utility/Prompts/Live/invariants-prompt.md",
+      "cron_utc": "47 17 */2 * *",
+      "tehran": "21:17",
+      "needs_claude": true,
+      "account_class": "agent-project-backup",
+      "accounts": [
+        "acct-a"
+      ],
+      "mode": "live",
+      "start_within_min": 60,
+      "finish_within_min": 180,
+      "done_path": "Memory-Workflow/invariants-runs/{run_id}.done.json"
+    },
+    {
+      "id": "step3-bundle",
+      "runbook": "Memory-Routine-Runbook/step3-bundle.md",
+      "cron_utc": "0 0 31 2 *",
+      "tehran": "—",
+      "needs_claude": true,
+      "account_class": "agent-project-backup",
+      "accounts": [
+        "acct-a"
+      ],
+      "mode": "shadow",
+      "start_within_min": 30,
+      "finish_within_min": 120,
+      "done_path": "Memory-Workflow/routine-host/runs/{run_id}.done.json"
+    },
+    {
+      "id": "routine-selftest",
+      "runbook": "Memory-Routine-Runbook/routine-dispatcher.md",
+      "cron_utc": "43 5 * * *",
+      "tehran": "09:13",
+      "needs_claude": true,
+      "account_class": "agent-project-backup",
+      "accounts": [
+        "acct-a"
+      ],
+      "mode": "live",
+      "start_within_min": 30,
+      "finish_within_min": 60,
+      "done_path": "Memory-Workflow/routine-host/runs/{run_id}.done.json"
+    },
+    {
+      "id": "nightly-health-weekly-review",
+      "runbook": "Memory-Routine-Runbook/process-repair.md",
+      "cron_utc": "30 23 * * *",
+      "tehran": "03:00",
+      "needs_claude": true,
+      "account_class": "agent-project-backup",
+      "accounts": [
+        "acct-a"
+      ],
+      "mode": "live",
+      "start_within_min": 60,
+      "finish_within_min": 240,
+      "done_path": "Memory-Workflow/routine-host/runs/{run_id}.done.json"
+    },
+    {
+      "id": "disciplined-log-update-daily",
+      "runbook": "Memory-Routine-Runbook/disciplined-log-update-daily.md",
+      "cron_utc": "30 2 * * *",
+      "tehran": "06:00",
+      "needs_claude": true,
+      "account_class": "agent-project-backup",
+      "accounts": [
+        "acct-a"
+      ],
+      "mode": "live",
+      "start_within_min": 60,
+      "finish_within_min": 240,
+      "done_path": "Memory-Workflow/routine-host/runs/{run_id}.done.json"
+    },
+    {
+      "id": "commercialization-scan",
+      "runbook": "Memory-Routine-Runbook/commercialization-scan.md",
+      "cron_utc": "30 3 */2 * *",
+      "tehran": "07:00 (یک‌روزدرمیان)",
+      "needs_claude": true,
+      "account_class": "agent-project-backup",
+      "accounts": [
+        "acct-a"
+      ],
+      "mode": "live",
+      "start_within_min": 60,
+      "finish_within_min": 240,
+      "done_path": "Memory-Workflow/routine-host/runs/{run_id}.done.json"
+    },
+    {
+      "id": "claude-utilities-weekly-review",
+      "runbook": "Memory-Routine-Runbook/claude-utilities-weekly-review.md",
+      "cron_utc": "50 23 * * 4",
+      "tehran": "جمعه 03:20",
+      "needs_claude": true,
+      "account_class": "agent-project-backup",
+      "accounts": [
+        "acct-a"
+      ],
+      "mode": "live",
+      "start_within_min": 60,
+      "finish_within_min": 240,
+      "done_path": "Memory-Workflow/routine-host/runs/{run_id}.done.json"
+    },
+    {
+      "id": "nightly-sweep-watchdog-audit",
+      "runbook": "Memory-Routine-Runbook/nightly-sweep-watchdog-audit.md",
+      "cron_utc": "30 10 * * 6",
+      "tehran": "شنبه 14:00",
+      "needs_claude": true,
+      "account_class": "agent-project-backup",
+      "accounts": [
+        "acct-a"
+      ],
+      "mode": "live",
+      "start_within_min": 60,
+      "finish_within_min": 240,
+      "done_path": "Memory-Workflow/routine-host/runs/{run_id}.done.json"
+    },
+    {
+      "id": "stylistcrm-live-health-daily",
+      "runbook": "Memory-Routine-Runbook/stylistcrm-live-health-daily.md",
+      "cron_utc": "16 5 * * *",
+      "tehran": "08:46",
+      "needs_claude": true,
+      "account_class": "agent-project-backup",
+      "accounts": [
+        "acct-a"
+      ],
+      "mode": "live",
+      "start_within_min": 60,
+      "finish_within_min": 240,
+      "done_path": "Memory-Workflow/routine-host/runs/{run_id}.done.json"
+    },
+    {
+      "id": "skill-freshness-monthly",
+      "runbook": "Memory-Routine-Runbook/skill-freshness-monthly.md",
+      "cron_utc": "17 21 3 * *",
+      "tehran": "روزِ ۴ِ هر ماهِ میلادی 00:47",
+      "needs_claude": true,
+      "account_class": "agent-project-backup",
+      "accounts": [
+        "acct-a"
+      ],
+      "mode": "live",
+      "start_within_min": 60,
+      "finish_within_min": 240,
+      "done_path": "Memory-Workflow/routine-host/runs/{run_id}.done.json"
+    }
+  ]
+}
