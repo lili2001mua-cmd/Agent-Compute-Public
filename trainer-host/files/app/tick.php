@@ -34,3 +34,11 @@ if (trainer_secret('GH_DISPATCH_TOKEN') !== '' && is_file(trainer_state_path('sc
     try { drive_step3(); }
     catch (Throwable $e) { trainer_log('schedule', 'step3 error: ' . $e->getMessage()); }
 }
+
+// pool-watch (1405-08-13): the host watches the BACKUP intake folder instead of the old account's Apps Script.
+require_once __DIR__ . '/gh.php';
+require_once __DIR__ . '/jobs/pool-watch.php';
+if (trainer_secret('GH_DISPATCH_TOKEN') !== '') {
+    try { pool_watch_tick(); }
+    catch (Throwable $e) { trainer_log('pool-watch', 'error: ' . $e->getMessage()); }
+}
