@@ -178,7 +178,7 @@ function board_queue(array $pc, ?array $ni): array {
         if (($s['status'] ?? '') === 'بسته‌شده' || empty($s['archive'])) continue;
         $k = $s['key']; $i = $idx[$k] ?? []; $a = $s['archive'];
         $topic = $plain[$k] ?? ($i['plain'] ?? null) ?: ($a['topic'] ?? $i['topic'] ?? '—');
-        $rows[] = ['key' => $k, 'root' => $i['root'] ?? null, 'sub' => $i['sub'] ?? null, 'plain' => $topic,
+        $rows[] = ['key' => $k, 'root' => $i['root'] ?? null, 'sub' => $i['sub'] ?? null, 'plain' => $topic, 'issue' => (string) ($i['topic'] ?? ''),
                    'urgent' => !empty($s['urgent']), 'link' => $a['link'] ?? null, 'date' => $a['date'] ?? '', 'jalali' => $a['jalali'] ?? ''];
     }
     usort($rows, fn($x, $y) => [$y['urgent'], $x['date'], $x['key']] <=> [$x['urgent'], $y['date'], $y['key']]);
@@ -198,9 +198,11 @@ function board_queue(array $pc, ?array $ni): array {
     $items = [];
     foreach ($rows as $x) {
         $t = trim(preg_replace('/\s+/', ' ', (string) $x['plain']), " .");
-        $t = ($t === '' || $t === '—') ? '' : (mb_strlen($t) > 60 ? rtrim(mb_substr($t, 0, 59)) . '…' : $t);
-        $items[$x['key']] = ['plain' => $t, 'urgent' => $x['urgent'], 'link' => $x['link'], 'jalali' => $x['jalali'],
-                             'prompt' => 'گامِ ۳ · ' . $x['key'] . ($t !== '' ? ' · ' . $t : '')];
+        $t = ($t === '' || $t === '—') ? '' : $t;                       // full text: the app shows up to five lines, never «…»
+        $short = mb_strlen($t) > 60 ? rtrim(mb_substr($t, 0, 59)) : $t;   // the session name stays short
+        $issue = trim(preg_replace('/\s+/', ' ', (string) ($x['issue'] ?? '')), " .");
+        $items[$x['key']] = ['plain' => $t, 'title' => $issue, 'urgent' => $x['urgent'], 'link' => $x['link'], 'jalali' => $x['jalali'],
+                             'prompt' => 'گامِ ۳ · ' . $x['key'] . ($short !== '' ? ' · ' . $short : '')];
     }
     return ['total' => count($rows), 'urgent' => count(array_filter($rows, fn($x) => $x['urgent'])), 'groups' => $groups, 'items' => $items];
 }
