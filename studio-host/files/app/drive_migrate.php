@@ -167,3 +167,75 @@ function job_drive_vault_save(array $a): array {
     if ($st >= 400 || empty($r['id'])) throw new RuntimeException("vault upload failed ($st)");
     return ['vault_folder' => $vault, 'file' => $r['id'], 'size' => $r['size'] ?? '', 'md5_match' => ($r['md5Checksum'] ?? '') === md5($body)];
 }
+
+// Independent census of a tree (main account when account is empty), for before/after comparison:
+// counts, bytes and one digest over sorted "relative-path|md5|size" lines. Folders are walked fresh, not from state.
+function job_drive_census(array $a): array {
+    $acc = (string) ($a['account'] ?? '');
+    $root = (string) ($a['root'] ?? '');
+    if (!preg_match('/^[A-Za-z0-9_-]{10,80}$/', $root)) throw new RuntimeException('root id required');
+    $call = fn(array $q) => $acc === '' ? drive_call('GET', '/files', $q) : dm_dst(da_name($acc), 'GET', '/files', $q);
+    $lines = []; $folders = 0; $bytes = 0; $native = 0; $stack = [[$root, '']];
+    while ($stack) {
+        [$id, $rel] = array_pop($stack);
+        $page = null;
+        do {
+            $q = ['q' => "'$id' in parents and trashed=false", 'pageSize' => 1000, 'fields' => 'nextPageToken,files(id,name,mimeType,size,md5Checksum)'];
+            if ($page) $q['pageToken'] = $page;
+            $r = $call($q);
+            foreach ($r['files'] ?? [] as $f) {
+                $p = $rel . '/' . $f['name'];
+                if ($f['mimeType'] === FOLDER_MIME) { $folders++; $stack[] = [$f['id'], $p]; continue; }
+                if (empty($f['md5Checksum'])) $native++;
+                $bytes += (int) ($f['size'] ?? 0);
+                $lines[] = $p . '|' . ($f['md5Checksum'] ?? $f['mimeType']) . '|' . ($f['size'] ?? '');
+            }
+            $page = $r['nextPageToken'] ?? null;
+        } while ($page);
+    }
+    sort($lines, SORT_STRING);
+    return ['folders' => $folders, 'files' => count($lines), 'native_docs' => $native, 'bytes' => $bytes,
+        'digest' => hash('sha256', implode("\n", $lines))];
+}
+
+// Make a connected account the host's only Drive. Requires a finished migration into that account.
+function job_drive_set_default(array $a): array {
+    $acc = da_name((string) ($a['account'] ?? ''));
+    $s = dm_load();
+    if (($s['stage'] ?? '') !== 'done' || ($s['account'] ?? '') !== $acc) throw new RuntimeException('no finished migration into ' . $acc);
+    da_write(studio_var('drive-default.json'), ['account' => $acc, 'root' => $s['dst_root'], 'set' => gmdate('c')]);
+    studio_log('drive-migrate', "default → $acc");
+    return ['default_account' => $acc, 'root' => $s['dst_root'], 'token_ok' => strlen(drive_token(true)) > 20];
+}
+
+// ---------------------------------------------------------------- Drive relay (one door for every holding script)
+// Scripts never hold a Google key: they send the raw Drive REST request here and the host signs it with the
+// default account (drive-default.json) or the named account. Only Drive v3 endpoints are allowed.
+function job_drive_relay(array $a): array {
+    $url = (string) ($a['url'] ?? '');
+    if (!preg_match('#^https://www\.googleapis\.com/(upload/)?drive/v3/#', $url)) throw new RuntimeException('relay: only Drive v3 urls');
+    $method = strtoupper((string) ($a['method'] ?? 'GET'));
+    if (!in_array($method, ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'], true)) throw new RuntimeException('relay: bad method');
+    $acc = (string) ($a['account'] ?? '');
+    if ($acc === '') { $d = drive_default(); if (!$d) throw new RuntimeException('relay: no default account set'); $acc = $d['account']; }
+    $tok = da_token($acc);
+    $h = ['Authorization: Bearer ' . $tok];
+    foreach ((array) json_decode((string) ($a['headers'] ?? '{}'), true) as $k => $v) {
+        if (preg_match('/^(content-type|content-range|range|x-upload-content-type|x-upload-content-length)$/i', (string) $k)) $h[] = "$k: $v";
+    }
+    $body = null;
+    if (!empty($_FILES['body']['tmp_name']) && is_uploaded_file($_FILES['body']['tmp_name'])) $body = file_get_contents($_FILES['body']['tmp_name']);
+    elseif (isset($a['body_text'])) $body = (string) $a['body_text'];
+    $ch = curl_init($url);
+    $rh = [];
+    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_CUSTOMREQUEST => $method, CURLOPT_HTTPHEADER => $h,
+        CURLOPT_TIMEOUT => 600, CURLOPT_FOLLOWLOCATION => true, CURLOPT_USERAGENT => 'studio-host-relay',
+        CURLOPT_HEADERFUNCTION => function ($c, $line) use (&$rh) { $p = strpos($line, ':'); if ($p) $rh[strtolower(trim(substr($line, 0, $p)))] = trim(substr($line, $p + 1)); return strlen($line); }]);
+    if ($body !== null) curl_setopt($ch, CURLOPT_POSTFIELDS, $body);
+    $raw = curl_exec($ch);
+    $st = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $err = curl_error($ch); curl_close($ch);
+    if ($raw === false) throw new RuntimeException('relay network: ' . $err);
+    $keep = array_intersect_key($rh, array_flip(['content-type', 'location', 'range', 'content-range', 'x-guploader-uploadid']));
+    return ['status' => $st, 'headers' => $keep, 'body_b64' => base64_encode((string) $raw), 'account' => $acc];
+}

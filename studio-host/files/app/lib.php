@@ -120,7 +120,15 @@ const FOLDER_MIME = 'application/vnd.google-apps.folder';
 
 // My-Drive folder id comes from the DRIVE_ROOT_ID secret (same value as pool_media_backend.POOL_PARENT_FOLDER_ID
 // in the private repo) — kept out of this public code.
+// After the move to a connected account, var/drive-default.json = {account, root} makes that account the
+// host's only Drive (set with job=drive_set_default); the DRIVE_OAUTH secret is then no longer used.
+function drive_default(): ?array {
+    $d = @json_decode((string) @file_get_contents(studio_var('drive-default.json')), true);
+    return (is_array($d) && !empty($d['account']) && !empty($d['root'])) ? $d : null;
+}
+
 function drive_root_id(): string {
+    if ($d = drive_default()) return $d['root'];
     $id = studio_secret('DRIVE_ROOT_ID');
     if (!preg_match('/^[A-Za-z0-9_-]{10,80}$/', $id)) throw new RuntimeException('DRIVE_ROOT_ID missing in secrets');
     return $id;
@@ -129,6 +137,11 @@ function drive_root_id(): string {
 // The access token is cached in var/ under a lock, so web requests and the cron don't each refresh it.
 function drive_token(bool $force = false): string {
     static $tok = null, $exp = 0;
+    if ($d = drive_default()) {
+        require_once __DIR__ . '/drive_accounts.php';
+        if ($force || $tok === null || time() >= $exp - 60) { $tok = da_token($d['account']); $exp = time() + 3000; }
+        return $tok;
+    }
     if (!$force && $tok !== null && time() < $exp - 60) return $tok;
     $cache = studio_var('drive-token.json');
     $lk = fopen(studio_var('drive-token.lock'), 'c'); flock($lk, LOCK_EX);
