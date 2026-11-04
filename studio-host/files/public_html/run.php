@@ -3,7 +3,7 @@
 // Call: POST https://studio.hohedoc.ir/run.php  header "X-Studio-Key: <ADMIN_KEY>"  fields job=<name> & args.
 // ⛔ The key is accepted ONLY as a header — a query string ends up in access logs and proxy logs.
 require __DIR__ . '/../app/jobs.php';
-require_once __DIR__ . '/../app/drive_accounts.php';
+require_once __DIR__ . '/../app/drive_migrate.php';
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
 header('X-Robots-Tag: noindex');
@@ -12,7 +12,7 @@ if (!studio_key_ok()) { http_response_code(404); exit; }
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') { http_response_code(405); exit; }
 
 $job = preg_replace('/[^a-z_]/', '', (string) ($_POST['job'] ?? ''));
-$inline = ['hf_check', 'hf_submit', 'hf_status', 'hf_login_link', 'hf_login_status', 'hf_register', 'hf_login_start', 'hf_finish', 'hf_device_start', 'hf_device_poll', 'hf_tools', 'hf_call', 'asset_upload', 'result', 'drive_login_link', 'drive_accounts', 'drive_list'];
+$inline = ['hf_check', 'hf_submit', 'hf_status', 'hf_login_link', 'hf_login_status', 'hf_register', 'hf_login_start', 'hf_finish', 'hf_device_start', 'hf_device_poll', 'hf_tools', 'hf_call', 'asset_upload', 'result', 'drive_login_link', 'drive_accounts', 'drive_list', 'drive_migrate_start', 'drive_migrate_status', 'drive_vault_save'];
 $args = $_POST;
 unset($args['job']);
 try {

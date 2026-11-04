@@ -4,6 +4,7 @@
 // then cleans expired outputs. CLI only.
 if (PHP_SAPI !== 'cli') { http_response_code(404); exit; }
 require __DIR__ . '/jobs.php';
+require_once __DIR__ . '/drive_migrate.php';
 set_time_limit(0);
 ini_set('memory_limit', '512M');
 file_put_contents(studio_var('last-tick.txt'), (string) time());
@@ -12,4 +13,5 @@ $lock = fopen(studio_var('tick.lock'), 'c');
 if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) exit;   // a long job from an earlier tick is still running
 $start = time();
 while (time() - $start < 50 && queue_run_one() !== null) {}
+try { drive_migrate_step(max(10, 45 - (time() - $start))); } catch (Throwable $e) { studio_log('drive-migrate', 'step failed: ' . $e->getMessage()); }
 queue_cleanup();
