@@ -10,6 +10,19 @@ const DH_PULL_MAX_FILES = 2000;             // per request; ask again with a nar
 const DH_DUMP_TTL = 6 * 3600;               // a dump link lives 6 hours and works once
 
 // ---------------------------------------------------------------- pull
+// Paths a pull must never write back to git, whatever the prefix asked for: secrets (any .env*, the hub's config
+// files that hold passwords, key files) and customer uploads. pull commits through the Git API, so the site repo's
+// .gitignore cannot stop it; this filter is the only thing that does. Customer data and secrets live on the host
+// and in My-Sites on Drive (encrypted), never in git.
+function dh_pull_refused(string $p): bool {
+    $base = basename($p);
+    if ($base === '.env' || strncmp($base, '.env.', 5) === 0 && $base !== '.env.example') return true;
+    if (preg_match('#(^|/)config/(database|ftp|sms)\.php$#', $p)) return true;
+    if (preg_match('#\.(pem|key|p12|pfx|sql|sql\.gz)$#i', $p)) return true;
+    if (preg_match('#(^|/)uploads/#', $p) && !preg_match('#(^|/)uploads/(\.htaccess|profile/default\.png)$#', $p)) return true;
+    return false;
+}
+
 // files = path prefixes inside the repo, e.g. ["pwa/public_html/core/"]. The site's manifest picks the files,
 // the bridge's snapshot reads them, and one commit writes every file whose git blob differs from main.
 function dh_pull(array $site, string $env, array $prefixes, string $id): array {
@@ -23,9 +36,10 @@ function dh_pull(array $site, string $env, array $prefixes, string $id): array {
         if ($next <= $start) throw new RuntimeException('pull manifest: no progress');
         $start = $next;
     }
-    $want = [];
+    $want = []; $refused = [];
     foreach ($lines as $l) {
         $p = ltrim(substr($l, 66), './');                      // "<sha256>  ./pwa/public_html/x"
+        if (dh_pull_refused($p)) { $refused[] = $p; continue; }
         foreach ($prefixes as $pre) if (strncmp($p, $pre, strlen($pre)) === 0) { $want[] = $p; break; }
     }
     if (count($want) > DH_PULL_MAX_FILES) throw new RuntimeException('pull: ' . count($want) . ' files match; narrow the prefix (max ' . DH_PULL_MAX_FILES . ')');
@@ -59,7 +73,7 @@ function dh_pull(array $site, string $env, array $prefixes, string $id): array {
         $commit = $nc['sha'];
     }
     return ['action' => 'pull', 'env' => $env, 'ok' => !$missing, 'matched' => count($want), 'changed' => count($entries),
-            'commit' => $commit] + ($missing ? ['missing' => array_slice($missing, 0, 50)] : []);
+            'commit' => $commit, 'refused' => count($refused)] + ($missing ? ['missing' => array_slice($missing, 0, 50)] : []);
 }
 
 // Snapshot keyed by repo path (the bridge answers with the same repo-relative paths it was asked for).

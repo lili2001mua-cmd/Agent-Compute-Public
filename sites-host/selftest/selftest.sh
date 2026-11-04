@@ -46,6 +46,7 @@ check "run opens the page on the env host" "grep -q 'run probe 1' $T/mock/calls.
 check "secprobe flags the exposed file, the listing and the leaky error page" "grep -q 'secprobe env' $T/mock/calls.log && grep -q '3 یافتهٔ حساس' $T/mock/security-probe-pwa.md && grep -q 'لیستِ دایرکتوریِ باز' $T/mock/security-probe-pwa.md && grep -q 'استک‌تریس' $T/mock/security-probe-pwa.md && ! grep -q 'DB_PASS' $T/mock/security-probe-pwa.md && grep -q 'config/sms.php. | 200 .*اجرا شد، خروجیِ خالی' $T/mock/security-probe-pwa.md"
 n=$(grep -c 'put new' $T/mock/calls.log); php "$T/site/app/tick.php"
 check "second tick does not re-run" "[ \$(grep -c 'put new' $T/mock/calls.log) -eq $n ]"
+check "pull refuses secrets and customer uploads" "php -r 'require \"$T/site/app/ops.php\"; foreach ([\"help/public_html/.env\",\"hub/public_html/.env.production\",\"hub/public_html/config/database.php\",\"pwa/public_html/uploads/u1.jpg\",\"database-backups/a.sql.gz\"] as \$p) if (!dh_pull_refused(\$p)) exit(1); foreach ([\"pwa/public_html/core/Feature.php\",\"help/public_html/.env.example\",\"pwa/public_html/uploads/.htaccess\",\"pwa/public_html/uploads/profile/default.png\"] as \$p) if (dh_pull_refused(\$p)) exit(1);'"
 touch "$T/mock/mode-401"; rm -f "$T/site/var/state.json"; php "$T/site/app/tick.php"
 check "expired token is loud" "php $T/site/public_html/status.php | grep -q 'HTTP 401'"
 exit $fail
