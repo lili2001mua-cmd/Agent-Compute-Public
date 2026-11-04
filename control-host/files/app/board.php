@@ -153,6 +153,40 @@ function board_topics(array $keys, array $idx, array $plain, array $pool): array
     return $cache;
 }
 
+/** Cover image of one bundle (protocol: Agent-Project-Backup/Memory-Software-Builder/Android/My-Control-Project/design/BUNDLE-COVER.md).
+ *  The frame named in data/bundle-covers.json (picked by source/tools/bundle-cover.py); a bundle not listed there gets
+ *  the middle frame of its first video. Cached here once, shrunk to 480 px wide when GD is present; a miss is
+ *  remembered for a day so a bundle without frames never costs a GitHub call per card. Returns the cached file or null. */
+function board_cover_file(string $k): ?string {
+    if (!preg_match('/^[A-Za-z0-9_+-]{3,90}$/', $k)) return null;
+    $dir = board_var('covers'); if (!is_dir($dir)) mkdir($dir, 0700, true);
+    $f = $dir . '/' . md5($k) . '.jpg'; $miss = $f . '.none';
+    if (is_file($f)) return $f;
+    if (is_file($miss) && time() - filemtime($miss) < 86400) return null;
+    $idx = board_read('covers.json', []);
+    $path = is_array($idx[$k] ?? null) ? (string) ($idx[$k]['path'] ?? '') : '';
+    if ($path === '') {
+        foreach (['telegram', 'drive'] as $src) {
+            [$c, $l] = gh('GET', '/repos/' . CTL_REPO . '/contents/Memory-Workflow/intake-pool/state/' . $src . '/' . rawurlencode($k) . '/frames?ref=' . CTL_BRANCH);
+            if ($c !== 200 || !is_array($l)) continue;
+            $names = array_values(array_filter(array_column($l, 'name'), fn($n) => str_ends_with($n, '.jpg'))); sort($names);
+            if (!$names) continue;
+            $first = preg_replace('/_f\d+\.jpg$/', '', $names[0]);
+            $mine = array_values(array_filter($names, fn($n) => str_starts_with($n, $first . '_f')));
+            $path = 'Memory-Workflow/intake-pool/state/' . $src . '/' . $k . '/frames/' . $mine[intdiv(count($mine), 2)];
+            break;
+        }
+    }
+    $raw = $path !== '' ? gh_raw($path) : null;
+    if ($raw === null) { touch($miss); return null; }
+    if (function_exists('imagecreatefromstring') && ($im = @imagecreatefromstring($raw))) {
+        $w = imagesx($im); $h = imagesy($im);
+        if ($w > 480) { $nh = (int) round($h * 480 / $w); $sm = imagecreatetruecolor(480, $nh); imagecopyresampled($sm, $im, 0, 0, 0, 0, 480, $nh, $w, $h); $im = $sm; }
+        imagejpeg($im, $f . '.tmp', 78); rename($f . '.tmp', $f);
+    } else { file_put_contents($f . '.tmp', $raw); rename($f . '.tmp', $f); }
+    return $f;
+}
+
 /** Taxonomy roots {id: {title, subs: {id: title}}} — port of nightly_pool.load_taxonomy (no YAML library). */
 function board_taxonomy(string $y): array {
     $roots = []; $cur = null; $in = false;
@@ -242,6 +276,8 @@ function board_build(): array {
     board_write('report-heads.json', $heads);
     $ledgerSess = board_ledger_sessions();
     // titles: the host copy (seeded once from the repo's step3-board/titles.json while it still exists)
+    $cv = json_decode((string) gh_raw('Memory-Software-Builder/Android/My-Control-Project/data/bundle-covers.json'), true);
+    if (is_array($cv)) board_write('covers.json', $cv);
     $titles = board_read('titles.json', []);
     $tax = board_taxonomy((string) gh_raw('Sys.registry/identity-taxonomy.yaml'));
     $plainMap = json_decode((string) gh_raw('Memory-Workflow/nightly-pool/plain.json'), true) ?: [];

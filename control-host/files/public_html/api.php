@@ -8,6 +8,7 @@
 //   GET  api.php?op=backup-status                 → last backup result + pending count
 //   GET  api.php?op=trainer-board                 → trainer project-control board (app/board.php, cron) + fire states
 //   POST api.php?op=step3-fire     {key}         → routine.hohedoc.ir opens a step-3 session for that bundle
+//   POST api.php?op=cover          {key}         → image/jpeg: the bundle's cover frame (app/board.php board_cover_file), 404 when none
 // Two steps on purpose: the phone asks, shows the summary, the user confirms again (all workflows are critical).
 require __DIR__ . '/../app/lib.php';
 header('Content-Type: application/json; charset=utf-8');
@@ -26,6 +27,14 @@ if (strlen($body) > 4096) out(413, ['ok' => false, 'error' => 'too large']);
 $why = ctl_auth($op, $body);
 if ($why !== null) { ctl_log("auth fail op=$op $why"); out(401, ['ok' => false, 'error' => $why]); }
 
+if ($op === 'cover') {
+    require_once __DIR__ . '/../app/board.php';
+    $k = (string) ((json_decode($body, true) ?: [])['key'] ?? '');
+    $f = board_cover_file($k);
+    if ($f === null) out(404, ['ok' => false, 'error' => 'no cover']);
+    header('Content-Type: image/jpeg'); header('Cache-Control: private, max-age=86400');
+    readfile($f); exit;
+}
 if ($op === 'trainer-board' && $_SERVER['REQUEST_METHOD'] === 'GET') {
     // computed every 5 minutes by the cron from the trainer's records on GitHub (app/board.php); never written by a session
     $b = @json_decode((string) @file_get_contents(ctl_var('trainer-board') . '/board.json'), true);
