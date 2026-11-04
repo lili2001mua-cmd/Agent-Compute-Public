@@ -1,6 +1,6 @@
 {
   "_generated_by": "Agent-Project-Backup/Sys.scripts/build-routine-jobs.py — دستی ویرایش نکن",
-  "registry_sha": "0583bc29d2f5f5fb",
+  "registry_sha": "0aebe1babad7f744",
   "jobs": [
     {
       "id": "nightly-pool",
@@ -127,21 +127,6 @@
       "runbook": "Memory-Routine-Runbook/nightly-sweep-watchdog-audit.md",
       "cron_utc": "30 10 * * 6",
       "tehran": "شنبه 14:00",
-      "needs_claude": true,
-      "account_class": "agent-project-backup",
-      "accounts": [
-        "acct-a"
-      ],
-      "mode": "live",
-      "start_within_min": 60,
-      "finish_within_min": 240,
-      "done_path": "Memory-Workflow/routine-host/runs/{run_id}.done.json"
-    },
-    {
-      "id": "stylistcrm-live-health-daily",
-      "runbook": "Memory-Routine-Runbook/stylistcrm-live-health-daily.md",
-      "cron_utc": "16 5 * * *",
-      "tehran": "08:46",
       "needs_claude": true,
       "account_class": "agent-project-backup",
       "accounts": [
