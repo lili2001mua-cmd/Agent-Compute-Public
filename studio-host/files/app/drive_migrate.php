@@ -207,3 +207,35 @@ function job_drive_set_default(array $a): array {
     studio_log('drive-migrate', "default → $acc");
     return ['default_account' => $acc, 'root' => $s['dst_root'], 'token_ok' => strlen(drive_token(true)) > 20];
 }
+
+// ---------------------------------------------------------------- Drive relay (one door for every holding script)
+// Scripts never hold a Google key: they send the raw Drive REST request here and the host signs it with the
+// default account (drive-default.json) or the named account. Only Drive v3 endpoints are allowed.
+function job_drive_relay(array $a): array {
+    $url = (string) ($a['url'] ?? '');
+    if (!preg_match('#^https://www\.googleapis\.com/(upload/)?drive/v3/#', $url)) throw new RuntimeException('relay: only Drive v3 urls');
+    $method = strtoupper((string) ($a['method'] ?? 'GET'));
+    if (!in_array($method, ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'], true)) throw new RuntimeException('relay: bad method');
+    $acc = (string) ($a['account'] ?? '');
+    if ($acc === '') { $d = drive_default(); if (!$d) throw new RuntimeException('relay: no default account set'); $acc = $d['account']; }
+    $tok = da_token($acc);
+    $h = ['Authorization: Bearer ' . $tok];
+    foreach ((array) json_decode((string) ($a['headers'] ?? '{}'), true) as $k => $v) {
+        if (preg_match('/^(content-type|content-range|range|x-upload-content-type|x-upload-content-length)$/i', (string) $k)) $h[] = "$k: $v";
+    }
+    $body = null;
+    if (!empty($_FILES['body']['tmp_name']) && is_uploaded_file($_FILES['body']['tmp_name'])) $body = file_get_contents($_FILES['body']['tmp_name']);
+    elseif (isset($a['body_text'])) $body = (string) $a['body_text'];
+    $ch = curl_init($url);
+    $rh = [];
+    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_CUSTOMREQUEST => $method, CURLOPT_HTTPHEADER => $h,
+        CURLOPT_TIMEOUT => 600, CURLOPT_FOLLOWLOCATION => true, CURLOPT_USERAGENT => 'studio-host-relay',
+        CURLOPT_HEADERFUNCTION => function ($c, $line) use (&$rh) { $p = strpos($line, ':'); if ($p) $rh[strtolower(trim(substr($line, 0, $p)))] = trim(substr($line, $p + 1)); return strlen($line); }]);
+    if ($body !== null) curl_setopt($ch, CURLOPT_POSTFIELDS, $body);
+    $raw = curl_exec($ch);
+    $st = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $err = curl_error($ch); curl_close($ch);
+    if ($raw === false) throw new RuntimeException('relay network: ' . $err);
+    $keep = array_intersect_key($rh, array_flip(['content-type', 'location', 'range', 'content-range', 'x-guploader-uploadid']));
+    return ['status' => $st, 'headers' => $keep, 'body_b64' => base64_encode((string) $raw), 'account' => $acc];
+}
