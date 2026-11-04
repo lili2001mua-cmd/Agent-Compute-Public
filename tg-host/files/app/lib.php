@@ -23,19 +23,22 @@ function tg_write_json(string $path, array $data): void {
     file_put_contents($tmp, json_encode($data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), LOCK_EX);
     rename($tmp, $path);
 }
-function tg_read_json(string $path): ?array { $s = @file_get_contents($path); $d = $s === false ? null : json_decode($s, true); return is_array($d) ? $d : null; }
+// is_file first: inside MadelineProto even an @-silenced warning becomes an exception
+function tg_read_json(string $path): ?array { if (!is_file($path)) return null; $s = @file_get_contents($path); $d = $s === false ? null : json_decode($s, true); return is_array($d) ? $d : null; }
 function tg_id(): string { return bin2hex(random_bytes(16)); }
 function tg_log(string $stream, string $line): void {
     // ⛔ never pass a secret, code, phone or message text here — counts and states only.
     file_put_contents(tg_var('log-' . $stream . '.log'), gmdate('c') . ' ' . $line . "\n", FILE_APPEND | LOCK_EX);
 }
 /** Role of a presented key: 'admin' | 'read' | null. Only sha256 hashes live in the (public) code. */
-function tg_key_role(string $key): ?string {
-    if (strlen($key) < 32) return null;
+function tg_key_role(string $key): ?string { return tg_key_roles($key)[0] ?? null; }
+/** Every role a presented key holds (one key may hold read + chain). Only sha256 hashes live in the (public) code. */
+function tg_key_roles(string $key): array {
+    if (strlen($key) < 32) return [];
     $hashes = include __DIR__ . '/keys.php';
-    $h = hash('sha256', $key);
-    foreach ($hashes as $role => $hash) { if (is_string($hash) && hash_equals($hash, $h)) return $role; }
-    return null;
+    $h = hash('sha256', $key); $roles = [];
+    foreach ($hashes as $role => $hash) { if (is_string($hash) && $hash !== '' && hash_equals($hash, $h)) $roles[] = $role; }
+    return $roles;
 }
 // Repo-native door (1405-08-11 · orchestra github-native-doors): no stored key. The caller picks a random nonce, pushes
 // tg-auth/<sha256(nonce)>.json ({"exp": unix-time, ≤26 h ahead}) to a BRANCH of the public compute repo, then sends

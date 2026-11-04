@@ -1,8 +1,11 @@
 <?php
 // sha256 of the door keys — the keys themselves are never in this public repo.
-// read: held only by the client side (env TG_HOST_READ_KEY or ~/.config/tg-host/read-key), never in a repo.
-// admin: not issued yet (phase 2 decides where it lives); empty = no admin access possible.
+// read: kept in the PRIVATE repo (Agent-Project-Backup, Sys.registry/tg-host-read-key.secret) — user decision 1405-08-07.
+// admin: lives only in the Claude cloud session that is doing admin work (never in any repo); a new session
+//        that needs admin jobs issues a fresh key and replaces this hash through a user-pinned SHA.
 return [
     'read'  => 'b9757d76486f0fd2b99f30f9a777a290ec4a41419676e177afc85d84d8deb9bd',
-    'admin' => '',
+    // chain: the same private-repo read key also opens chain_ops (one stored secret, same exposure as a second key in that file).
+    'chain' => 'b9757d76486f0fd2b99f30f9a777a290ec4a41419676e177afc85d84d8deb9bd',
+    'admin' => 'b4390bdda4f3974c4e7723f9bd9379504e5f6ad5d6f0aae8b92a207fc46960e1',
 ];

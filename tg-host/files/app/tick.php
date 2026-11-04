@@ -17,6 +17,9 @@ $t0 = time();
 $reg = include __DIR__ . '/jobs/registry.php';
 require_once __DIR__ . '/jobs/phase1.php';
 foreach (glob(__DIR__ . '/jobs/phase[2-9]*.php') ?: [] as $f) require_once $f;
+if (function_exists('tg_phase2_pre')) tg_phase2_pre();
+if (function_exists('tg_chain_watchdog')) tg_chain_watchdog(); // dead-man switch, no library load (ک16)
+if (function_exists('tg_chain_button_poll')) tg_chain_button_poll(); // the Telegram «pull» button (ک23), one Bot API call
 
 // media dir: no listing (deploy refuses dot-files, so the tick writes it)
 $m = tg_dir(TG_BASE . '/public_html/m'); @chmod($m, 0755);
@@ -47,13 +50,15 @@ foreach (glob(tg_var('running') . '/*.json') ?: [] as $f) {
     }
 }
 
-// drain until the budget runs out (login jobs first)
+// drain until the budget runs out (login jobs first). While a chain run is active, keep the loaded session and poll
+// the queue every 2 s for up to 45 s after the last Telegram job; an empty queue costs nothing (no library load).
+$lastTg = 0;
 while (time() - $t0 < TG_TICK_BUDGET_S) {
     $files = glob(tg_var('queue') . '/*.json') ?: [];
     usort($files, fn($x, $y) => [!str_contains(basename($x), '-login'), filemtime($x)] <=> [!str_contains(basename($y), '-login'), filemtime($y)]);
     $pick = null;
     foreach ($files as $f) { $j = tg_read_json($f); if ($j && ($j['not_before'] ?? 0) <= time()) { $pick = [$f, $j]; break; } }
-    if (!$pick) break;
+    if (!$pick) { if ($lastTg && time() - $lastTg < 45) { sleep(2); continue; } break; }
     [$f, $j] = $pick;
     $run = tg_var('running') . '/' . basename($f);
     if (!@rename($f, $run)) continue;
@@ -65,14 +70,28 @@ while (time() - $t0 < TG_TICK_BUDGET_S) {
     try {
         $fn = 'job_' . $j['job'];
         if (!isset($reg[$j['job']]) || !function_exists($fn)) throw new RuntimeException('unknown job');
-        $res = $fn($j['args'] ?? [], $hb);
+        $GLOBALS['tg_role'] = (string) ($j['role'] ?? 'read');
+        $ru0 = getrusage(); $w0 = microtime(true);
+        $res = $fn($j['args'] ?? [], $hb, (string) ($j['role'] ?? 'read'));
+        $ru1 = getrusage();
+        file_put_contents(tg_var('metrics.jsonl'), json_encode(['job' => $j['job'], 'at' => time(), 'wall_s' => round(microtime(true) - $w0, 2),
+            'cpu_s' => round(($ru1['ru_utime.tv_sec'] + $ru1['ru_stime.tv_sec'] + ($ru1['ru_utime.tv_usec'] + $ru1['ru_stime.tv_usec']) / 1e6)
+                           - ($ru0['ru_utime.tv_sec'] + $ru0['ru_stime.tv_sec'] + ($ru0['ru_utime.tv_usec'] + $ru0['ru_stime.tv_usec']) / 1e6), 2),
+            'peak_mb' => round(memory_get_peak_usage(true) / 1048576), 'staged_mb' => round(tg_dir_bytes(TG_BASE . '/public_html/m') / 1048576, 1)]) . "\n", FILE_APPEND | LOCK_EX);
         tg_write_json(tg_job_dir($id) . '/result.json', $res);
         tg_status($id, ['state' => 'done', 'finished_at' => time()]);
         tg_log('jobs', $j['job'] . ' done');
     } catch (Throwable $e) {
         $msg = preg_replace('/[A-Za-z0-9_\-]{20,}/', '…', mb_substr($e->getMessage(), 0, 200));
-        tg_status($id, ['state' => 'failed', 'error' => get_class($e) . ': ' . $msg, 'finished_at' => time()]);
+        // where it broke: the first frames inside our own app/ code (no arguments, so no secret can leak)
+        $at = [];
+        foreach (array_merge([['file' => $e->getFile(), 'line' => $e->getLine()]], $e->getTrace()) as $f) {
+            if (isset($f['file']) && str_starts_with($f['file'], TG_BASE . '/app/')) $at[] = basename($f['file']) . ':' . $f['line'];
+            if (count($at) >= 3) break;
+        }
+        tg_status($id, ['state' => 'failed', 'error' => get_class($e) . ': ' . $msg, 'at' => $at, 'finished_at' => time()]);
         tg_log('jobs', $j['job'] . ' failed ' . get_class($e));
     }
     @unlink($run);
+    if (!empty($reg[$j['job']]['tg'])) $lastTg = time(); // the session stays loaded; shutdown serializes it
 }
