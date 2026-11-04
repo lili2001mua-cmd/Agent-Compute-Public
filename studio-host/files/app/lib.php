@@ -2,20 +2,14 @@
 // Shared helpers for studio.hohedoc.ir — the holding's image/video host.
 // Secrets live in ../secrets.php (outside public_html, chmod 600); one fixed ../secrets-extra.php with the
 // same "return [...]" shape is merged on top (no glob: a stray file must not be able to override a key).
-// Keys that belong here: ADMIN_KEY (its own, not trainer's), DRIVE_OAUTH, DRIVE_ROOT_ID, HF_API_KEY_ID,
-// HF_API_KEY_SECRET, optional HF_DAILY_MAX. No Telegram session, no GitHub token: least privilege per subdomain.
+// Keys that belong here: ADMIN_KEY (its own, not trainer's), HF_API_KEY_ID, HF_API_KEY_SECRET, optional HF_DAILY_MAX.
+// Drive is the holding's single account (BACKUP): client + refresh token in var/ (drive_accounts.php), never a secret file. No Telegram session, no GitHub token: least privilege per subdomain.
 const STUDIO_ROOT = __DIR__ . '/..';
 
 function studio_secrets(): array {
     static $s = null;
     if ($s === null) {
         $s = [];
-        // DRIVE_OAUTH alone is read from trainer's secrets.php on the same account, so nobody copies it by hand.
-        $trainer = STUDIO_ROOT . '/../trainer.hohedoc.ir/secrets.php';
-        if (is_file($trainer)) {
-            $t = include $trainer;
-            if (is_array($t) && !empty($t['DRIVE_OAUTH'])) $s['DRIVE_OAUTH'] = $t['DRIVE_OAUTH'];
-        }
         foreach ([STUDIO_ROOT . '/secrets.php', STUDIO_ROOT . '/secrets-extra.php'] as $p) {
             if (is_file($p)) {
                 $part = include $p;
@@ -164,15 +158,11 @@ function studio_http(string $method, string $url, array $headers = [], $body = n
 }
 
 // ---------------------------------------------------------------- Google Drive (REST v3, OAuth refresh)
-// DRIVE_OAUTH is the same multi-line secret the private repo uses: CLIENT_ID=… / CLIENT_SECRET=… / REFRESH_TOKEN=…
 const DRIVE_API = 'https://www.googleapis.com/drive/v3';
 const DRIVE_UPLOAD = 'https://www.googleapis.com/upload/drive/v3/files';
 const FOLDER_MIME = 'application/vnd.google-apps.folder';
 
-// My-Drive folder id comes from the DRIVE_ROOT_ID secret (same value as pool_media_backend.POOL_PARENT_FOLDER_ID
-// in the private repo) — kept out of this public code.
-// After the move to a connected account, var/drive-default.json = {account, root} makes that account the
-// host's only Drive (set with job=drive_set_default); the DRIVE_OAUTH secret is then no longer used.
+// The holding's single Drive account (BACKUP since 1405-08-13): var/drive-default.json = {account, root}.
 function drive_default(): ?array {
     $d = @json_decode((string) @file_get_contents(studio_var('drive-default.json')), true);
     return (is_array($d) && !empty($d['account']) && !empty($d['root'])) ? $d : null;
@@ -180,55 +170,24 @@ function drive_default(): ?array {
 
 function drive_root_id(): string {
     if ($d = drive_default()) return $d['root'];
-    $id = studio_secret('DRIVE_ROOT_ID');
-    if (!preg_match('/^[A-Za-z0-9_-]{10,80}$/', $id)) throw new RuntimeException('DRIVE_ROOT_ID missing in secrets');
-    return $id;
+    throw new RuntimeException('no default Drive account set on the studio host');
 }
 
-// The access token is cached in var/ under a lock, so web requests and the cron don't each refresh it.
+// Every Drive call is signed by the default account (BACKUP); the old account's key is retired (1405-08-13).
 function drive_token(bool $force = false): string {
     static $tok = null, $exp = 0;
-    if ($d = drive_default()) {
-        require_once __DIR__ . '/drive_accounts.php';
-        if ($force || $tok === null || time() >= $exp - 60) { $tok = da_token($d['account']); $exp = time() + 3000; }
-        return $tok;
-    }
-    return drive_token_main($force);
-}
-
-// The old main account (DRIVE_OAUTH secret). Only the migration reads it; nothing else after the switch.
-function drive_token_main(bool $force = false): string {
-    static $tok = null, $exp = 0;
-    if (!$force && $tok !== null && time() < $exp - 60) return $tok;
-    $cache = studio_var('drive-token.json');
-    $lk = fopen(studio_var('drive-token.lock'), 'c'); flock($lk, LOCK_EX);
-    $c = @json_decode((string) @file_get_contents($cache), true);
-    if (!$force && is_array($c) && ($c['exp'] ?? 0) > time() + 60) { $tok = $c['tok']; $exp = $c['exp']; flock($lk, LOCK_UN); return $tok; }
-    $kv = [];
-    foreach (preg_split('/\r?\n/', studio_secret('DRIVE_OAUTH')) as $line) {
-        $p = strpos($line, '=');
-        if ($p !== false) $kv[trim(substr($line, 0, $p))] = trim(substr($line, $p + 1));
-    }
-    foreach (['CLIENT_ID', 'CLIENT_SECRET', 'REFRESH_TOKEN'] as $k) {
-        if (empty($kv[$k])) { flock($lk, LOCK_UN); throw new RuntimeException("DRIVE_OAUTH has no $k — missing credential, not a code error"); }
-    }
-    [$code, $r] = studio_http('POST', 'https://oauth2.googleapis.com/token',
-        ['Content-Type: application/x-www-form-urlencoded'],
-        http_build_query(['client_id' => $kv['CLIENT_ID'], 'client_secret' => $kv['CLIENT_SECRET'],
-            'refresh_token' => $kv['REFRESH_TOKEN'], 'grant_type' => 'refresh_token']));
-    if ($code !== 200 || empty($r['access_token'])) { flock($lk, LOCK_UN); throw new RuntimeException("drive token refresh failed ($code)"); }
-    $tok = $r['access_token'];
-    $exp = time() + (int) ($r['expires_in'] ?? 3000);
-    file_put_contents($cache . '.tmp', json_encode(['tok' => $tok, 'exp' => $exp])); chmod($cache . '.tmp', 0600); rename($cache . '.tmp', $cache);
-    flock($lk, LOCK_UN);
+    $d = drive_default();
+    if (!$d) throw new RuntimeException('no default Drive account set on the studio host');
+    require_once __DIR__ . '/drive_accounts.php';
+    if ($force || $tok === null || time() >= $exp - 60) { $tok = da_token($d['account']); $exp = time() + 3000; }
     return $tok;
 }
 
-function drive_call(string $method, string $path, array $query = [], $json = null, bool $main = false): array {
+function drive_call(string $method, string $path, array $query = [], $json = null): array {
     $url = DRIVE_API . $path . ($query ? '?' . http_build_query($query) : '');
     $body = $json !== null ? json_encode($json) : null;
     for ($try = 0; ; $try++) {
-        $h = ['Authorization: Bearer ' . ($main ? drive_token_main($try > 0 && ($code ?? 0) === 401) : drive_token($try > 0 && ($code ?? 0) === 401))];
+        $h = ['Authorization: Bearer ' . drive_token($try > 0 && ($code ?? 0) === 401)];
         if ($body !== null) $h[] = 'Content-Type: application/json';
         [$code, $r] = studio_http($method, $url, $h, $body);
         $rate = $code === 403 && is_array($r) && preg_match('/rateLimitExceeded|userRateLimitExceeded/', json_encode($r));

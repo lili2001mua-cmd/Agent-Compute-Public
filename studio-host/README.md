@@ -28,7 +28,7 @@ The first time, that page asks for the Google **Web application** client (id + s
 `var/drive-web-client.json` (0600). Google returns to `oauth/drive-callback.php`, which stores the account's
 refresh token in `var/drive-accounts/<NAME>.json` (0600). Nothing is printed, nothing goes to GitHub.
 `job=drive_accounts` lists connected accounts; `job=drive_list account=BACKUP` is the read-only proof
-(email, quota, 20 root names). Code: `app/drive_accounts.php`. The main account (`DRIVE_OAUTH`) is untouched.
+(email, quota, 20 root names). Code: `app/drive_accounts.php`. Since 1405-08-13 BACKUP is the holding's only Drive account (`job=drive_set_default`).
 
 ## Door
 
@@ -42,16 +42,14 @@ poll with `job=result&id=<id>`. `status.php` is public and shows only booleans a
 ```php
 <?php return [
   'ADMIN_KEY'         => '<new random ≥32 chars — not the trainer key>',
-  'DRIVE_OAUTH'       => "CLIENT_ID=…\nCLIENT_SECRET=…\nREFRESH_TOKEN=…",
-  'DRIVE_ROOT_ID'     => '<My-Drive folder id>',
   'HF_API_KEY_ID'     => '…',
   'HF_API_KEY_SECRET' => '…',
   // 'HF_DAILY_MAX'   => '30',
 ];
 ```
 
-`DRIVE_OAUTH` alone is read from `../trainer.hohedoc.ir/secrets.php` when present, so in practice only
-`secrets-extra.php` is uploaded here. `tick.php` sets both secret files to 0600 by itself.
+Drive keeps no secret here: the BACKUP account's client and refresh token live in `var/` (connected with
+`drive-login.php`), and `var/drive-default.json` makes it the host's only Drive. `tick.php` sets both secret files to 0600 by itself.
 No Telegram session and no GitHub token are read.
 
 ## Install (once)

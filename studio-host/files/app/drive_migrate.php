@@ -1,5 +1,7 @@
 <?php
 // Copy the whole main-account My-Drive into a connected extra account (BACKUP), server side, resumable.
+// ⛔ Done 1405-08-13 (72 folders, 378 files, census digest equal). The old account's key was then retired, so
+// migrate_start / sync / whoami / census of the old tree no longer run; status and the id map stay readable.
 // Owner of the procedure: drive-steward (private repo). Nothing is deleted from the source.
 //
 //   door: job=drive_migrate_start account=BACKUP   → shares the source root (reader, no email) with the account,
@@ -59,10 +61,10 @@ function job_drive_migrate_start(array $a): array {
         return ['sync' => true] + dm_summary($s);
     }
     $root = drive_root_id();
-    $src = drive_call('GET', "/files/$root", ['fields' => 'id,name,mimeType'], null, true);
+    $src = drive_call('GET', "/files/$root", ['fields' => 'id,name,mimeType']);
     // Reader access for the destination account, without an email notification.
     drive_call('POST', "/files/$root/permissions", ['sendNotificationEmail' => 'false', 'fields' => 'id'],
-        ['type' => 'user', 'role' => 'reader', 'emailAddress' => dm_account_email($acc)], true);
+        ['type' => 'user', 'role' => 'reader', 'emailAddress' => dm_account_email($acc)]);
     $dst = dm_dst($acc, 'POST', '/files', ['fields' => 'id'], ['name' => $src['name'], 'mimeType' => FOLDER_MIME, 'parents' => ['root']]);
     $s = ['account' => $acc, 'stage' => 'copying', 'started' => gmdate('c'), 'src_root' => $root, 'dst_root' => $dst['id'],
         'map' => [$root => $dst['id']], 'folders' => [$root => $src['name']],
@@ -107,7 +109,7 @@ function dm_work_one(array &$s): bool {
                 $q = ['q' => "'" . $it['id'] . "' in parents and trashed=false", 'pageSize' => 1000, 'supportsAllDrives' => 'true',
                     'includeItemsFromAllDrives' => 'true', 'fields' => 'nextPageToken,files(id,name,mimeType,size,md5Checksum)'];
                 if ($page) $q['pageToken'] = $page;
-                $r = drive_call('GET', '/files', $q, null, true);
+                $r = drive_call('GET', '/files', $q);
                 foreach ($r['files'] ?? [] as $f) {
                     $path = $it['path'] . '/' . $f['name'];
                     if ($f['mimeType'] === FOLDER_MIME) $s['queue'][] = ['id' => $f['id'], 'kind' => 'folder', 'name' => $f['name'], 'dst' => $it['dst'], 'path' => $path];
@@ -182,7 +184,7 @@ function job_drive_census(array $a): array {
     $acc = (string) ($a['account'] ?? '');
     $root = (string) ($a['root'] ?? '');
     if (!preg_match('/^[A-Za-z0-9_-]{10,80}$/', $root)) throw new RuntimeException('root id required');
-    $call = fn(array $q) => $acc === '' ? drive_call('GET', '/files', $q, null, true) : dm_dst(da_name($acc), 'GET', '/files', $q);
+    $call = fn(array $q) => $acc === '' ? drive_call('GET', '/files', $q) : dm_dst(da_name($acc), 'GET', '/files', $q);
     $lines = []; $folders = 0; $bytes = 0; $native = 0; $stack = [[$root, '']];
     while ($stack) {
         [$id, $rel] = array_pop($stack);
@@ -250,6 +252,6 @@ function job_drive_relay(array $a): array {
 
 // Who is the main (old) account? Used to sweep its name out of the holding before the cut.
 function job_drive_whoami(array $a): array {
-    $r = drive_call('GET', '/about', ['fields' => 'user(emailAddress,displayName)'], null, true);
+    $r = drive_call('GET', '/about', ['fields' => 'user(emailAddress,displayName)']);
     return ['email' => $r['user']['emailAddress'] ?? '', 'name' => $r['user']['displayName'] ?? '', 'default' => drive_default()];
 }

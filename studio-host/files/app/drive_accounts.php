@@ -9,7 +9,7 @@
 //   3) Google consent with the NEW account → oauth/drive-callback.php stores that account's refresh token
 //      in var/drive-accounts/<NAME>.json (0600, outside public_html).
 //   4) session: job=drive_list account=BACKUP → proves the link with a read-only listing.
-// Nothing here prints a token. The main account (DRIVE_OAUTH secret) is untouched.
+// Nothing here prints a token. Since 1405-08-13 the default account (BACKUP) is the holding's only Drive account.
 require_once __DIR__ . '/lib.php';
 
 const DA_SCOPE = 'https://www.googleapis.com/auth/drive';

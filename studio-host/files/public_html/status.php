@@ -8,7 +8,7 @@ header('X-Robots-Tag: noindex');
 $deployed = @json_decode((string) @file_get_contents(studio_var('deployed.json')), true) ?: null;
 $lastTick = (int) @file_get_contents(studio_var('last-tick.txt'));
 $present = [];
-foreach (['ADMIN_KEY', 'DRIVE_OAUTH', 'DRIVE_ROOT_ID', 'HF_API_KEY_ID', 'HF_API_KEY_SECRET'] as $k) $present[$k] = studio_secret($k) !== '';
+foreach (['ADMIN_KEY', 'HF_API_KEY_ID', 'HF_API_KEY_SECRET'] as $k) $present[$k] = studio_secret($k) !== '';
 $states = [];
 foreach (glob(queue_dir() . '/*.json') ?: [] as $p) { $s = json_decode((string) file_get_contents($p), true)['state'] ?? '?'; $states[$s] = ($states[$s] ?? 0) + 1; }
 echo json_encode([
