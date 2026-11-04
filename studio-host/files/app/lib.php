@@ -46,9 +46,60 @@ function studio_key_ok(): bool {
     $want = studio_secret('ADMIN_KEY');
     if (strlen($want) >= 32 && hash_equals($want, (string) ($_SERVER['HTTP_X_STUDIO_KEY'] ?? ''))) return true;
     if (studio_repo_auth_ok((string) ($_SERVER['HTTP_X_STUDIO_NONCE'] ?? ''), (string) ($_SERVER['HTTP_X_STUDIO_REF'] ?? ''))) return true;
+    if (studio_oidc_ok((string) ($_SERVER['HTTP_X_STUDIO_OIDC'] ?? ''))) { $GLOBALS['studio_auth'] = 'oidc'; return true; }
     $st['n']++;
     file_put_contents($f, json_encode($st), LOCK_EX);
     return false;
+}
+
+// ---- GitHub Actions without any secret: the run's OIDC id-token (RS256, signed by GitHub) proves which repository
+// and branch is calling. Accepted only for the holding's private repo, on a branch, with our audience. Runs that come
+// in this way may call only the jobs listed in run.php ($oidc_jobs).
+const STUDIO_OIDC_ISS = 'https://token.actions.githubusercontent.com';
+const STUDIO_OIDC_AUD = 'studio.hohedoc.ir';
+const STUDIO_OIDC_REPOS = ['lili2001mua-cmd/agent-project-backup'];
+
+function studio_b64url(string $s): string { return (string) base64_decode(strtr($s, '-_', '+/') . str_repeat('=', (4 - strlen($s) % 4) % 4)); }
+
+function studio_der_len(int $n): string {
+    if ($n < 0x80) return chr($n);
+    $b = ''; while ($n > 0) { $b = chr($n & 0xff) . $b; $n >>= 8; }
+    return chr(0x80 | strlen($b)) . $b;
+}
+
+function studio_jwk_pem(string $n, string $e): string {
+    $int = function (string $x) { if (ord($x[0]) > 0x7f) $x = "\0" . $x; return "\x02" . studio_der_len(strlen($x)) . $x; };
+    $rsa = $int(studio_b64url($n)) . $int(studio_b64url($e));
+    $rsa = "\x30" . studio_der_len(strlen($rsa)) . $rsa;
+    $bit = "\x03" . studio_der_len(strlen($rsa) + 1) . "\0" . $rsa;
+    $alg = "\x30\x0d\x06\x09\x2a\x86\x48\x86\xf7\x0d\x01\x01\x01\x05\x00";
+    $spki = "\x30" . studio_der_len(strlen($alg . $bit)) . $alg . $bit;
+    return "-----BEGIN PUBLIC KEY-----\n" . chunk_split(base64_encode($spki), 64, "\n") . "-----END PUBLIC KEY-----\n";
+}
+
+function studio_oidc_ok(string $jwt): bool {
+    $p = explode('.', $jwt);
+    if (count($p) !== 3 || strlen($jwt) > 8000) return false;
+    $h = json_decode(studio_b64url($p[0]), true); $c = json_decode(studio_b64url($p[1]), true);
+    if (!is_array($h) || !is_array($c) || ($h['alg'] ?? '') !== 'RS256' || empty($h['kid'])) return false;
+    $now = time();
+    if (($c['iss'] ?? '') !== STUDIO_OIDC_ISS || ($c['aud'] ?? '') !== STUDIO_OIDC_AUD) return false;
+    if ((int) ($c['exp'] ?? 0) < $now || (int) ($c['nbf'] ?? $now) > $now + 60) return false;
+    if (!in_array(strtolower((string) ($c['repository'] ?? '')), STUDIO_OIDC_REPOS, true)) return false;
+    if (!str_starts_with((string) ($c['ref'] ?? ''), 'refs/heads/')) return false;
+    $cache = studio_var('oidc-jwks.json');
+    $jw = @json_decode((string) @file_get_contents($cache), true);
+    $find = function ($jw) use ($h) { foreach ($jw['keys'] ?? [] as $k) if (($k['kid'] ?? '') === $h['kid']) return $k; return null; };
+    $key = is_array($jw) && ($jw['t'] ?? 0) > $now - 3600 ? $find($jw) : null;
+    if (!$key) {
+        [$code, $r] = studio_http('GET', STUDIO_OIDC_ISS . '/.well-known/jwks', [], null, 20);
+        if ($code !== 200 || !is_array($r)) return false;
+        $r['t'] = $now; file_put_contents($cache, json_encode($r), LOCK_EX);
+        $key = $find($r);
+        if (!$key) return false;
+    }
+    $pub = openssl_pkey_get_public(studio_jwk_pem((string) $key['n'], (string) $key['e']));
+    return $pub && openssl_verify($p[0] . '.' . $p[1], studio_b64url($p[2]), $pub, OPENSSL_ALGO_SHA256) === 1;
 }
 
 function studio_repo_auth_ok(string $nonce, string $ref): bool {
