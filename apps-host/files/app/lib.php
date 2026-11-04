@@ -2,7 +2,8 @@
 // Shared helpers for apps.hohedoc.ir — the holding's host for installable apps and workout documents.
 // Its own subdomain by the user's rule (1405-08-07, «هر موضوعِ اصلی یک زیردامنهٔ جدا»): own ADMIN_KEY, own code, own cron.
 // Secrets in ../secrets.php (outside public_html, chmod 600) + optional ../secrets-extra.php merged on top.
-// Keys here: ADMIN_KEY, DRIVE_ROOT_ID. DRIVE_OAUTH is read from trainer's secrets.php on the same account.
+// Keys here: ADMIN_KEY. Drive is the holding's single account (BACKUP), read from studio.hohedoc.ir/var by the
+// cron (hohe_backup_drive) — the web side cannot see sibling folders (open_basedir, 1405-08-07).
 // No Telegram session, no GitHub token, no Higgsfield key.
 const APPS_ROOT = __DIR__ . '/..';
 
@@ -10,18 +11,6 @@ function apps_secrets(): array {
     static $s = null;
     if ($s === null) {
         $s = [];
-        // DRIVE_OAUTH alone is borrowed from a sibling subdomain on the same account (trainer first, then studio).
-        // The web side cannot see sibling folders (open_basedir, 1405-08-07); the cron (CLI), which does every Drive
-        // upload, may — status.php shows both views. Only that one key is ever taken from a sibling.
-        foreach (['trainer.hohedoc.ir/secrets.php', 'trainer.hohedoc.ir/secrets-extra.php',
-                  'studio.hohedoc.ir/secrets.php', 'studio.hohedoc.ir/secrets-extra.php'] as $tf) {
-            if (!empty($s['DRIVE_OAUTH'])) break;
-            if (!empty($s['DRIVE_OAUTH'])) break;
-            $trainer = APPS_ROOT . '/../' . $tf;
-            if (!is_file($trainer)) continue;
-            $t = include $trainer;
-            if (is_array($t) && !empty($t['DRIVE_OAUTH'])) $s['DRIVE_OAUTH'] = $t['DRIVE_OAUTH'];
-        }
         foreach ([APPS_ROOT . '/secrets.php', APPS_ROOT . '/secrets-extra.php'] as $p) {
             if (is_file($p)) {
                 $part = include $p;
@@ -119,46 +108,36 @@ function apps_http(string $method, string $url, array $headers = [], $body = nul
 }
 
 // ---------------------------------------------------------------- Google Drive (REST v3, OAuth refresh)
-// DRIVE_OAUTH is the same multi-line secret the private repo uses: CLIENT_ID=… / CLIENT_SECRET=… / REFRESH_TOKEN=…
 const DRIVE_API = 'https://www.googleapis.com/drive/v3';
 const DRIVE_UPLOAD = 'https://www.googleapis.com/upload/drive/v3/files';
 const FOLDER_MIME = 'application/vnd.google-apps.folder';
 
-// My-Drive folder id comes from the DRIVE_ROOT_ID secret (same value as pool_media_backend.POOL_PARENT_FOLDER_ID
-// in the private repo) — kept out of this public code.
-function drive_root_id(): string {
-    $id = apps_secret('DRIVE_ROOT_ID');
-    if (!preg_match('/^[A-Za-z0-9_-]{10,80}$/', $id)) throw new RuntimeException('DRIVE_ROOT_ID missing in secrets');
-    return $id;
+// ---- the holding's only Drive account (since 1405-08-13): the studio host's default account (BACKUP).
+// Its client and refresh token live only in studio.hohedoc.ir/var (0600, same server account); no host keeps
+// its own Google key any more. Returns [access_token, expires_at, root_id] or throws.
+function hohe_backup_drive(string $siteRoot, bool $force = false): array {
+    $sv = $siteRoot . '/../studio.hohedoc.ir/var';
+    $d = @json_decode((string) @file_get_contents("$sv/drive-default.json"), true);
+    if (!is_array($d) || empty($d['account']) || empty($d['root'])) throw new RuntimeException('studio host has no default Drive account');
+    $cache = "$sv/drive-token-shared.json";
+    $c = @json_decode((string) @file_get_contents($cache), true);
+    if (!$force && is_array($c) && ($c['exp'] ?? 0) > time() + 120) return [$c['tok'], $c['exp'], $d['root']];
+    $cl = @json_decode((string) @file_get_contents("$sv/drive-web-client.json"), true);
+    $ac = @json_decode((string) @file_get_contents("$sv/drive-accounts/" . preg_replace('/[^A-Z0-9_]/', '', $d['account']) . '.json'), true);
+    if (empty($cl['id']) || empty($cl['secret']) || empty($ac['refresh_token'])) throw new RuntimeException('BACKUP credentials missing on studio host');
+    $ch = curl_init('https://oauth2.googleapis.com/token');
+    curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 30, CURLOPT_POSTFIELDS => http_build_query([
+        'client_id' => $cl['id'], 'client_secret' => $cl['secret'], 'refresh_token' => $ac['refresh_token'], 'grant_type' => 'refresh_token'])]);
+    $r = json_decode((string) curl_exec($ch), true); curl_close($ch);
+    if (empty($r['access_token'])) throw new RuntimeException('google refused the BACKUP refresh');
+    $exp = time() + (int) ($r['expires_in'] ?? 3000);
+    file_put_contents("$cache.tmp", json_encode(['tok' => $r['access_token'], 'exp' => $exp])); @chmod("$cache.tmp", 0600); rename("$cache.tmp", $cache);
+    return [$r['access_token'], $exp, $d['root']];
 }
 
-// The access token is cached in var/ under a lock, so web requests and the cron don't each refresh it.
-function drive_token(bool $force = false): string {
-    static $tok = null, $exp = 0;
-    if (!$force && $tok !== null && time() < $exp - 60) return $tok;
-    $cache = apps_var('drive-token.json');
-    $lk = fopen(apps_var('drive-token.lock'), 'c'); flock($lk, LOCK_EX);
-    $c = @json_decode((string) @file_get_contents($cache), true);
-    if (!$force && is_array($c) && ($c['exp'] ?? 0) > time() + 60) { $tok = $c['tok']; $exp = $c['exp']; flock($lk, LOCK_UN); return $tok; }
-    $kv = [];
-    foreach (preg_split('/\r?\n/', apps_secret('DRIVE_OAUTH')) as $line) {
-        $p = strpos($line, '=');
-        if ($p !== false) $kv[trim(substr($line, 0, $p))] = trim(substr($line, $p + 1));
-    }
-    foreach (['CLIENT_ID', 'CLIENT_SECRET', 'REFRESH_TOKEN'] as $k) {
-        if (empty($kv[$k])) { flock($lk, LOCK_UN); throw new RuntimeException("DRIVE_OAUTH has no $k — missing credential, not a code error"); }
-    }
-    [$code, $r] = apps_http('POST', 'https://oauth2.googleapis.com/token',
-        ['Content-Type: application/x-www-form-urlencoded'],
-        http_build_query(['client_id' => $kv['CLIENT_ID'], 'client_secret' => $kv['CLIENT_SECRET'],
-            'refresh_token' => $kv['REFRESH_TOKEN'], 'grant_type' => 'refresh_token']));
-    if ($code !== 200 || empty($r['access_token'])) { flock($lk, LOCK_UN); throw new RuntimeException("drive token refresh failed ($code)"); }
-    $tok = $r['access_token'];
-    $exp = time() + (int) ($r['expires_in'] ?? 3000);
-    file_put_contents($cache . '.tmp', json_encode(['tok' => $tok, 'exp' => $exp])); chmod($cache . '.tmp', 0600); rename($cache . '.tmp', $cache);
-    flock($lk, LOCK_UN);
-    return $tok;
-}
+function drive_root_id(): string { return hohe_backup_drive(APPS_ROOT)[2]; }
+
+function drive_token(bool $force = false): string { return hohe_backup_drive(APPS_ROOT, $force)[0]; }
 
 function drive_call(string $method, string $path, array $query = [], $json = null): array {
     $url = DRIVE_API . $path . ($query ? '?' . http_build_query($query) : '');

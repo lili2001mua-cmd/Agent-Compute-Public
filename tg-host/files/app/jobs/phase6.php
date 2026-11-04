@@ -109,6 +109,29 @@ function tg_rpc_name(Throwable $e): string {
     return get_class($e);
 }
 
+// ---- the holding's only Drive account (since 1405-08-13): the studio host's default account (BACKUP).
+// Its client and refresh token live only in studio.hohedoc.ir/var (0600, same server account); no host keeps
+// its own Google key any more. Returns [access_token, expires_at, root_id] or throws.
+function hohe_backup_drive(string $siteRoot, bool $force = false): array {
+    $sv = $siteRoot . '/../studio.hohedoc.ir/var';
+    $d = @json_decode((string) @file_get_contents("$sv/drive-default.json"), true);
+    if (!is_array($d) || empty($d['account']) || empty($d['root'])) throw new RuntimeException('studio host has no default Drive account');
+    $cache = "$sv/drive-token-shared.json";
+    $c = @json_decode((string) @file_get_contents($cache), true);
+    if (!$force && is_array($c) && ($c['exp'] ?? 0) > time() + 120) return [$c['tok'], $c['exp'], $d['root']];
+    $cl = @json_decode((string) @file_get_contents("$sv/drive-web-client.json"), true);
+    $ac = @json_decode((string) @file_get_contents("$sv/drive-accounts/" . preg_replace('/[^A-Z0-9_]/', '', $d['account']) . '.json'), true);
+    if (empty($cl['id']) || empty($cl['secret']) || empty($ac['refresh_token'])) throw new RuntimeException('BACKUP credentials missing on studio host');
+    $ch = curl_init('https://oauth2.googleapis.com/token');
+    curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 30, CURLOPT_POSTFIELDS => http_build_query([
+        'client_id' => $cl['id'], 'client_secret' => $cl['secret'], 'refresh_token' => $ac['refresh_token'], 'grant_type' => 'refresh_token'])]);
+    $r = json_decode((string) curl_exec($ch), true); curl_close($ch);
+    if (empty($r['access_token'])) throw new RuntimeException('google refused the BACKUP refresh');
+    $exp = time() + (int) ($r['expires_in'] ?? 3000);
+    file_put_contents("$cache.tmp", json_encode(['tok' => $r['access_token'], 'exp' => $exp])); @chmod("$cache.tmp", 0600); rename("$cache.tmp", $cache);
+    return [$r['access_token'], $exp, $d['root']];
+}
+
 // ---- Drive fetch (ک9): https only, allowlisted hosts on every hop, byte cap, URL never logged ------------
 function tg_fetch_drive(string $url, string $dest): int {
     for ($hop = 0; $hop < 5; $hop++) {
@@ -605,7 +628,7 @@ function job_chain_alert(array $a, callable $hb, string $role = 'read'): array {
 }
 
 // ---- secrets held by the host for the chain (ک25): one-time intake, Drive token vending, Bot API relay ---------
-const TG_CHAIN_SECRET_KEYS = ['DRIVE_OAUTH', 'TELEGRAM_BOT_TOKEN', 'TELEGRAM_POOL_CHAT_ID', 'TG_ARCHIVE_CHAT_ID', 'ROUTINE_FIRE_URL', 'ROUTINE_FIRE_TOKEN', 'ROUTINE_FIRE_BETA'];
+const TG_CHAIN_SECRET_KEYS = ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_POOL_CHAT_ID', 'TG_ARCHIVE_CHAT_ID', 'ROUTINE_FIRE_URL', 'ROUTINE_FIRE_TOKEN', 'ROUTINE_FIRE_BETA'];
 /** Handed-over values (var/chain-secrets.json) first; any key the owner put in secrets.php by hand fills the gaps (ک25, option 3). */
 function tg_chain_secrets(): array {
     $s = tg_read_json(tg_var('chain-secrets.json')) ?? [];
@@ -685,15 +708,8 @@ function tg_chain_drive_token(array $in, array $roles): array {
         if (!$win) return [403, ['error' => 'outside chain windows']];
     }
     try { tg_rate('drive_mint_day'); } catch (Throwable $e) { return [429, ['error' => 'daily drive token cap reached — minting locked until tomorrow']]; }
-    $raw = (string) (tg_chain_secrets()['DRIVE_OAUTH'] ?? '');
-    $kv = [];
-    foreach (preg_split('/\R/', $raw) as $l) { if (str_contains($l, '=')) { [$k, $v] = explode('=', $l, 2); $kv[trim($k)] = trim(trim($v), "\"'"); } }
-    if (empty($kv['CLIENT_ID']) || empty($kv['CLIENT_SECRET']) || empty($kv['REFRESH_TOKEN'])) return [503, ['error' => 'no drive credentials on host']];
-    $ch = curl_init('https://oauth2.googleapis.com/token');
-    curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 30, CURLOPT_POSTFIELDS => http_build_query([
-        'client_id' => $kv['CLIENT_ID'], 'client_secret' => $kv['CLIENT_SECRET'], 'refresh_token' => $kv['REFRESH_TOKEN'], 'grant_type' => 'refresh_token'])]);
-    $r = json_decode((string) curl_exec($ch), true); curl_close($ch);
-    if (empty($r['access_token'])) return [502, ['error' => 'google refused the refresh']];
+    try { [$tok, $exp] = hohe_backup_drive(TG_BASE, true); } catch (Throwable $e) { return [503, ['error' => 'no drive credentials on host']]; }
+    $r = ['access_token' => $tok, 'expires_in' => $exp - time()];
     $n = count((tg_read_json(tg_var('chain-rate.json')) ?? [])['drive_mint_day'] ?? []);
     tg_log('chain', 'drive token minted #' . $n . ($admin ? ' (admin)' : ''));
     $pool = (string) (tg_chain_secrets()['TELEGRAM_POOL_CHAT_ID'] ?? '');

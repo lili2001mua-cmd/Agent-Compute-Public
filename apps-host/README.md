@@ -25,13 +25,12 @@ shows only booleans and versions.
 ```php
 <?php return [
   'ADMIN_KEY'     => '<new random ≥32 chars — not the studio or trainer key>',
-  'DRIVE_ROOT_ID' => '<My-Drive folder id>',
 ];
 ```
 
 Workout programs reach the Iran relay without any secret (outbox + relay pull, 1405-08-11). Optional `'RELAY_SECRET'` in `secrets-extra.php` switches to the push path (`deploy/sync.php` action `chunk`); `status.php` shows `secrets_present.RELAY_SECRET`.
 
-`DRIVE_OAUTH` is borrowed from trainer's or studio's secret files. The web side cannot see sibling folders (`open_basedir`), but the cron can, and every Drive upload runs in the cron; `status.php` shows both views (`secrets_present`, `secrets_present_cron`). `tick.php` sets the secret files to 0600 by itself.
+Drive is the holding's single account (BACKUP), read by the cron from `studio.hohedoc.ir/var` (`hohe_backup_drive`); this host keeps no Google key. The web side cannot see sibling folders (`open_basedir`), but the cron can, and every Drive upload runs in the cron; `status.php` shows both views (`secrets_present`, `secrets_present_cron`). `tick.php` sets the secret files to 0600 by itself.
 No Telegram session, no GitHub token and no Higgsfield key are read.
 
 ## Install (once)

@@ -26,8 +26,8 @@ function drive_trash_tick(): void {
     $st = @json_decode((string) @file_get_contents($sp), true) ?: [];
     $hash = substr(hash('sha256', implode("\n", $ids)), 0, 16);
     if (($st['list'] ?? '') !== $hash) $st = ['list' => $hash, 'total' => count($ids), 'done' => [], 'failed' => [], 'started' => gmdate('c')];
-    if (!$ids || apps_secret('DRIVE_OAUTH') === '') { $st['note'] = $ids ? 'no DRIVE_OAUTH in cron' : 'empty list'; file_put_contents($sp, json_encode($st)); return; }
-    $root = apps_secret('DRIVE_ROOT_ID');
+    if (!$ids) { $st['note'] = 'empty list'; file_put_contents($sp, json_encode($st)); return; }
+    $root = drive_root_id();
     $n = 0;
     foreach ($ids as $line) {
         $restore = strpos($line, 'restore ') === 0;
