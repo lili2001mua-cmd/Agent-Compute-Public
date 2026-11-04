@@ -39,6 +39,6 @@ if (trainer_secret('GH_DISPATCH_TOKEN') !== '' && is_file(trainer_state_path('sc
 require_once __DIR__ . '/gh.php';
 require_once __DIR__ . '/jobs/pool-watch.php';
 if (trainer_secret('GH_DISPATCH_TOKEN') !== '') {
-    try { pool_watch_tick(); }
-    catch (Throwable $e) { trainer_log('pool-watch', 'error: ' . $e->getMessage()); }
+    try { pool_watch_tick(); @unlink(trainer_state_path('pool-watch-error.txt')); }
+    catch (Throwable $e) { trainer_log('pool-watch', 'error: ' . $e->getMessage()); file_put_contents(trainer_state_path('pool-watch-error.txt'), substr($e->getMessage(), 0, 200)); }
 }

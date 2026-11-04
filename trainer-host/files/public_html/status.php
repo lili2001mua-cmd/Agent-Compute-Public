@@ -14,5 +14,9 @@ echo json_encode([
     'vault' => @json_decode((string) @file_get_contents(TRAINER_ROOT . '/var/vault.json'), true) ?: null,   // state + key names only
     'deployed' => $deployed,
     'last_tick_age_s' => $lastTick ? time() - $lastTick : null,
+    'pool_watch' => (function () { $p = @json_decode((string) @file_get_contents(TRAINER_ROOT . '/var/pool-watch.json'), true);
+        return is_array($p) ? ['adopted' => $p['adopted'] ?? null, 'seen' => count($p['seen'] ?? []), 'today' => $p['count'] ?? 0,
+            'last_dispatch_age_s' => !empty($p['last']) ? time() - (int) $p['last'] : null,
+            'error' => @file_get_contents(TRAINER_ROOT . '/var/pool-watch-error.txt') ?: null] : ['error' => @file_get_contents(TRAINER_ROOT . '/var/pool-watch-error.txt') ?: null]; })(),   // counts only, no ids
     'secrets_present' => $present,
 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
