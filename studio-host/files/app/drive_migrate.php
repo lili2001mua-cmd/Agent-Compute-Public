@@ -51,6 +51,13 @@ function job_drive_migrate_start(array $a): array {
     $acc = da_name((string) ($a['account'] ?? ''));
     $s = dm_load();
     if (!empty($s) && ($s['stage'] ?? '') !== 'done' && empty($a['restart'])) return ['already' => true] + dm_summary($s);
+    // sync=1: walk the source again and copy only what is not in the map yet (files added after the first copy).
+    if (!empty($a['sync']) && ($s['stage'] ?? '') === 'done' && ($s['account'] ?? '') === $acc) {
+        $s['stage'] = 'copying'; $s['synced_from'] = $s['finished'] ?? ''; unset($s['finished']);
+        $s['queue'] = [['id' => $s['src_root'], 'kind' => 'list', 'dst' => $s['dst_root'], 'path' => $s['folders'][$s['src_root']] ?? 'My-Drive']];
+        dm_save($s); studio_log('drive-migrate', "sync → $acc");
+        return ['sync' => true] + dm_summary($s);
+    }
     $root = drive_root_id();
     $src = drive_call('GET', "/files/$root", ['fields' => 'id,name,mimeType']);
     // Reader access for the destination account, without an email notification.
@@ -84,6 +91,7 @@ function job_drive_migrate_status(array $a): array {
             'md5_bad_list' => array_slice($s['md5_bad'] ?? [], 0, 50), 'shortcut_list' => array_slice($s['shortcuts'] ?? [], 0, 50)];
     }
     if (!empty($a['file_map'])) $out['map'] = $s['map'] ?? [];
+    if (!empty($a['whoami'])) $out['whoami'] = job_drive_whoami([]);
     return $out;
 }
 
@@ -238,4 +246,10 @@ function job_drive_relay(array $a): array {
     if ($raw === false) throw new RuntimeException('relay network: ' . $err);
     $keep = array_intersect_key($rh, array_flip(['content-type', 'location', 'range', 'content-range', 'x-guploader-uploadid']));
     return ['status' => $st, 'headers' => $keep, 'body_b64' => base64_encode((string) $raw), 'account' => $acc];
+}
+
+// Who is the main (old) account? Used to sweep its name out of the holding before the cut.
+function job_drive_whoami(array $a): array {
+    $r = drive_call('GET', '/about', ['fields' => 'user(emailAddress,displayName)']);
+    return ['email' => $r['user']['emailAddress'] ?? '', 'name' => $r['user']['displayName'] ?? '', 'default' => drive_default()];
 }
