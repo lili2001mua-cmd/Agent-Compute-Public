@@ -107,6 +107,52 @@ function board_user_session(string $key, string $night): ?string {
     return $s;
 }
 
+/** Persian label of a mapping-tree leaf (Agents-General/Assistant-Trainer/skill-trainer/mapping-specialist/references/mapping-decision-tree.md). */
+function board_leaf(string $l): string {
+    if ($l === '') return 'گره ثبت نشده';
+    $fixed = ['L0-encyclopedia' => 'گرهِ ۰ — مالِ این هلدینگ نیست', 'L0.5-not-runnable' => 'گرهِ ۰٫۵ — برای کاربر اجراپذیر نیست',
+              'L1-not-entering' => 'گرهِ ۱ — وارد نمی‌شود', 'L2-upgrade-existing' => 'گرهِ ۲ — ارتقای رکوردِ موجود',
+              'L2-conflict' => 'گرهِ ۲ — با رکوردِ موجود تناقض دارد', 'L2.5-new-topic' => 'گرهِ ۲٫۵ — زیرشاخهٔ تازه'];
+    if (isset($fixed[$l])) return $fixed[$l];
+    if (preg_match('/^L4-(.+)$/u', $l, $m)) return 'گرهِ ۴ — کارِ تکراری: ' . $m[1];
+    if (preg_match('/^L6-(.+)$/u', $l, $m)) return 'گرهِ ۶ — ابزار: ' . str_replace('-', ' ', $m[1]);
+    return $l;
+}
+
+/** Where a mapping row landed, in plain words. */
+function board_dest(string $d): string {
+    if ($d === '') return 'جایی ذخیره نشد';
+    if (preg_match('#^Agents-Utility/Knowledge/([^/]+)/?(.*)$#u', $d, $m)) return 'بانکِ دانشیِ ' . $m[1] . ($m[2] !== '' ? ' · ' . preg_replace('/\.md$/', '', basename($m[2])) : '');
+    if (preg_match('#/([^/]+)/SKILL\.md$#u', $d, $m)) return 'اسکیلِ ' . $m[1];
+    if (preg_match('#^Agents-Utility/(Methods|Procedures)/(.+?)\.md$#u', $d, $m)) return ($m[1] === 'Methods' ? 'متدِ ' : 'رویهٔ ') . $m[2];
+    return $d;
+}
+
+/** Topic and taxonomy of every bundle: nightly index first, then the bundle's own analysis.json (host cache, a few
+ *  fetches per tick so the first build stays short). */
+function board_topics(array $keys, array $idx, array $plain, array $pool): array {
+    $cache = board_read('topics.json', []);
+    $budget = 25; $now = time();
+    foreach ($keys as $k) {
+        $i = $idx[$k] ?? null;
+        if ($i && (($i['plain'] ?? '') !== '' || ($i['topic'] ?? '') !== '')) {
+            $cache[$k] = ['plain' => $plain[$k] ?? ($i['plain'] ?? ''), 'topic' => (string) ($i['topic'] ?? ''), 'root' => $i['root'] ?? null, 'sub' => $i['sub'] ?? null, 'at' => $now];
+            continue;
+        }
+        $c = $cache[$k] ?? null;
+        if ($c && (($c['plain'] ?? '') !== '' || $now - (int) ($c['at'] ?? 0) < 86400)) continue;
+        if ($budget-- <= 0) continue;
+        $src = ($pool[$k]['source'] ?? '') === 'drive' ? ['drive', 'telegram'] : ['telegram', 'drive'];
+        $a = null;
+        foreach ($src as $sname) { $a = json_decode((string) gh_raw('Memory-Workflow/intake-pool/state/' . $sname . '/' . $k . '/analysis.json'), true); if (is_array($a)) break; }
+        $cl = is_array($a) ? ($a['classification'] ?? []) : [];
+        $cache[$k] = ['plain' => (string) ($plain[$k] ?? ($cl['plain'] ?? '')), 'topic' => is_string($a['topic'] ?? null) ? $a['topic'] : '',
+                      'root' => $cl['root'] ?? null, 'sub' => $cl['sub'] ?? null, 'at' => $now];
+    }
+    board_write('topics.json', $cache);
+    return $cache;
+}
+
 /** Taxonomy roots {id: {title, subs: {id: title}}} — port of nightly_pool.load_taxonomy (no YAML library). */
 function board_taxonomy(string $y): array {
     $roots = []; $cur = null; $in = false;
@@ -195,10 +241,20 @@ function board_build(): array {
     $ledgerSess = board_ledger_sessions();
     // titles: the host copy (seeded once from the repo's step3-board/titles.json while it still exists)
     $titles = board_read('titles.json', []);
+    $tax = board_taxonomy((string) gh_raw('Sys.registry/identity-taxonomy.yaml'));
+    $plainMap = json_decode((string) gh_raw('Memory-Workflow/nightly-pool/plain.json'), true) ?: [];
+    $nidx = []; foreach ((array) ($ni['items'] ?? []) as $r) if (is_array($r) && !empty($r['key'])) $nidx[$r['key']] = $r;
     if (!$titles) { $t = json_decode((string) gh_raw('Memory-Workflow/step3-board/titles.json'), true); if (is_array($t)) { unset($t['_note']); $titles = $t; board_write('titles.json', $t); } }
 
     $by = [];
     foreach ($L as $e) $by[$e['key']][] = $e;
+    $topics = board_topics(array_values(array_unique(array_merge(array_keys($by), array_keys((array) board_read('extra.json', ['b8034' => 1]))))), $nidx, $plainMap, $pool);
+    $about = function (string $k) use ($topics, $tax): array {
+        $t = $topics[$k] ?? [];
+        $r = $t['root'] ?? null; $sb = $t['sub'] ?? null;
+        return ['topic' => (string) (($t['plain'] ?? '') ?: ($t['topic'] ?? '')),
+                'tax_root' => $r ? ($tax[$r]['title'] ?? $r) : null, 'tax_sub' => ($r && $sb) ? ($tax[$r]['subs'][$sb] ?? $sb) : null];
+    };
     $out = [];
     foreach ($by as $k => $es) {
         $ent = count(array_filter($es, fn($e) => !empty($e['entered_repo'])));
@@ -258,7 +314,9 @@ function board_build(): array {
                   'session' => $session, 'kind' => $kind, 'link' => $links[$k] ?? null,
                   'prompt' => $kind === 'nightly' ? 'گامِ ۳ · ' . $k . ' · ' . mb_substr($title, 0, 60) : null,
                   'closed_utc' => $closedAt, 'closed_j' => $closedAt ? ctl_jalali(strtotime($closedAt)) : '',
-                  'date' => min(array_map(fn($e) => (string) ($e['date'] ?? ''), $es)), 'rows' => count($es)];
+                  'date' => min(array_map(fn($e) => (string) ($e['date'] ?? ''), $es)), 'rows' => count($es)]
+                + $about($k) + ['map' => array_map(fn($e) => ['node' => board_leaf((string) ($e['leaf'] ?? '')), 'dest' => board_dest((string) ($e['destination'] ?? '')),
+                    'score' => (int) ($e['score'] ?? 0), 'consulted' => array_values(array_filter((array) ($e['consulted'] ?? []), 'is_string'))], $es)];
     }
     // bundles whose step-3 session left no trace in git (no ledger row, no report, no commit naming them) are
     // invisible to the five sources; extra.json (host only) puts them back in step 3 without a session so the app
@@ -272,7 +330,7 @@ function board_build(): array {
         $out[] = ['key' => $k, 'title' => $t, 'step' => '3', 'sub' => 'سشنِ قبلی ردی در گیت‌هاب نگذاشت؛ دوباره اجرا کن',
                   'flags' => ['سشنِ گامِ ۳ باز شد ولی هیچ ردیفِ نگاشتی ننوشت'], 'session' => null, 'kind' => 'nightly',
                   'link' => $links[$k] ?? null, 'prompt' => 'گامِ ۳ · ' . $k . ' · ' . mb_substr($t, 0, 60),
-                  'closed_utc' => '', 'closed_j' => '', 'date' => '', 'rows' => 0];
+                  'closed_utc' => '', 'closed_j' => '', 'date' => '', 'rows' => 0] + $about($k) + ['map' => []];
     }
     // a session the app button already made (routine host, fire-state.json) counts as the user's session even
     // before it writes anything to git — otherwise the bundle stays «بی‌سشن» while it is running (lesson b8034).
