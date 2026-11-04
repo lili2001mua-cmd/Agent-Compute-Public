@@ -72,3 +72,7 @@ $sa = @json_decode((string) @file_get_contents(OPS_ROOT . '/drive-sa.json'), tru
 $df['sa_valid'] = is_array($sa) && ($sa['type'] ?? '') === 'service_account' && !empty($sa['private_key']);
 file_put_contents(ops_var('drive-files.json'), json_encode($df));
 
+// chain-bus relay (app/bus.php, 1405-08-13): the long tick polls the private repo's chain-bus branch for ~285 s so a
+// Claude session with GitHub-only network still reaches every holding host. Last in the tick, behind its own lock.
+require_once __DIR__ . '/bus.php';
+bus_tick();
