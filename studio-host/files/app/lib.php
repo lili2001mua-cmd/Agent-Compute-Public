@@ -193,6 +193,12 @@ function drive_token(bool $force = false): string {
         if ($force || $tok === null || time() >= $exp - 60) { $tok = da_token($d['account']); $exp = time() + 3000; }
         return $tok;
     }
+    return drive_token_main($force);
+}
+
+// The old main account (DRIVE_OAUTH secret). Only the migration reads it; nothing else after the switch.
+function drive_token_main(bool $force = false): string {
+    static $tok = null, $exp = 0;
     if (!$force && $tok !== null && time() < $exp - 60) return $tok;
     $cache = studio_var('drive-token.json');
     $lk = fopen(studio_var('drive-token.lock'), 'c'); flock($lk, LOCK_EX);
@@ -218,11 +224,11 @@ function drive_token(bool $force = false): string {
     return $tok;
 }
 
-function drive_call(string $method, string $path, array $query = [], $json = null): array {
+function drive_call(string $method, string $path, array $query = [], $json = null, bool $main = false): array {
     $url = DRIVE_API . $path . ($query ? '?' . http_build_query($query) : '');
     $body = $json !== null ? json_encode($json) : null;
     for ($try = 0; ; $try++) {
-        $h = ['Authorization: Bearer ' . drive_token($try > 0 && ($code ?? 0) === 401)];
+        $h = ['Authorization: Bearer ' . ($main ? drive_token_main($try > 0 && ($code ?? 0) === 401) : drive_token($try > 0 && ($code ?? 0) === 401))];
         if ($body !== null) $h[] = 'Content-Type: application/json';
         [$code, $r] = studio_http($method, $url, $h, $body);
         $rate = $code === 403 && is_array($r) && preg_match('/rateLimitExceeded|userRateLimitExceeded/', json_encode($r));
