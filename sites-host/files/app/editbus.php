@@ -20,27 +20,29 @@ const EB_MAX_STATUS_LINES = 60;
 
 function eb_b64url(string $s): string { return rtrim(strtr(base64_encode($s), '+/', '-_'), '='); }
 
-// Service-account token. The key file sits outside public_html; its path comes from the site's
-// 'drive_sa_file' (relative to this host's root, or absolute — e.g. the ops host's drive-sa.json).
+// Drive token of the holding's only account (BACKUP), read from the studio host's var/ on the same server account —
+// the old service account and its key are retired (1405-08-13). Same function as apps-host / tg-host / trainer-host.
+function hohe_backup_drive(string $siteRoot, bool $force = false): array {
+    $sv = $siteRoot . '/../studio.hohedoc.ir/var';
+    $d = @json_decode((string) @file_get_contents("$sv/drive-default.json"), true);
+    if (!is_array($d) || empty($d['account']) || empty($d['root'])) throw new RuntimeException('studio host has no default Drive account');
+    $cache = "$sv/drive-token-shared.json";
+    $c = @json_decode((string) @file_get_contents($cache), true);
+    if (!$force && is_array($c) && ($c['exp'] ?? 0) > time() + 120) return [$c['tok'], $c['exp'], $d['root']];
+    $cl = @json_decode((string) @file_get_contents("$sv/drive-web-client.json"), true);
+    $ac = @json_decode((string) @file_get_contents("$sv/drive-accounts/" . preg_replace('/[^A-Z0-9_]/', '', $d['account']) . '.json'), true);
+    if (empty($cl['id']) || empty($cl['secret']) || empty($ac['refresh_token'])) throw new RuntimeException('BACKUP credentials missing on studio host');
+    [$code, $r] = dh_http('POST', 'https://oauth2.googleapis.com/token', ['Content-Type: application/x-www-form-urlencoded'], http_build_query([
+        'client_id' => $cl['id'], 'client_secret' => $cl['secret'], 'refresh_token' => $ac['refresh_token'], 'grant_type' => 'refresh_token']));
+    $r = is_array($r) ? $r : json_decode((string) $r, true);
+    if (empty($r['access_token'])) throw new RuntimeException('google refused the BACKUP refresh');
+    $exp = time() + (int) ($r['expires_in'] ?? 3000);
+    file_put_contents("$cache.tmp", json_encode(['tok' => $r['access_token'], 'exp' => $exp])); @chmod("$cache.tmp", 0600); rename("$cache.tmp", $cache);
+    return [$r['access_token'], $exp, $d['root']];
+}
+
 function eb_token(array $site): string {
-    static $cache = [];
-    $f = (string) ($site['editbus']['sa_file'] ?? '');
-    if ($f === '') return '';
-    if (isset($cache[$f])) return $cache[$f];
-    // The key may also sit inside secrets.php as DRIVE_SA_JSON (one file to upload instead of two).
-    $inline = trim((string) (dh_secrets()['DRIVE_SA_JSON'] ?? ''));
-    $path = $f[0] === '/' ? $f : DH_ROOT . '/' . $f;
-    $sa = @json_decode($inline !== '' ? $inline : (string) @file_get_contents($path), true);
-    if (!is_array($sa) || empty($sa['private_key']) || empty($sa['client_email'])) return $cache[$f] = '';
-    $now = time();
-    $unsigned = eb_b64url(json_encode(['alg' => 'RS256', 'typ' => 'JWT'])) . '.' . eb_b64url(json_encode([
-        'iss' => $sa['client_email'], 'scope' => 'https://www.googleapis.com/auth/drive',
-        'aud' => 'https://oauth2.googleapis.com/token', 'iat' => $now, 'exp' => $now + 3600]));
-    if (!openssl_sign($unsigned, $sig, $sa['private_key'], OPENSSL_ALGO_SHA256)) return $cache[$f] = '';
-    [$c, $raw] = dh_http('POST', 'https://oauth2.googleapis.com/token', ['Content-Type: application/x-www-form-urlencoded'],
-        http_build_query(['grant_type' => 'urn:ietf:params:oauth:grant-type:jwt-bearer', 'assertion' => $unsigned . '.' . eb_b64url($sig)]));
-    $j = json_decode((string) $raw, true);
-    return $cache[$f] = ($c === 200 && !empty($j['access_token'])) ? $j['access_token'] : '';
+    return hohe_backup_drive(DH_ROOT)[0];
 }
 
 function eb_drive(string $tok, string $method, string $url, ?string $body = null, string $ctype = 'application/json'): array {
@@ -84,6 +86,7 @@ function eb_safe(string $t): ?string {
     $t = ltrim(trim($t), '/');
     if ($t === '' || strpos($t, ':') !== false || in_array('..', explode('/', $t), true)) return null;
     foreach (EB_BLOCKED as $b) if (strncmp($t, $b, strlen($b)) === 0) return null;
+    if (function_exists('dh_pull_refused') && dh_pull_refused($t)) return null;   // secrets and customer uploads never via the bus
     return $t;
 }
 
@@ -117,11 +120,11 @@ function eb_apply(array $site, array $meta, string $body, string $reqid, array &
 }
 
 function eb_drain(string $name, array $site): array {
-    $folder = trim((string) (dh_secrets()[$site['editbus']['folder_secret'] ?? ''] ?? ''));
-    if ($folder === '') return ['skipped' => 'folder id not in secrets.php'];
+    $folder = trim((string) ($site['editbus']['folder'] ?? ''));                       // a folder id is not a secret
+    if ($folder === '') $folder = trim((string) (dh_secrets()[$site['editbus']['folder_secret'] ?? ''] ?? ''));
+    if ($folder === '') return ['skipped' => 'no editbus folder'];
     if (!preg_match('/^[A-Za-z0-9_-]{10,80}$/', $folder)) throw new RuntimeException('bad folder id');
     $tok = eb_token($site);
-    if ($tok === '') throw new RuntimeException('drive service account missing or refused');
     $reqs = array_values(array_filter(eb_list($tok, $folder, "name contains '" . EB_PREFIX . "'"), fn($f) => strncmp($f['name'], EB_PREFIX, strlen(EB_PREFIX)) === 0));
     if (!$reqs) return ['requests' => 0];
     $st = dh_state(); $done = $st['editbus_done'][$name] ?? [];

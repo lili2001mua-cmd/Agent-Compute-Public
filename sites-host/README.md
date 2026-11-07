@@ -53,8 +53,10 @@ Agent-Project-Backup `main`, answer in `results/<id>.json` — this host takes t
 **Drive edit bus** (`files/app/editbus.php`, replaces `drive-edit-drain.yml` and the Apps Script `pollBridge` that woke it):
 every tick it reads `editreq-*.md` from the site's bridge folder, applies `edit` / `delete` to the repo's `main` (one
 commit each, same path guards as the Python drain), answers `read` in `bus-read.md`, logs at the top of `bus-status.md`
-and trashes the request. Needs `STYLISTCRM_EDITBUS_FOLDER` in `secrets.php` and a service-account key `drive-sa.json`
-beside it that is Editor on that folder. Result per site in `status.php` under `editbus`.
+and trashes the request. The folder is `My-Sites/stylistcrm/editbus/` on the BACKUP Drive (id in `sites.php`); the
+token comes from the studio host's BACKUP account on the same server account (`hohe_backup_drive`), so no Google key
+sits on this host (the old service account is retired). Secret paths and customer uploads are refused, as in `pull`.
+Result per site in `status.php` under `editbus`.
 
 Every 30 minutes it also sends a read-only `ping` to every environment of every site. Any failure —
 an expired token, a refused signature, a site that is down — lands in `status.php` as `last_error`.
