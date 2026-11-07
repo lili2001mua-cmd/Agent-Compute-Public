@@ -93,16 +93,21 @@ function board_ledger_sessions(): array {
 function board_user_session(string $key, string $night): ?string {
     $cache = board_read('user-sessions.json', []);
     $c = $cache[$key] ?? null;
-    if ($c && time() - $c['at'] < 1800) return $c['s'];
+    // نتیجهٔ یافته‌شده ۳۰ دقیقه کش می‌شود؛ نتیجهٔ خالی فقط ۲ دقیقه، تا بستهٔ تازه‌کارشده نیم‌ساعت روی ۳ گیر نکند
+    if ($c && !empty($c['s']) && time() - ($c['at'] ?? 0) < 1800) return $c['s'];
+    if ($c && empty($c['s']) && time() - ($c['at'] ?? 0) < 120) return null;
     [$code, $j] = gh('GET', '/search/commits?q=' . rawurlencode('repo:' . CTL_REPO . ' ' . $key) . '&sort=committer-date&order=asc&per_page=50');
     if ($code !== 200) return $c['s'] ?? null;
-    $s = null;
+    $s = null; $since = ''; $work = 0;
     foreach (($j['items'] ?? []) as $it) {
-        if (preg_match('#(https://claude\.ai/code/session_\w+)#', (string) ($it['commit']['message'] ?? ''), $m) && $m[1] !== $night) {
-            $s = $m[1]; $since = (string) ($it['commit']['committer']['date'] ?? ''); break;
+        $msg = (string) ($it['commit']['message'] ?? '');
+        if (preg_match('#(https://claude\.ai/code/session_\w+)#', $msg, $m) && $m[1] !== $night) {
+            if ($s === null) { $s = $m[1]; $since = (string) ($it['commit']['committer']['date'] ?? ''); }
+            // «کارِ واقعی»: هر کامیتِ کاربر که فقط بازکردنِ سشن نباشد (نگاشت، کاوشگر، بستن…) — مبنای «کاربر کار کرده؟»
+            if (!preg_match('/باز شد|تابلوی گامِ ۳|مرج/u', $msg)) $work++;
         }
     }
-    $cache[$key] = ['s' => $s, 'since' => $since ?? '', 'at' => time()];
+    $cache[$key] = ['s' => $s, 'since' => $since, 'work' => $work, 'at' => time()];
     board_write('user-sessions.json', $cache);
     return $s;
 }
@@ -335,13 +340,17 @@ function board_build(): array {
             // the night session wrote the analysis; the user's own session is the first later ledger commit from another session
             $mine = null;
             foreach ($first as $x) if ($x['s'] && $x['s'] !== ($h['session_url'] ?? '')) { $mine = $x['s']; break; }
-            $since = '';
-            if (!$mine) { $mine = board_user_session($k, (string) ($h['session_url'] ?? '')); $since = board_read('user-sessions.json', [])[$k]['since'] ?? ''; }
+            $since = ''; $uwork = 0;
+            if (!$mine) {
+                $mine = board_user_session($k, (string) ($h['session_url'] ?? ''));
+                $us = board_read('user-sessions.json', [])[$k] ?? [];
+                $since = $us['since'] ?? ''; $uwork = (int) ($us['work'] ?? 0);
+            }
             if ($mine) {
-                // the user's session took the bundle. Until it writes a ledger row itself, upgrades and probes are the
-                // night session's work: the bundle stays in step 3 with a flag (lesson b7993/b8018, 1405-08-04)
+                // the user's session took the bundle. Until it does real work itself (a ledger row OR a probe/close
+                // commit beyond just opening), upgrades are the night session's work (lesson b7993/b8018, 1405-08-04)
                 $session = $mine; $kind = 'opened';
-                $moved = $since === '' || count(array_filter($first, fn($x) => $x['at'] >= $since)) > 0;
+                $moved = $since === '' || $uwork > 0 || count(array_filter($first, fn($x) => $x['at'] >= $since)) > 0;
                 if (!$moved && $step !== '3') { $flags[] = 'ارتقا یا کاوشگر پیش از دیدنِ گزارش نوشته شد'; $step = '3'; }
                 if ($step === '3') $sub = 'سشنت باز است؛ گزارش را ببین';
             }
