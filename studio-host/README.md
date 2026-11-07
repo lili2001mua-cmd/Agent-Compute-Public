@@ -32,9 +32,9 @@ refresh token in `var/drive-accounts/<NAME>.json` (0600). Nothing is printed, no
 
 ## My-Sites backups (encrypted, key never leaves this host)
 
-`app/my_sites.php`. `mysites_pubkey` (inline) makes the X25519 key once in `var/my-sites-key.json` (mode 0600,
+`app/my_sites.php`. `mysites_pubkey` (inline) makes the RSA-3072 key once (OpenSSL; this host has no sodium) in `var/my-sites-key.json` (mode 0600,
 never overwritten) and returns only the public key. Sessions encrypt with it (`Sys.scripts/my_sites_upload.py` of
-Agent-Project-Backup, format MYS1) and can never decrypt. `mysites_restore` (queued) downloads one My-Sites file,
+Agent-Project-Backup, format MYS2) and can never decrypt. `mysites_restore` (queued) downloads one My-Sites file,
 decrypts it here, compares `sha256_plain`/`sha256_enc` with the file's `appProperties`, keeps nothing decrypted, and
 writes the last result to `var/mysites-restore.json`. For the owner's offline copy of the key: download
 `var/my-sites-key.json` once from the DirectAdmin file manager into a password manager; lose both and the backups

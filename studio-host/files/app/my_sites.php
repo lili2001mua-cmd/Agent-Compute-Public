@@ -1,53 +1,57 @@
 <?php
 // My-Sites backups: the holding's site backups live encrypted in Drive (My-Sites/<site>/<kind>/), never in git.
-// The private key is made here, once, and never leaves var/ (mode 0600). Sessions get only the public key, so they
+// The private key (RSA-3072) is made here, once, and never leaves var/ (mode 0600). Sessions get only the public key, so they
 // can encrypt but never decrypt. A restore test runs here: download, decrypt, compare the plain sha256.
 //
-// Format MYS1 (same in Sys.scripts/my_sites_upload.py of Agent-Project-Backup):
-//   "MYS1" | ephemeral X25519 public (32) | plain chunk size u32 BE | chunks
-//   key   = HKDF-SHA256(ikm = X25519(eph, recipient), salt = eph_pub . recipient_pub, info = "my-sites v1", 32)
-//   chunk = ChaCha20-Poly1305-IETF(key, nonce = 4 zero bytes . u64 BE index, aad = "\x01" on the last chunk else "\x00")
+// Format MYS2 (same in Sys.scripts/my_sites_upload.py of Agent-Project-Backup) — OpenSSL only, no sodium on this host:
+//   "MYS2" | u16 BE length of the wrapped key | RSA-OAEP(SHA-1, MGF1-SHA-1) of a random 32-byte key | plain chunk size u32 BE
+//   | chunks: AES-256-GCM(key, iv = 4 zero bytes . u64 BE index, aad = "\x01" on the last chunk else "\x00") . tag (16)
 require_once __DIR__ . '/lib.php';
 
-const MYS_MAGIC = 'MYS1';
+const MYS_MAGIC = 'MYS2';
 const MYS_KEY_FILE = 'my-sites-key.json';
 
 function mys_key(bool $create = false): ?array {
     $p = studio_var(MYS_KEY_FILE);
     $k = @json_decode((string) @file_get_contents($p), true);
-    if (is_array($k) && !empty($k['sk']) && !empty($k['pk'])) return ['sk' => base64_decode($k['sk']), 'pk' => base64_decode($k['pk']), 'id' => $k['id']];
+    if (is_array($k) && !empty($k['sk']) && !empty($k['pk'])) return $k;
     if (!$create) return null;
-    $sk = random_bytes(32);
-    $pk = sodium_crypto_scalarmult_base($sk);
-    $id = substr(hash('sha256', $pk), 0, 16);
+    $res = openssl_pkey_new(['private_key_bits' => 3072, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
+    if (!$res || !openssl_pkey_export($res, $sk)) throw new RuntimeException('cannot make the key');
+    $pk = openssl_pkey_get_details($res)['key'];
+    $k = ['sk' => $sk, 'pk' => $pk, 'id' => substr(hash('sha256', $pk), 0, 16), 'made' => gmdate('c')];
     $fh = @fopen($p, 'x');                                   // 'x': never overwrite an existing key
     if (!$fh) throw new RuntimeException('cannot store the key');
     chmod($p, 0600);
-    fwrite($fh, json_encode(['sk' => base64_encode($sk), 'pk' => base64_encode($pk), 'id' => $id, 'made' => gmdate('c')]));
+    fwrite($fh, json_encode($k));
     fclose($fh);
-    return ['sk' => $sk, 'pk' => $pk, 'id' => $id];
+    return $k;
 }
 
 // Inline: the public key (made on first call). Safe to hand to anyone.
 function job_mysites_pubkey(array $a): array {
     $k = mys_key(true);
-    return ['key_id' => $k['id'], 'public_key' => base64_encode($k['pk']), 'format' => MYS_MAGIC];
+    return ['key_id' => $k['id'], 'public_key' => base64_encode($k['pk']), 'format' => MYS_MAGIC];   // PEM, base64
 }
 
-// Decrypt a MYS1 stream from $in to $out (both file handles). Returns [plain bytes, plain sha256].
+// Decrypt a MYS2 stream from $in to $out (both file handles; $out may be null). Returns [plain bytes, plain sha256].
 function mys_decrypt($in, $out, array $k): array {
-    $head = fread($in, 40);
-    if (strlen($head) !== 40 || substr($head, 0, 4) !== MYS_MAGIC) throw new RuntimeException('not a MYS1 file');
-    $eph = substr($head, 4, 32);
-    $size = unpack('N', substr($head, 36, 4))[1];
+    $head = fread($in, 6);
+    if (strlen($head) !== 6 || substr($head, 0, 4) !== MYS_MAGIC) throw new RuntimeException('not a MYS2 file');
+    $wl = unpack('n', substr($head, 4, 2))[1];
+    $wrapped = fread($in, $wl);
+    if (!openssl_private_decrypt($wrapped, $key, $k['sk'], OPENSSL_PKCS1_OAEP_PADDING) || strlen($key) !== 32)
+        throw new RuntimeException('cannot unwrap the file key');
+    $size = unpack('N', fread($in, 4))[1];
     if ($size < 1024 || $size > 16 * 1024 * 1024) throw new RuntimeException('bad chunk size');
-    $key = hash_hkdf('sha256', sodium_crypto_scalarmult($k['sk'], $eph), 32, 'my-sites v1', $eph . $k['pk']);
     $h = hash_init('sha256'); $n = 0; $i = 0;
-    $cur = fread($in, $size + 16);
+    $cur = (string) fread($in, $size + 16);
     while (true) {
         $next = feof($in) ? '' : (string) fread($in, $size + 16);
         $last = ($next === '');
-        $pt = sodium_crypto_aead_chacha20poly1305_ietf_decrypt($cur, $last ? "\x01" : "\x00", "\0\0\0\0" . pack('J', $i), $key);
+        if (strlen($cur) < 16) throw new RuntimeException("chunk $i truncated");
+        $pt = openssl_decrypt(substr($cur, 0, -16), 'aes-256-gcm', $key, OPENSSL_RAW_DATA, "\0\0\0\0" . pack('J', $i),
+                              substr($cur, -16), $last ? "\x01" : "\x00");
         if ($pt === false) throw new RuntimeException("chunk $i failed authentication");
         hash_update($h, $pt); $n += strlen($pt);
         if ($out) fwrite($out, $pt);
