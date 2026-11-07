@@ -8,6 +8,7 @@
 // Queued jobs are picked up by app/tick.php (cron, every minute, no web time limit).
 require_once __DIR__ . '/lib.php';
 require_once __DIR__ . '/hfmcp.php';
+require_once __DIR__ . '/my_sites.php';
 
 const HF_API = 'https://api.higgsfield.ai';
 const ASSET_KINDS = ['picture', 'video', 'motion', 'audio', 'avatar'];
@@ -319,7 +320,7 @@ function run_sd_fetch(array $a): array {
 }
 
 // ---------------------------------------------------------------- queue (cron-driven, no web time limit)
-const QUEUED = ['asset_import', 'sd_inventory', 'sd_fetch'];   // callable through the door
+const QUEUED = ['asset_import', 'sd_inventory', 'sd_fetch', 'mysites_restore'];   // callable through the door
 const INTERNAL = ['asset_send'];                              // only enqueued by the host itself
 
 function queue_dir(): string { $d = studio_var('queue'); if (!is_dir($d)) mkdir($d, 0700, true); return $d; }

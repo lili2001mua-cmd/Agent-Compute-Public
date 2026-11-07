@@ -30,6 +30,16 @@ refresh token in `var/drive-accounts/<NAME>.json` (0600). Nothing is printed, no
 `job=drive_accounts` lists connected accounts; `job=drive_list account=BACKUP` is the read-only proof
 (email, quota, 20 root names). Code: `app/drive_accounts.php`. Since 1405-08-13 BACKUP is the holding's only Drive account (`job=drive_set_default`).
 
+## My-Sites backups (encrypted, key never leaves this host)
+
+`app/my_sites.php`. `mysites_pubkey` (inline) makes the X25519 key once in `var/my-sites-key.json` (mode 0600,
+never overwritten) and returns only the public key. Sessions encrypt with it (`Sys.scripts/my_sites_upload.py` of
+Agent-Project-Backup, format MYS1) and can never decrypt. `mysites_restore` (queued) downloads one My-Sites file,
+decrypts it here, compares `sha256_plain`/`sha256_enc` with the file's `appProperties`, keeps nothing decrypted, and
+writes the last result to `var/mysites-restore.json`. For the owner's offline copy of the key: download
+`var/my-sites-key.json` once from the DirectAdmin file manager into a password manager; lose both and the backups
+cannot be opened.
+
 ## Door
 
 `POST https://studio.hohedoc.ir/run.php` with header `X-Studio-Key: <ADMIN_KEY>` and form fields

@@ -12,7 +12,7 @@ if (!studio_key_ok()) { http_response_code(404); exit; }
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') { http_response_code(405); exit; }
 
 $job = preg_replace('/[^a-z_]/', '', (string) ($_POST['job'] ?? ''));
-$inline = ['hf_check', 'hf_submit', 'hf_status', 'hf_login_link', 'hf_login_status', 'hf_register', 'hf_login_start', 'hf_finish', 'hf_device_start', 'hf_device_poll', 'hf_tools', 'hf_call', 'asset_upload', 'result', 'drive_login_link', 'drive_accounts', 'drive_list', 'drive_migrate_start', 'drive_migrate_status', 'drive_vault_save', 'drive_census', 'drive_set_default', 'drive_relay'];
+$inline = ['hf_check', 'hf_submit', 'hf_status', 'hf_login_link', 'hf_login_status', 'hf_register', 'hf_login_start', 'hf_finish', 'hf_device_start', 'hf_device_poll', 'hf_tools', 'hf_call', 'asset_upload', 'result', 'drive_login_link', 'drive_accounts', 'drive_list', 'drive_migrate_start', 'drive_migrate_status', 'drive_vault_save', 'drive_census', 'drive_set_default', 'drive_relay', 'mysites_pubkey'];
 // A GitHub Actions run (OIDC, no secret) may call only these jobs.
 $oidc_jobs = ['drive_relay'];
 if (($GLOBALS['studio_auth'] ?? '') === 'oidc' && !in_array($job, $oidc_jobs, true)) { http_response_code(403); echo json_encode(['ok' => false, 'error' => 'job not allowed for workflow runs']); exit; }
