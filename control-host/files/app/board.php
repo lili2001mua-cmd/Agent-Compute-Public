@@ -357,10 +357,19 @@ function board_build(): array {
         }
         $title = $title ?: $k;
         $closedAt = $closed[$k] ?? '';
+        // گزارشِ گامِ ۳٫۶ (نتیجهٔ هر کاوشگر) و گامِ ۴ (چه شد هنگامِ بستن)
+        $step36res = [];
+        foreach (array_values($pr) as $pi => $pres) {
+            $lbl = $pres === 'pass' ? 'پاس' : ($pres === 'fail' ? 'رد' : ($pres !== '' ? $pres : 'آزمون نشده'));
+            $step36res[] = 'کاوشگرِ ' . ($pi + 1) . ': ' . $lbl;
+        }
+        $step4res = [];
+        if ($isclosed) { $step4res[] = $sub; foreach ($flags as $fl) $step4res[] = $fl; }
         $out[] = ['key' => $k, 'title' => $title, 'step' => $step, 'sub' => $sub, 'flags' => $flags,
                   'session' => $session, 'kind' => $kind, 'link' => $links[$k] ?? null,
                   'prompt' => $kind === 'nightly' ? 'گامِ ۳ · ' . $k . ' · ' . mb_substr($title, 0, 60) : null,
                   'closed_utc' => $closedAt, 'closed_j' => $closedAt ? ctl_jalali(strtotime($closedAt)) : '',
+                  'step36_result' => $step36res, 'step4_result' => $step4res,
                   'date' => min(array_map(fn($e) => (string) ($e['date'] ?? ''), $es)), 'rows' => count($es)]
                 + $about($k) + ['map' => array_map(fn($e) => ['node' => board_leaf((string) ($e['leaf'] ?? '')), 'dest' => board_dest((string) ($e['destination'] ?? '')),
                     'score' => (int) ($e['score'] ?? 0), 'consulted' => array_values(array_filter((array) ($e['consulted'] ?? []), 'is_string')),
