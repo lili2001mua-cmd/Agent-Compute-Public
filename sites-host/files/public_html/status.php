@@ -23,5 +23,7 @@ echo json_encode([
     'waiting_for_approval' => $st['waiting_for_approval'] ?? [],
     'jobs' => $st['jobs'] ?? (object) [],
     'editbus' => $st['editbus'] ?? (object) [],
+    'mysites' => $st['mysites'] ?? (object) [],          // daily encrypted DB backup to My-Sites (app/mysites.php)
+    'mysites_error' => $st['mysites_error'] ?? null,
     'requests_seen' => count($st['done'] ?? []),
 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
