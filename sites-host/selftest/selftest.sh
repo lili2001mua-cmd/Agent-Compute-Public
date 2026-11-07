@@ -47,6 +47,7 @@ check "secprobe flags the exposed file, the listing and the leaky error page" "g
 n=$(grep -c 'put new' $T/mock/calls.log); php "$T/site/app/tick.php"
 check "second tick does not re-run" "[ \$(grep -c 'put new' $T/mock/calls.log) -eq $n ]"
 check "pull refuses secrets and customer uploads" "php -r 'require \"$T/site/app/ops.php\"; foreach ([\"help/public_html/.env\",\"hub/public_html/.env.production\",\"hub/public_html/config/database.php\",\"pwa/public_html/uploads/u1.jpg\",\"database-backups/a.sql.gz\"] as \$p) if (!dh_pull_refused(\$p)) exit(1); foreach ([\"pwa/public_html/core/Feature.php\",\"help/public_html/.env.example\",\"pwa/public_html/uploads/.htaccess\",\"pwa/public_html/uploads/profile/default.png\"] as \$p) if (dh_pull_refused(\$p)) exit(1);'"
+check "daily DB backup: encrypted here, opened by the studio key, pruning keeps 7/4/12" "php $HERE/mysites-test.php $T/site/app/mysites.php $HERE/../../studio-host/files/app/my_sites.php $T"
 touch "$T/mock/mode-401"; rm -f "$T/site/var/state.json"; php "$T/site/app/tick.php"
 check "expired token is loud" "php $T/site/public_html/status.php | grep -q 'HTTP 401'"
 exit $fail

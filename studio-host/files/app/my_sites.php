@@ -31,6 +31,8 @@ function mys_key(bool $create = false): ?array {
 // Inline: the public key (made on first call). Safe to hand to anyone.
 function job_mysites_pubkey(array $a): array {
     $k = mys_key(true);
+    $pub = studio_var('my-sites-pub.json');   // public half only, for sites-host (same server account) to encrypt its daily dumps
+    if (!is_file($pub)) { file_put_contents($pub, json_encode(['pk' => $k['pk'], 'id' => $k['id']])); @chmod($pub, 0644); }
     return ['key_id' => $k['id'], 'public_key' => base64_encode($k['pk']), 'format' => MYS_MAGIC];   // PEM, base64
 }
 
