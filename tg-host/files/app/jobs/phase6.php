@@ -236,6 +236,20 @@ function tg_chain_op_healed($api, string $op, array $a, ?string $idem): array {
     }
 }
 
+/** Delete one staged file the session already fetched — only when its sha256 still matches, so a wrong path or a
+ *  half-read file never deletes anything. The source message in Telegram is not touched. */
+function tg_unstage(string $up, string $sha): array {
+    $sha = strtolower($sha);
+    if (!preg_match('#^/m/[0-9a-f]{32}/[0-9]+\.bin$#', $up) || !preg_match('/^[0-9a-f]{64}$/', $sha)) return ['url_path' => $up, 'unstaged' => false, 'reason' => 'BAD_ARGS'];
+    $path = TG_BASE . '/public_html' . $up;
+    if (!is_file($path)) return ['url_path' => $up, 'unstaged' => false, 'reason' => 'GONE'];
+    if (hash_file('sha256', $path) !== $sha) return ['url_path' => $up, 'unstaged' => false, 'reason' => 'SHA_MISMATCH'];
+    @unlink($path);
+    $dir = dirname($path);
+    if (!array_diff(scandir($dir) ?: [], ['.', '..', '.expires'])) tg_rm_r($dir);
+    return ['url_path' => $up, 'unstaged' => true];
+}
+
 // ---- the ops ---------------------------------------------------------------------------------------
 function tg_chain_op($api, string $op, array $a, ?string $idem): array {
     switch ($op) {
@@ -280,6 +294,8 @@ function tg_chain_op($api, string $op, array $a, ?string $idem): array {
             $peer = tg_chain_peer($a['peer'], ['source', 'archive']);
             $ids = array_slice(array_map('intval', (array) ($a['ids'] ?? [])), 0, 50);
             tg_rate('stage_hour', count($ids));
+            $dropped = [];
+            foreach ((array) ($a['drop'] ?? []) as $f) $dropped[] = tg_unstage((string) ($f['url_path'] ?? ''), (string) ($f['sha256'] ?? ''));
             $dir = tg_media_dir(); $files = [];
             foreach (tg_get_msgs($api, $peer, $ids) as $i => $m) {
                 if ($i) usleep(random_int(2000000, 5000000)); // 2-5 s between downloads (ک19)
@@ -292,7 +308,21 @@ function tg_chain_op($api, string $op, array $a, ?string $idem): array {
                 tg_night_bytes((int) $f['bytes']);
                 $files[] = ['id' => $ids[$i]] + $f;
             }
-            return ['files' => $files];
+            return ['files' => $files, 'dropped' => $dropped];
+        case 'unstage':
+            // the session fetched a staged file and checked its sha256 — drop the host copy now, not after the 72 h TTL
+            // (the chain's own plan: «حذفِ فوریِ مدیای مرحله‌ای پس از برداشتِ سشن»). Normally it rides on the next
+            // `stage` call as `drop`; this op is the flush for the last file of a run.
+            $out = [];
+            foreach ((array) ($a['files'] ?? []) as $f) $out[] = tg_unstage((string) ($f['url_path'] ?? ''), (string) ($f['sha256'] ?? ''));
+            return ['unstaged' => $out, 'staged_bytes' => tg_dir_bytes(TG_BASE . '/public_html/m')];
+        case 'stage_sweep':
+            // backlog: staged folders older than max_age_s (≥ 1 h) — every chain fetch finishes within minutes
+            $age = max(3600, (int) ($a['max_age_s'] ?? 3600)); $n = 0;
+            foreach (glob(TG_BASE . '/public_html/m/*', GLOB_ONLYDIR) ?: [] as $d) {
+                if (preg_match('#/[0-9a-f]{32}$#', $d) && filemtime($d) < time() - $age) { tg_rm_r($d); $n++; }
+            }
+            return ['swept' => $n, 'staged_bytes' => tg_dir_bytes(TG_BASE . '/public_html/m')];
         case 'forward':
             $from = tg_chain_peer($a['from'], ['source']); $to = tg_chain_peer($a['to'], ['archive']);
             $key = (string) ($a['key'] ?? ''); if (!preg_match('/^[A-Za-z0-9_-]{2,40}$/', $key)) throw new RuntimeException('BAD_KEY');
