@@ -8,6 +8,7 @@
 //   GET  api.php?op=backup-status                 → last backup result + pending count
 //   GET  api.php?op=trainer-board                 → trainer project-control board (app/board.php, cron) + fire states
 //   POST api.php?op=step3-fire     {key}         → routine.hohedoc.ir opens a step-3 session for that bundle
+//   POST api.php?op=session-command {task, text} → writes a direct command into the bundle's live-session inbox on GitHub
 //   POST api.php?op=cover          {key}         → image/jpeg: the bundle's cover frame (app/board.php board_cover_file), 404 when none
 // Two steps on purpose: the phone asks, shows the summary, the user confirms again (all workflows are critical).
 require __DIR__ . '/../app/lib.php';
@@ -112,6 +113,24 @@ if ($op === 'step3-fire') {
         'device' => (string) $_SERVER['HTTP_X_HC_DEVICE']]), LOCK_EX);
     ctl_log("step3-fire request $key");
     out(200, ['ok' => true, 'key' => $key, 'note' => 'routine.hohedoc.ir fires it within 5 minutes']);
+}
+
+if ($op === 'session-command') {
+    // فرمانِ مستقیمِ کاربر از نرم‌افزار: روی گیت‌هاب در دفترِ زندهٔ بسته (inbox) نوشته می‌شود (ارکستر github-backed-session-ledger).
+    require_once __DIR__ . '/../app/toggle.php';
+    $in = json_decode($body, true) ?: [];
+    $task = (string) ($in['task'] ?? '');
+    $text = trim((string) ($in['text'] ?? ''));
+    if (!preg_match('/^(b[0-9]{1,8}|t-[a-z0-9-]{1,40})$/', $task)) out(400, ['ok' => false, 'error' => 'bad task']);
+    if ($text === '' || mb_strlen($text) > 2000) out(400, ['ok' => false, 'error' => 'empty or too long']);
+    $ts = gmdate('Ymd-His');
+    $path = 'Memory-Workflow/live-sessions/' . $task . '/inbox/' . $ts . '.json';
+    $payload = json_encode(['text' => $text, 'at' => time(), 'device' => (string) ($_SERVER['HTTP_X_HC_DEVICE'] ?? ''), 'status' => 'pending'],
+        JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    [$ok, $sha] = ctl_commit([$path => $payload], 'live-session ' . $task . ': فرمانِ مستقیم از نرم‌افزار [skip ci]');
+    if (!$ok) out(502, ['ok' => false, 'error' => 'commit failed: ' . $sha]);
+    ctl_log("session-command $task <- " . mb_substr($text, 0, 40));
+    out(200, ['ok' => true, 'task' => $task, 'path' => $path, 'commit' => $sha]);
 }
 
 if ($op === 'toggle-confirm') {
