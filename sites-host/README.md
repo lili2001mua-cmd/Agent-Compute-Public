@@ -54,7 +54,7 @@ Agent-Project-Backup `main`, answer in `results/<id>.json` — this host takes t
 the same dump as `dbdump` for `stylistcrm` env `pwa`, encrypts it with the studio host's public key (`MYS2`; only the
 studio host can decrypt), uploads it to `My-Sites/stylistcrm/db/pwa/` on the BACKUP Drive, checks Drive's size and md5,
 appends a row to `INDEX.json`, deletes the local copy, and prunes to 7 daily + 4 weekly + 12 monthly. Never to git.
-Up to three tries a day; result under `mysites` in `status.php`. Selftest: `selftest/mysites-test.php`.
+A failed day retries every 30 minutes, up to six times; result under `mysites` in `status.php`. Selftest: `selftest/mysites-test.php`.
 
 **Drive edit bus** (`files/app/editbus.php`, replaces `drive-edit-drain.yml` and the Apps Script `pollBridge` that woke it):
 every tick it reads `editreq-*.md` from the site's bridge folder, applies `edit` / `delete` to the repo's `main` (one

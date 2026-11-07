@@ -162,7 +162,7 @@ function dh_mysites_daily(): void {
             $k = "$name/$env";
             $prev = $st[$k] ?? [];
             if (($prev['day'] ?? '') === $day && !empty($prev['ok'])) { $out[$k] = $prev; continue; }
-            if (($prev['day'] ?? '') === $day && ($prev['tries'] ?? 0) >= 3) { $out[$k] = $prev; continue; }
+            if (($prev['day'] ?? '') === $day && (($prev['tries'] ?? 0) >= 6 || time() - strtotime($prev['utc'] ?? '') < 1800)) { $out[$k] = $prev; continue; }   // a failed day retries every 30 min, up to 6 times
             try { $out[$k] = ['day' => $day, 'ok' => true, 'utc' => gmdate('c')] + mys_backup_db($name, $site, $env); }
             catch (Throwable $e) { $out[$k] = ['day' => $day, 'ok' => false, 'utc' => gmdate('c'), 'tries' => (($prev['day'] ?? '') === $day ? ($prev['tries'] ?? 0) : 0) + 1,
                                                 'error' => substr($e->getMessage(), 0, 200)]; }
