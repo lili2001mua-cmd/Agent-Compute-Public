@@ -119,6 +119,13 @@ function board_leaf(string $l): string {
     return $l;
 }
 
+/** A clean short name for a mapping row, taken from the first clause of its point (same rule as the bundle title). */
+function board_pname(string $point): string {
+    $nm = $point;
+    foreach ([':', '؛', ' — ', '،', '('] as $sep) $nm = explode($sep, $nm)[0];
+    return mb_substr(trim($nm), 0, 42);
+}
+
 /** Where a mapping row landed, in plain words. */
 function board_dest(string $d): string {
     if ($d === '') return 'جایی ذخیره نشد';
@@ -146,8 +153,10 @@ function board_topics(array $keys, array $idx, array $plain, array $pool): array
         $a = null;
         foreach ($src as $sname) { $a = json_decode((string) gh_raw('Memory-Workflow/intake-pool/state/' . $sname . '/' . $k . '/analysis.json'), true); if (is_array($a)) break; }
         $cl = is_array($a) ? ($a['classification'] ?? []) : [];
+        $tf = is_array($a) ? ($a['topic_and_flow'] ?? []) : [];
+        $desc = trim((string) ($tf['paragraph_problem'] ?? '') . ' ' . (string) ($tf['paragraph_proposal'] ?? ''));
         $cache[$k] = ['plain' => (string) ($plain[$k] ?? ($cl['plain'] ?? '')), 'topic' => is_string($a['topic'] ?? null) ? $a['topic'] : '',
-                      'root' => $cl['root'] ?? null, 'sub' => $cl['sub'] ?? null, 'at' => $now];
+                      'desc' => $desc, 'root' => $cl['root'] ?? null, 'sub' => $cl['sub'] ?? null, 'at' => $now];
     }
     board_write('topics.json', $cache);
     return $cache;
@@ -290,7 +299,7 @@ function board_build(): array {
     $about = function (string $k) use ($topics, $tax): array {
         $t = $topics[$k] ?? [];
         $r = $t['root'] ?? null; $sb = $t['sub'] ?? null;
-        return ['topic' => (string) (($t['plain'] ?? '') ?: ($t['topic'] ?? '')),
+        return ['topic' => (string) (($t['plain'] ?? '') ?: ($t['topic'] ?? '')), 'desc' => (string) ($t['desc'] ?? ''),
                 'tax_root' => $r ? ($tax[$r]['title'] ?? $r) : null, 'tax_sub' => ($r && $sb) ? ($tax[$r]['subs'][$sb] ?? $sb) : null];
     };
     $out = [];
@@ -354,7 +363,9 @@ function board_build(): array {
                   'closed_utc' => $closedAt, 'closed_j' => $closedAt ? ctl_jalali(strtotime($closedAt)) : '',
                   'date' => min(array_map(fn($e) => (string) ($e['date'] ?? ''), $es)), 'rows' => count($es)]
                 + $about($k) + ['map' => array_map(fn($e) => ['node' => board_leaf((string) ($e['leaf'] ?? '')), 'dest' => board_dest((string) ($e['destination'] ?? '')),
-                    'score' => (int) ($e['score'] ?? 0), 'consulted' => array_values(array_filter((array) ($e['consulted'] ?? []), 'is_string'))], $es)];
+                    'score' => (int) ($e['score'] ?? 0), 'consulted' => array_values(array_filter((array) ($e['consulted'] ?? []), 'is_string')),
+                    'name' => board_pname((string) ($e['point'] ?? '')), 'point' => (string) ($e['point'] ?? ''),
+                    'state' => (string) ($e['state'] ?? ''), 'entered' => !empty($e['entered_repo']), 'note' => (string) ($e['note'] ?? '')], $es)];
     }
     // bundles whose step-3 session left no trace in git (no ledger row, no report, no commit naming them) are
     // invisible to the five sources; extra.json (host only) puts them back in step 3 without a session so the app
