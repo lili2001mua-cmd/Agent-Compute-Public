@@ -1,9 +1,9 @@
 {
-  "version": "20261108190721",
+  "version": "20261108194545",
   "files": {
     "app/dispatch.flag": "dc083dbe056a217097b6d6aba9e34f057b5f728b2fa63d0099a5e3c3f297cb5a",
     "app/dispatch.php": "5c148c766cfc00ae01a1f4aa55199c4e0d0a20285a5ccb4efede942ad51e7002",
-    "app/jobs.json": "cec96efeddbb82bd50b5edb1608b1af77a1b32baab9e71106c032902e136a897",
+    "app/jobs.json": "f6f0d162ab7330ab37df5172c03edc5768597505d833f5405deae1381b5f6e5c",
     "app/lib.php": "388776edce3da780f445109e6ca4fcbfc11d8bd6bdf26d7ae2e60154d33e6510",
     "app/session-command-fire.php": "17600cdaceee4be23f68de7ee5a3a48664a4bcc088cd640573ce85e13a4df6c0",
     "app/step3-fire.php": "26f27d81f55081c52f2a568da62a17d3f3f94463c3f4e6cec3dac7c2fb057c08",
