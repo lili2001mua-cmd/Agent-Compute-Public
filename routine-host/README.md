@@ -16,7 +16,8 @@ pulled by cron). Design and the six-expert sign-off: private repo,
    `mode: live` → the host fires a Claude account's **dispatcher** routine with the body `job=<id> run=<run_id>`.
 4. The only proof of done is the run file (`done_path`) with `"status": "done"` on the private repo's `main`,
    read with a read-only token. A 2xx from Claude only means a session was created. A read error is "unknown",
-   never "not done".
+   never "not done". `"status": "partial"` means the runbook ran to its end but left open findings: the host
+   reports "ran, incomplete", closes the package, and never calls that run missed.
 5. When a run cannot be fired, or does not finish in time, the host builds a **manual package**: a 72-hour link
    (`/p.php?t=…`) sent to the trainer control channel. Paste its text into any Claude session that has the private
    repo; the host notices the done file and says so on Telegram.

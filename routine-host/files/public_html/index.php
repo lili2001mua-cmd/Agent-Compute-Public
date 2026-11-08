@@ -9,7 +9,7 @@ uasort($runs, fn($a, $b) => ($b['slot'] ?? 0) <=> ($a['slot'] ?? 0));
 $lastTick = (int) @file_get_contents(r_var('last-tick.txt'));
 $probe = r_read_json('probe.json');
 $names = ['shadow' => 'فقط ثبت (روتینِ قدیم هنوز اجرا می‌کند)', 'fired' => 'روشن شد، منتظرِ پایان', 'done' => 'انجام شد',
-          'pack' => 'بستهٔ دستی فرستاده شد', 'done_manual' => 'دستی انجام شد', 'missed' => 'از دست رفت', 'unknown' => 'نامعلوم (خطای خواندن)'];
+          'pack' => 'بستهٔ دستی فرستاده شد', 'done_manual' => 'دستی انجام شد', 'done_partial' => 'اجرا شد ولی ناقص ماند', 'missed' => 'از دست رفت', 'unknown' => 'نامعلوم (خطای خواندن)'];
 $e = fn($s) => htmlspecialchars((string) $s, ENT_QUOTES);
 ?><!doctype html>
 <html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">

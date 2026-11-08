@@ -128,7 +128,8 @@ function r_dispatch(array $job, string $runId, array $keys, array &$health): arr
 }
 
 // ── proof of done: the run file on the private repo's main ───────────────────────────────────────────
-// Returns 'done' | 'absent' | 'unknown' (read failed — never treated as "not done").
+// Returns 'done' | 'partial' | 'absent' | 'unknown' (read failed — never treated as "not done").
+// 'partial' = the runbook ran to its end but left open findings: it ran, so it is never reported as missed.
 function r_done_on_main(array $job, string $runId): string {
     $tok = r_secret('GITHUB_READ_TOKEN');
     if ($tok === '') return 'unknown';
@@ -142,7 +143,10 @@ function r_done_on_main(array $job, string $runId): string {
     if ($code === 404) return 'absent';
     if ($code !== 200 || !is_string($b)) return 'unknown';
     $j = json_decode($b, true);
-    return (is_array($j) && ($j['status'] ?? '') === 'done') ? 'done' : 'absent';
+    $st = is_array($j) ? (string) ($j['status'] ?? '') : '';
+    if ($st === 'done') return 'done';
+    if ($st === 'partial') return 'partial';
+    return 'absent';
 }
 
 // ── the tick ─────────────────────────────────────────────────────────────────────────────────────────
@@ -199,6 +203,12 @@ function r_clock_tick(): void {
             $r['state'] = $manual ? 'done_manual' : 'done';
             r_close_packs($runId);
             if ($manual) r_notify("✅ اجرای دستیِ «{$r['job']}» انجام شد ({$runId}).");
+            continue;
+        }
+        if ($d === 'partial') {
+            $r['state'] = 'done_partial';
+            r_close_packs($runId);
+            r_notify("🟡 روتینِ «{$r['job']}» اجرا شد ولی ناقص ماند — یافتهٔ باز دارد ({$runId}). جزئیات در دفترِ همان روتین روی main.");
             continue;
         }
         if ($d === 'unknown') {
