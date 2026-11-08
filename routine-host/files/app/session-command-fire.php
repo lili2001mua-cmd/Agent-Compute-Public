@@ -59,3 +59,57 @@ function r_session_command_fire(): void {
     }
     sc_state($base + ['state' => 'failed', 'error' => 'no healthy dispatcher key on the host']);
 }
+
+// ── پیگیریِ دفترِ زنده روی خودِ هاست (۱۴۰۵-۰۸-۱۷ · ردیف: progress-follow-up-was-scheduled-on-the-claude-account) ──
+// پیگیریِ «بسته تا کدام گام رفت» کارِ هاست است، نه یادآورِ روی اکانتِ کلاد. هر ۵ دقیقه، برای هر کارِ شلیک‌شده در
+// ۶ ساعتِ گذشته، live-sessions/<task>/state.json را از main می‌خواند و هر تغییرِ stage/status را یک بار به تلگرامِ
+// کنترل می‌فرستد. پایان: done/failed/waiting-user. شلیکی که ۴۵ دقیقه دفتر را برنداشت یک هشدار می‌گیرد.
+function sc_read_main(string $path): ?array {
+    $tok = r_secret('GITHUB_READ_TOKEN');
+    if ($tok === '') return null;
+    $ch = curl_init('https://api.github.com/repos/' . R_PRIVATE_REPO . '/contents/' . str_replace('%2F', '/', rawurlencode($path)) . '?ref=main');
+    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 20, CURLOPT_USERAGENT => 'routine-host',
+        CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $tok, 'Accept: application/vnd.github.raw+json']]);
+    $b = curl_exec($ch);
+    $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    if ($code !== 200 || !is_string($b)) return null;      // خواندنِ ناموفق «نامعلوم» است، نه «تغییری نیست»؛ نوبتِ بعد دوباره
+    $j = json_decode($b, true);
+    return is_array($j) ? $j : null;
+}
+
+function r_session_command_watch(): void {
+    $fs = @json_decode((string) @file_get_contents(f_control_var() . '/sc-fire-state.json'), true) ?: [];
+    $w = r_read_json('sc-watch.json');
+    $now = time();
+    foreach ($fs as $task => $s) {
+        if (($s['state'] ?? '') !== 'fired' || $now - (int) ($s['at'] ?? 0) > 6 * 3600) continue;
+        if (!preg_match('/^(b[0-9]{1,8}|t-[a-z0-9-]{1,40})$/', (string) $task)) continue;
+        $run = (string) ($s['run'] ?? '');
+        $seen = $w[$task] ?? [];
+        if (($seen['run'] ?? '') !== $run) $seen = ['run' => $run, 'sig' => '', 'closed' => false, 'stale_sent' => false];
+        if (!empty($seen['closed'])) continue;
+        $st = sc_read_main("Memory-Workflow/live-sessions/{$task}/state.json");
+        if ($st === null) { $w[$task] = $seen; continue; }
+        $upd = strtotime((string) ($st['updated_utc'] ?? '')) ?: 0;
+        $status = (string) ($st['status'] ?? '');
+        if ($upd < (int) ($s['at'] ?? 0)) {                 // دفتر هنوز مالِ پیش از این شلیک است
+            if (empty($seen['stale_sent']) && $now - (int) ($s['at'] ?? 0) > 45 * 60) {
+                r_notify("⏳ «{$task}»: سشنِ {$run} ۴۵ دقیقه است دفتر را برنداشته (وضعِ قبلی: {$status}).");
+                $seen['stale_sent'] = true;
+            }
+            $w[$task] = $seen;
+            continue;
+        }
+        $sig = $status . '|' . ($st['stage'] ?? '');
+        if ($sig !== ($seen['sig'] ?? '')) {
+            $icon = ['done' => '✅', 'failed' => '⛔', 'waiting-user' => '🟡', 'running' => '▶️', 'idle' => '⏸'][$status] ?? '📍';
+            r_notify("{$icon} «{$task}» — {$status} · گام: " . ($st['stage'] ?? '?') . "\n" . mb_substr((string) ($st['cursor'] ?? ''), 0, 300));
+            $seen['sig'] = $sig;
+        }
+        if (in_array($status, ['done', 'failed', 'waiting-user'], true)) $seen['closed'] = true;
+        $w[$task] = $seen;
+    }
+    foreach ($w as $t => $v) if (!isset($fs[$t])) unset($w[$t]);
+    r_write_json('sc-watch.json', $w);
+}
