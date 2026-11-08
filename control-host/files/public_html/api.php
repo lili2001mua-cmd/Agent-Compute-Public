@@ -124,10 +124,23 @@ if ($op === 'session-command') {
     if (!preg_match('/^(b[0-9]{1,8}|t-[a-z0-9-]{1,40})$/', $task)) out(400, ['ok' => false, 'error' => 'bad task']);
     if ($text === '' || mb_strlen($text) > 2000) out(400, ['ok' => false, 'error' => 'empty or too long']);
     $ts = gmdate('Ymd-His');
-    $path = 'Memory-Workflow/live-sessions/' . $task . '/inbox/' . $ts . '.json';
-    $payload = json_encode(['text' => $text, 'at' => time(), 'device' => (string) ($_SERVER['HTTP_X_HC_DEVICE'] ?? ''), 'status' => 'pending'],
-        JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-    [$ok, $sha] = ctl_commit([$path => $payload], 'live-session ' . $task . ': فرمانِ مستقیم از نرم‌افزار [skip ci]');
+    $base = 'Memory-Workflow/live-sessions/' . $task;
+    $path = $base . '/inbox/' . $ts . '.json';
+    $files = [$path => json_encode(['text' => $text, 'at' => time(), 'device' => (string) ($_SERVER['HTTP_X_HC_DEVICE'] ?? ''), 'status' => 'pending'],
+        JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)];
+    // بستهٔ تازه دفتر ندارد (op فقط inbox می‌نوشت) — state.json/TASK.md را فقط اگر نبود بذر کن تا سشن مثلِ هر بستهٔ دیگر راه بیفتد.
+    $seeded = false;
+    if (gh_file($base . '/state.json') === null) {
+        $iso = gmdate('c');
+        $files[$base . '/state.json'] = json_encode(['stage' => '', 'status' => 'idle',
+            'cursor' => 'دفترِ تازه از نرم‌افزار؛ گام را از تابلو بخوان و فرمانِ inbox را اجرا کن', 'holder' => null, 'updated_utc' => $iso],
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $files[$base . '/TASK.md'] = "# کارِ زنده — $task\n\n| قلم | مقدار |\n|---|---|\n| کلیدِ کار | `$task` |\n"
+            . "| سازنده | نرم‌افزارِ My-Control-Project (op=session-command) |\n| ساخته‌شده | $iso |\n\n"
+            . "> دفترِ زندهٔ این کار (ارکستر github-backed-session-ledger). سشن این‌جا را می‌خواند، یک گام جلو می‌رود و چک‌پوینت می‌زند.\n";
+        $seeded = true;
+    }
+    [$ok, $sha] = ctl_commit($files, 'live-session ' . $task . ': فرمانِ مستقیم' . ($seeded ? ' + بذرِ دفتر' : '') . ' از نرم‌افزار [skip ci]');
     if (!$ok) out(502, ['ok' => false, 'error' => 'commit failed: ' . $sha]);
     // درخواستِ آتش: routine.hohedoc.ir (session-command-fire.php) سشن را با job=session-command اجرا می‌کند.
     // coalesce: اگر برای همین task درخواستی در صف است، دوباره نگذار — سشنِ آتش‌شده همهٔ inbox را می‌خواند.
