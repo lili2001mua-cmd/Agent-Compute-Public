@@ -21,6 +21,7 @@ require_once __DIR__ . '/step3-fire.php';
 try { r_step3_fire(); } catch (Throwable $e) { r_log('step3-fire ' . substr($e->getMessage(), 0, 200)); }
 require_once __DIR__ . '/session-command-fire.php';
 try { r_session_command_fire(); } catch (Throwable $e) { r_log('session-command-fire ' . substr($e->getMessage(), 0, 200)); }
+try { r_session_command_watch(); } catch (Throwable $e) { r_log('session-command-watch ' . substr($e->getMessage(), 0, 200)); }
 
 // Daily "alive" at 09:xx Tehran: its absence is the alarm for a dead host.
 $day = r_tehran(time(), 'Y-m-d');
