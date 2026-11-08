@@ -8,7 +8,7 @@
 //   GET  api.php?op=backup-status                 → last backup result + pending count
 //   GET  api.php?op=trainer-board                 → trainer project-control board (app/board.php, cron) + fire states
 //   POST api.php?op=step3-fire     {key}         → routine.hohedoc.ir opens a step-3 session for that bundle
-//   POST api.php?op=session-command {task, text} → writes a direct command into the bundle's live-session inbox on GitHub
+//   POST api.php?op=session-command {task, text} → writes the command into the bundle's live-session inbox on GitHub + drops a sc-req so routine.hohedoc.ir fires a session
 //   POST api.php?op=cover          {key}         → image/jpeg: the bundle's cover frame (app/board.php board_cover_file), 404 when none
 // Two steps on purpose: the phone asks, shows the summary, the user confirms again (all workflows are critical).
 require __DIR__ . '/../app/lib.php';
@@ -129,8 +129,16 @@ if ($op === 'session-command') {
         JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     [$ok, $sha] = ctl_commit([$path => $payload], 'live-session ' . $task . ': فرمانِ مستقیم از نرم‌افزار [skip ci]');
     if (!$ok) out(502, ['ok' => false, 'error' => 'commit failed: ' . $sha]);
-    ctl_log("session-command $task <- " . mb_substr($text, 0, 40));
-    out(200, ['ok' => true, 'task' => $task, 'path' => $path, 'commit' => $sha]);
+    // درخواستِ آتش: routine.hohedoc.ir (session-command-fire.php) سشن را با job=session-command اجرا می‌کند.
+    // coalesce: اگر برای همین task درخواستی در صف است، دوباره نگذار — سشنِ آتش‌شده همهٔ inbox را می‌خواند.
+    $dir = ctl_var('sc-req');
+    if (!is_dir($dir)) mkdir($dir, 0700, true);
+    $pending = false;
+    foreach (glob($dir . '/*.json') ?: [] as $f) { $r = @json_decode((string) @file_get_contents($f), true) ?: []; if (($r['task'] ?? '') === $task) { $pending = true; break; } }
+    if (!$pending) file_put_contents($dir . '/' . time() . '-' . $task . '.json', json_encode(['task' => $task, 'at' => time(),
+        'device' => (string) ($_SERVER['HTTP_X_HC_DEVICE'] ?? '')]), LOCK_EX);
+    ctl_log("session-command $task <- " . mb_substr($text, 0, 40) . ($pending ? ' (fire pending)' : ' (fire queued)'));
+    out(200, ['ok' => true, 'task' => $task, 'path' => $path, 'commit' => $sha, 'fire' => $pending ? 'pending' : 'queued']);
 }
 
 if ($op === 'toggle-confirm') {
