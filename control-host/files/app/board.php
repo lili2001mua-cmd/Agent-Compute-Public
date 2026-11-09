@@ -36,17 +36,21 @@ function gh_raw(string $path): ?string {
     return ($code === 200 && is_string($raw)) ? $raw : null;
 }
 
-/** probes.yaml is a flat list; only bundle and test_result are needed. */
+/** probes.yaml is a flat list; bundle, test_result and the Jalali creation day (to drop a past cycle's probes). */
 function board_probes(string $yaml): array {
     $out = [];
     foreach (preg_split('/^  - /m', $yaml) as $i => $blk) {
         if ($i === 0) continue;
         preg_match('/^\s*bundle:\s*"?([^"\n]+)"?/m', $blk, $b);
         preg_match('/^\s*test_result:\s*"?([^"\n]*)"?/m', $blk, $t);
-        if (!empty($b[1])) $out[trim($b[1])][] = trim($t[1] ?? '');
+        preg_match('/^\s*created:\s*"?([^"\n]*)"?/m', $blk, $c);
+        if (!empty($b[1])) $out[trim($b[1])][] = ['r' => trim($t[1] ?? ''), 'd' => board_jdigits(trim($c[1] ?? ''))];
     }
     return $out;
 }
+
+/** «۱۴۰۵-۰۸-۰۲» ⇒ «1405-08-02» (ledger rows and probes write Jalali days in either digit set). */
+function board_jdigits(string $s): string { return strtr($s, ['۰' => '0', '۱' => '1', '۲' => '2', '۳' => '3', '۴' => '4', '۵' => '5', '۶' => '6', '۷' => '7', '۸' => '8', '۹' => '9']); }
 
 function board_head(string $md): array {
     if (!preg_match('/^---\n(.*?)\n---/s', $md, $m)) return [];
@@ -376,7 +380,10 @@ function board_build(): array {
     foreach ($by as $k => $es) {
         $ent = count(array_filter($es, fn($e) => !empty($e['entered_repo'])));
         $hi = count(array_filter($es, fn($e) => ($e['score'] ?? 0) >= 6));
-        $pr = $probes[$k] ?? [];
+        // a probe belongs to the cycle it was written in: a bundle re-harvested and mapped again (urgent-reharvest-41
+        // purged reports, feedback and ledger rows but not probes.yaml) must not inherit the old cycle's 3.6 (b6943, 1405-08-18)
+        $cycle = min(array_map(fn($e) => board_jdigits((string) ($e['date'] ?? '')), $es) ?: ['']);
+        $pr = array_values(array_map(fn($x) => $x['r'], array_filter($probes[$k] ?? [], fn($x) => $cycle === '' || $x['d'] === '' || $x['d'] >= $cycle)));
         $ps = $pool[$k]['status'] ?? null;
         $outpool = $ps === null && !isset($closed[$k]) && !isset($docsClosed[$k]);
         $allpass = $pr && count(array_filter($pr, fn($x) => $x === 'pass')) === count($pr);
@@ -496,6 +503,9 @@ function board_build(): array {
     foreach ((array) ($queue['items'] ?? []) as $k => $it) {
         $f = $fire[$k] ?? null;
         if (isset($onBoard[$k]) || !is_array($f) || ($f['state'] ?? '') !== 'fired' || empty($f['session'])) continue;
+        // a session fired in a past cycle does not move a bundle pulled again since (re-harvest)
+        $pulled = strtotime((string) ($pool[$k]['pulled_utc'] ?? '')) ?: 0;
+        if ($pulled && (int) ($f['at'] ?? 0) < $pulled) continue;
         $out[] = ['key' => $k, 'title' => (string) (($it['title'] ?? '') ?: ($it['plain'] ?? '') ?: $k), 'step' => '3',
                   'sub' => 'سشن با دکمهٔ اپ ساخته شد؛ گزارش را ببین', 'flags' => [], 'session' => (string) $f['session'],
                   'kind' => 'opened', 'link' => $it['link'] ?? null, 'prompt' => null, 'closed_utc' => '', 'closed_j' => '',
