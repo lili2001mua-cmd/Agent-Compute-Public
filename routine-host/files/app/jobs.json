@@ -1,6 +1,6 @@
 {
   "_generated_by": "Agent-Project-Backup/Sys.scripts/build-routine-jobs.py — دستی ویرایش نکن",
-  "registry_sha": "bb2a7718998f961e",
+  "registry_sha": "cd2fb874d34625a7",
   "jobs": [
     {
       "id": "nightly-pool",
@@ -49,7 +49,7 @@
     },
     {
       "id": "session-command",
-      "runbook": "Memory-Routine-Runbook/session-command.md",
+      "runbook": "Memory-Routine-Runbook/session-relay.md",
       "cron_utc": "0 0 31 2 *",
       "tehran": "—",
       "needs_claude": true,

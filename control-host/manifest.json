@@ -1,11 +1,13 @@
 {
-  "version": "20261108182014",
+  "version": "20261109001752",
   "files": {
     "app/board.php": "1899ec234cc1565b77c3a1f52657fb3c9bec85f07637bae1bf2e49fd8c8a30ad",
     "app/lib.php": "e91773ba13519fc78e810b2fd0e3e7f822cfdef80dda228210ae3ccacdea85e3",
+    "app/runner-auth.php": "75e766af15f079e9cd00a9581ab8b00072487863a8a44559b5c1b05282ba04bb",
     "app/tick.php": "bd87769883c0c932b16b09b035626802dc2accab3474ede9324556050c0ba342",
     "app/toggle.php": "dfcdb8a12a8a67041a22b9ab4f6da08a145adf6e40ce5f9f04e57441b4cf9983",
-    "public_html/api.php": "dfa9401e808d18d5bd49634668c138aa50d5634cf0d362560f61395f39db166a",
-    "public_html/index.php": "4fa8f7581553f6668fd73ae1a0f6baa8c208ad0ba03dc9ec6c230653649cfc85"
+    "public_html/api.php": "b3384ac97ad3189fcb3009c617d304d65dc9647292984e1c6ef791b674c72988",
+    "public_html/index.php": "4fa8f7581553f6668fd73ae1a0f6baa8c208ad0ba03dc9ec6c230653649cfc85",
+    "public_html/runner.php": "f3abf99a436602eef55d6fe136229152e289b5296821b29460bf27b96f875a5e"
   }
 }

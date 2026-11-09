@@ -9,6 +9,7 @@
 //   GET  api.php?op=trainer-board                 → trainer project-control board (app/board.php, cron) + fire states
 //   POST api.php?op=step3-fire     {key}         → routine.hohedoc.ir opens a step-3 session for that bundle
 //   POST api.php?op=session-command {task, text} → writes the command into the bundle's live-session inbox on GitHub + drops a sc-req so routine.hohedoc.ir fires a session
+//        (task t-intake = the «بستهٔ تازه» button: dispatches the private repo's button-chain.yml instead — no Claude session)
 //   POST api.php?op=cover          {key}         → image/jpeg: the bundle's cover frame (app/board.php board_cover_file), 404 when none
 // Two steps on purpose: the phone asks, shows the summary, the user confirms again (all workflows are critical).
 require __DIR__ . '/../app/lib.php';
@@ -126,7 +127,10 @@ if ($op === 'session-command') {
     $ts = gmdate('Ymd-His');
     $base = 'Memory-Workflow/live-sessions/' . $task;
     $path = $base . '/inbox/' . $ts . '.json';
-    $files = [$path => json_encode(['text' => $text, 'at' => time(), 'device' => (string) ($_SERVER['HTTP_X_HC_DEVICE'] ?? ''), 'status' => 'pending'],
+    // ⛔ دکمهٔ «بستهٔ تازه» (t-intake) دیگر سشنِ کلاد را شلیک نمی‌کند (۱۴۰۵-۰۸-۱۸ · زنجیرهٔ مستقلِ دکمه): گام‌های ۱ و ۲ را
+    // ورک‌فلوی button-chain.yml ِ مخزنِ خصوصی روی رانرِ گیت‌هاب اجرا می‌کند و گامِ ۳ را از راهِ runner.php درخواست می‌دهد.
+    $button = $task === 't-intake';
+    $files = [$path => json_encode(['text' => $text, 'at' => time(), 'device' => (string) ($_SERVER['HTTP_X_HC_DEVICE'] ?? ''), 'status' => $button ? 'button-chain' : 'pending'],
         JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)];
     // بستهٔ تازه دفتر ندارد (op فقط inbox می‌نوشت) — state.json/TASK.md را فقط اگر نبود بذر کن تا سشن مثلِ هر بستهٔ دیگر راه بیفتد.
     $seeded = false;
@@ -142,6 +146,12 @@ if ($op === 'session-command') {
     }
     [$ok, $sha] = ctl_commit($files, 'live-session ' . $task . ': فرمانِ مستقیم' . ($seeded ? ' + بذرِ دفتر' : '') . ' از نرم‌افزار [skip ci]');
     if (!$ok) out(502, ['ok' => false, 'error' => 'commit failed: ' . $sha]);
+    if ($button) {
+        [$dc, , $draw] = gh('POST', '/repos/' . CTL_REPO . '/actions/workflows/button-chain.yml/dispatches', ['ref' => CTL_BRANCH, 'inputs' => ['mode' => 'intake']]);
+        ctl_log("session-command $task -> button-chain dispatch http=$dc");
+        if ($dc !== 204) out(502, ['ok' => false, 'error' => 'button-chain dispatch failed: HTTP ' . $dc . ' ' . mb_substr($draw, 0, 200)]);
+        out(200, ['ok' => true, 'task' => $task, 'path' => $path, 'commit' => $sha, 'fire' => 'button-chain']);
+    }
     // درخواستِ آتش: routine.hohedoc.ir (session-command-fire.php) سشن را با job=session-command اجرا می‌کند.
     // coalesce: اگر برای همین task درخواستی در صف است، دوباره نگذار — سشنِ آتش‌شده همهٔ inbox را می‌خواند.
     $dir = ctl_var('sc-req');
