@@ -2,6 +2,7 @@
 // درِ رانرِ زنجیرهٔ دکمه (button-chain.yml ِ مخزنِ خصوصی) — فقط با امضای OIDC ِ خودِ گیت‌هاب، بی هیچ رازی.
 //   POST runner.php?op=step3  {key}  → درخواستِ گامِ ۳ برای routine.hohedoc.ir (همان صفِ var/fire-req ِ op=step3-fire)
 //   POST runner.php?op=enrich {key, media_url, source, whisper_model, media_urls} → دیسپچِ enrich.yml ِ مخزنِ عمومی (گامِ ۲)
+//   POST runner.php?op=gh-get {path}  → {data}: فقط خواندنِ اجراها/آرتیفکت‌های enrich.yml ِ مخزنِ عمومی (دادهٔ عمومی)
 //   POST runner.php?op=artifact {artifact_id} → {url}: نشانیِ امضاشدهٔ کوتاه‌عمرِ زیپِ یک آرتیفکتِ مخزنِ عمومی (فرودِ گامِ ۲)
 // ⛔ هیچ توکن یا رازی برگردانده نمی‌شود.
 require __DIR__ . '/../app/lib.php';
@@ -49,6 +50,17 @@ if ($op === 'enrich') {
     ctl_log("runner enrich $key -> http=$code <- $run");
     if ($code !== 204) rout(502, ['ok' => false, 'error' => 'dispatch failed: HTTP ' . $code . ' ' . mb_substr($raw, 0, 200)]);
     rout(200, ['ok' => true, 'key' => $key]);
+}
+if ($op === 'gh-get') {
+    // فقط سه مسیرِ خواندنیِ دادهٔ عمومیِ همان مخزن؛ هر چیزِ دیگر رد.
+    $in = json_decode((string) file_get_contents('php://input'), true) ?: [];
+    $path = (string) ($in['path'] ?? '');
+    $base = '/repos/lili2001mua-cmd/Agent-Compute-Public/actions/';
+    $ok = preg_match('~^' . preg_quote($base, '~') . '(workflows/enrich\.yml/runs\?event=workflow_dispatch&per_page=[0-9]{1,3}&page=[0-9]{1,2}|runs/[0-9]{1,15}(/artifacts)?)$~', $path);
+    if (!$ok) rout(400, ['ok' => false, 'error' => 'path not allowed']);
+    [$code, $data] = gh('GET', $path);
+    if ($code !== 200 || !is_array($data)) rout(502, ['ok' => false, 'error' => 'HTTP ' . $code]);
+    rout(200, ['ok' => true, 'data' => $data]);
 }
 if ($op === 'artifact') {
     // فقط آرتیفکتِ مخزنِ عمومی و فقط نامِ enriched-<key> ؛ پاسخ نشانیِ ریدایرکتِ یک‌دقیقه‌ایِ گیت‌هاب است، نه توکن.
