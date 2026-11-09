@@ -464,10 +464,31 @@ function board_build(): array {
         }
     }
     unset($b);
+    $queue = board_queue($pc, is_array($ni) ? $ni : null);
+    // a queue bundle the app button already opened a session for leaves the waiting list and joins «گامِ ۳ به بعد»
+    // at once (user ask 1405-08-18: «تا از این لیست حذف شود و به لیست بعد از گام سه منتقل شود»), before the
+    // session writes its first ledger row; when the row lands, the ledger copy above replaces this one.
+    $onBoard = array_flip(array_column($out, 'key'));
+    foreach ((array) ($queue['items'] ?? []) as $k => $it) {
+        $f = $fire[$k] ?? null;
+        if (isset($onBoard[$k]) || !is_array($f) || ($f['state'] ?? '') !== 'fired' || empty($f['session'])) continue;
+        $out[] = ['key' => $k, 'title' => (string) (($it['title'] ?? '') ?: ($it['plain'] ?? '') ?: $k), 'step' => '3',
+                  'sub' => 'سشن با دکمهٔ اپ ساخته شد؛ گزارش را ببین', 'flags' => [], 'session' => (string) $f['session'],
+                  'kind' => 'opened', 'link' => $it['link'] ?? null, 'prompt' => null, 'closed_utc' => '', 'closed_j' => '',
+                  'date' => gmdate('Y-m-d', (int) ($f['at'] ?? time())), 'rows' => 0] + $about((string) $k) + ['map' => []];
+        unset($queue['items'][$k]);
+        foreach ($queue['groups'] as &$g) {
+            foreach ($g['subs'] as &$sb) $sb['keys'] = array_values(array_filter($sb['keys'], fn($x) => $x !== $k));
+            unset($sb);
+            $g['count'] = array_sum(array_map(fn($sb) => count($sb['keys']), $g['subs']));
+        }
+        unset($g);
+        $queue['total'] = max(0, (int) $queue['total'] - 1);
+        if (!empty($it['urgent'])) $queue['urgent'] = max(0, (int) $queue['urgent'] - 1);
+    }
     usort($out, fn($a, $b) => strcmp($b['date'], $a['date']));
     $count = ['3' => 0, 'up' => 0, '3.6' => 0, '4' => 0];
     foreach ($out as $b) $count[$b['step']]++;
-    $queue = board_queue($pc, is_array($ni) ? $ni : null);
     return ['at' => time(), 'population' => count($out), 'count' => $count, 'queue' => $queue,
             'linked' => count(array_filter($out, fn($b) => $b['session'] || $b['kind'] === 'nightly')), 'bundles' => $out];
 }
