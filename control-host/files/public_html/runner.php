@@ -58,14 +58,19 @@ if ($op === 'progress') {
     $stage = (string) ($in['stage'] ?? ''); $key = (string) ($in['key'] ?? '');
     if (!in_array($stage, ['step1', 'step2', 'step3', 'delivering', 'delivered', 'failed'], true)) rout(400, ['ok' => false, 'error' => 'bad stage']);
     if ($key !== '' && !preg_match('/^b[0-9]{1,8}$/', $key)) rout(400, ['ok' => false, 'error' => 'bad key']);
-    $s = btn_read();
-    // فقط رکوردِ زنده‌ای که همین بسته را دارد (یا هنوز کلید ندارد) جلو می‌رود؛ کارِ after ِ بسته‌های دیگر دست نمی‌زند
-    if (!btn_active($s) || (($s['key'] ?? '') !== '' && $key !== '' && $s['key'] !== $key)) rout(200, ['ok' => true, 'ignored' => true]);
     $link = (string) ($in['link'] ?? '');
     if ($link !== '' && !preg_match('~^https://t\.me/c/[0-9]+/[0-9]+$~', $link)) $link = '';
-    $s = btn_set($s, $stage, ['key' => $key, 'link' => $link, 'error' => mb_substr((string) ($in['error'] ?? ''), 0, 200),
-                              'run' => preg_replace('/[^0-9]/', '', (string) ($claims['run_id'] ?? '')), 'note' => mb_substr((string) ($in['note'] ?? ''), 0, 120)]);
-    btn_write($s);
+    $ignored = false;
+    $s = btn_update(function (array $s) use ($stage, $key, $link, $in, $claims, &$ignored) {
+        $rk = (string) ($s['key'] ?? '');
+        // فقط رکوردِ زنده‌ای که همین بسته را دارد جلو می‌رود. رکوردِ بی‌کلید فقط step1/step2/failed ِ کارِ intake را می‌پذیرد،
+        // تا delivered ِ بستهٔ دیگری (کارِ after ِ سشنی دیگر) آن را نبندد.
+        if (!btn_active($s) || ($rk !== '' && $key !== '' && $rk !== $key) || ($rk === '' && !in_array($stage, ['step1', 'step2', 'failed'], true))) { $ignored = true; return null; }
+        $run = preg_replace('/[^0-9]/', '', (string) ($claims['run_id'] ?? ''));
+        return btn_set($s, $stage, ['key' => $key, 'link' => $link, 'error' => mb_substr((string) ($in['error'] ?? ''), 0, 200),
+                                    'run' => in_array($stage, ['step1', 'step2', 'step3'], true) ? $run : '', 'note' => mb_substr((string) ($in['note'] ?? ''), 0, 120), 'at_stage' => (string) ($s['stage'] ?? '')]);
+    });
+    if ($ignored) rout(200, ['ok' => true, 'ignored' => true]);
     ctl_log("runner progress $stage $key <- $run");
     rout(200, ['ok' => true, 'button' => btn_public()]);
 }

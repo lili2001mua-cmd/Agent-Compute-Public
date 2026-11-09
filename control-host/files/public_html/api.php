@@ -168,12 +168,15 @@ if ($op === 'session-command') {
         $seeded = true;
     }
     [$ok, $sha] = ctl_commit($files, 'live-session ' . $task . ': فرمانِ مستقیم' . ($seeded ? ' + بذرِ دفتر' : '') . ' از نرم‌افزار [skip ci]');
-    if (!$ok) out(502, ['ok' => false, 'error' => 'commit failed: ' . $sha]);
+    if (!$ok) {
+        if ($button) btn_update(fn(array $x) => btn_set($x, 'failed', ['error' => 'ثبتِ فرمان روی گیت‌هاب نشد', 'note' => 'queued', 'at_stage' => 'queued']));
+        out(502, ['ok' => false, 'error' => 'commit failed: ' . $sha]);
+    }
     if ($button) {
         [$dc, , $draw] = gh('POST', '/repos/' . CTL_REPO . '/actions/workflows/button-chain.yml/dispatches', ['ref' => CTL_BRANCH, 'inputs' => ['mode' => 'intake']]);
         ctl_log("session-command $task -> button-chain dispatch http=$dc");
         if ($dc !== 204) {
-            btn_write(btn_set(btn_read(), 'failed', ['error' => 'شروعِ زنجیره روی گیت‌هاب نشد (HTTP ' . $dc . ')', 'note' => 'queued']));
+            btn_update(fn(array $x) => btn_set($x, 'failed', ['error' => 'شروعِ زنجیره روی گیت‌هاب نشد (HTTP ' . $dc . ')', 'note' => 'queued', 'at_stage' => 'queued']));
             out(502, ['ok' => false, 'error' => 'button-chain dispatch failed: HTTP ' . $dc . ' ' . mb_substr($draw, 0, 200), 'button' => btn_public()]);
         }
         out(200, ['ok' => true, 'task' => $task, 'path' => $path, 'commit' => $sha, 'fire' => 'button-chain', 'button' => btn_public()]);

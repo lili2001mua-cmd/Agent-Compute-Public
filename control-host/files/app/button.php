@@ -10,10 +10,19 @@ require_once __DIR__ . '/lib.php';
 
 const BTN_STAGES = ['queued', 'step1', 'step2', 'step3', 'delivering', 'delivered', 'failed'];
 const BTN_LIMIT_MIN = ['queued' => 15, 'step1' => 60, 'step2' => 120, 'step3' => 90, 'delivering' => 45];
+const BTN_TOTAL_MIN = 330;   // سقفِ کلِ یک فشار (۵٫۵ ساعت) — زیرِ قفلِ ۶ ساعتهٔ اپ و فشارِ دوباره
 const BTN_RETRY_STEP3 = 1;   // یک تلاشِ دوبارهٔ خودکار برای گامِ ۳ (سشنِ ناتمام یا دیرکرد)، بعد «ناموفق»
 
 function btn_read(): array { return ctl_json_read('button-state.json', []) ?: []; }
 function btn_write(array $s): void { ctl_json_write('button-state.json', $s); }
+
+/** خواندن-تغییر-نوشتنِ اتمی زیرِ قفل (فشارِ هم‌زمان، رانر و کرون هم‌دیگر را پاک نکنند). $fn: state → state|null(بی‌تغییر). */
+function btn_update(callable $fn) {
+    $lk = fopen(ctl_var('button.lock'), 'c');
+    if ($lk) flock($lk, LOCK_EX);
+    try { $s = btn_read(); $n = $fn($s); if (is_array($n)) btn_write($n); return is_array($n) ? $n : $s; }
+    finally { if ($lk) { flock($lk, LOCK_UN); fclose($lk); } }
+}
 function btn_active(array $s): bool { return in_array($s['stage'] ?? '', ['queued', 'step1', 'step2', 'step3', 'delivering'], true); }
 
 /** یک گذار؛ مرحله هرگز عقب نمی‌رود (پیامِ دیررسِ رانر حالتِ جلوتر را خراب نمی‌کند). */
@@ -22,75 +31,105 @@ function btn_set(array $s, string $stage, array $extra = []): array {
     $new = array_search($stage, BTN_STAGES, true);
     if ($new === false) return $s;
     if (!in_array($s['stage'] ?? '', ['delivered', 'failed'], true) && ($stage === 'failed' || $new >= $cur)) {
-        if (($s['stage'] ?? '') !== $stage) { $s['stage'] = $stage; $s['stage_at'] = time(); }
+        if (($s['stage'] ?? '') !== $stage) { if ($stage === 'failed') $s['stage_before_fail'] = $s['stage'] ?? ''; $s['stage'] = $stage; $s['stage_at'] = time(); }
         $s['history'][] = ['stage' => $stage, 'at' => time()] + array_intersect_key($extra, ['note' => 1]);
         $s['history'] = array_slice($s['history'], -20);
     }
     foreach (['key', 'link', 'error', 'run'] as $f) if (isset($extra[$f]) && $extra[$f] !== '') $s[$f] = $extra[$f];
+    if ($stage === 'failed' && empty($s['failed_stage'])) $s['failed_stage'] = (string) ($extra['at_stage'] ?? ($s['stage_before_fail'] ?? ''));
     if ($stage === 'delivered' || $stage === 'failed') $s['done_at'] = $s['done_at'] ?? time();
     return $s;
 }
 
 /** فشارِ تازه: [ok, state]. فشارِ دوم وقتی قبلی هنوز در راه است رد می‌شود (ضدِ دوباره‌کشیدن). */
 function btn_press(): array {
-    $s = btn_read();
-    if (btn_active($s) && time() - (int) ($s['pressed_at'] ?? 0) < 6 * 3600) return [false, $s];
-    $s = ['id' => gmdate('YmdHis'), 'pressed_at' => time(), 'stage' => 'queued', 'stage_at' => time(), 'retries' => 0,
-          'history' => [['stage' => 'queued', 'at' => time()]]];
-    btn_write($s);
-    return [true, $s];
+    $fresh = false;
+    $s = btn_update(function (array $s) use (&$fresh) {
+        if (btn_active($s) && time() - (int) ($s['pressed_at'] ?? 0) < 6 * 3600) return null;
+        $fresh = true;
+        return ['id' => gmdate('YmdHis'), 'pressed_at' => time(), 'stage' => 'queued', 'stage_at' => time(), 'retries' => 0,
+                'history' => [['stage' => 'queued', 'at' => time()]]];
+    });
+    return [$fresh, $s];
 }
 
 /** آنچه اپ می‌بیند (op=trainer-board → button). */
 function btn_public(): array {
     $s = btn_read();
     if (!$s) return ['stage' => ''];
-    $out = array_intersect_key($s, array_flip(['id', 'pressed_at', 'stage', 'stage_at', 'key', 'link', 'error', 'retries', 'done_at']));
+    $out = array_intersect_key($s, array_flip(['id', 'pressed_at', 'stage', 'stage_at', 'key', 'link', 'error', 'retries', 'done_at', 'failed_stage']));
     $out['active'] = btn_active($s);
     return $out;
 }
 
 function btn_tehran_stamp(int $t): string { return (new DateTime('@' . $t))->setTimezone(new DateTimeZone('Asia/Tehran'))->format('YmdHi'); }
 
-/** نگهبانِ کرون. خواندن فقط از main ِ مخزنِ خصوصی (gh_raw) — هیچ چیز روی گیت‌هاب نوشته نمی‌شود. */
+/** شکستِ کرون: اجرای گیت‌هابِ همان فشار هم لغو می‌شود تا فشارِ بعدی پشتِ آن در صف نماند. */
+function btn_fail(array $obs, string $why, string $at): void {
+    $n = btn_update(function (array $s) use ($obs, $why, $at) {
+        if (($s['id'] ?? '') !== ($obs['id'] ?? '') || ($s['stage'] ?? '') !== ($obs['stage'] ?? '')) return null;   // کسی جلوتر برده
+        return btn_set($s, 'failed', ['error' => $why, 'note' => $at, 'at_stage' => $at]);
+    });
+    if (($n['stage'] ?? '') === 'failed' && !empty($n['run'])) gh('POST', '/repos/' . CTL_REPO . '/actions/runs/' . $n['run'] . '/cancel');
+}
+
+/** نگهبانِ کرون. خواندن فقط از main ِ مخزنِ خصوصی و fire-state ِ هاستِ روتین؛ نوشتن فقط زیرِ قفل و فقط اگر رکورد عوض نشده. */
 function btn_tick(): void {
     require_once __DIR__ . '/board.php';   // gh_raw
     $s = btn_read();
     if (!btn_active($s)) return;
     $now = time(); $stage = $s['stage']; $since = (int) ($s['stage_at'] ?? $now); $key = (string) ($s['key'] ?? '');
-    $late = $now - $since > 60 * (BTN_LIMIT_MIN[$stage] ?? 120);
+    $same = fn(array $x) => ($x['id'] ?? '') === ($s['id'] ?? '') && ($x['stage'] ?? '') === $stage && (int) ($x['stage_at'] ?? 0) === $since;
+    if ($now - (int) ($s['pressed_at'] ?? $now) > 60 * BTN_TOTAL_MIN) { btn_fail($s, 'زمانِ کلِ این بسته گذشت', $stage); return; }
+    // هاستِ روتین شلیک را رد کرد (مسلح نیست، کشورِ نامعتبر، کلیدِ ناسالم) یا شلیک کرد ولی گزارشِ step3 ِ رانر نرسید
+    if ($key !== '' && in_array($stage, ['step2', 'step3'], true)) {
+        $fs = (ctl_json_read('fire-state.json', []) ?: [])[$key] ?? null;
+        if (is_array($fs) && (int) ($fs['at'] ?? 0) >= $since) {
+            if (($fs['state'] ?? '') === 'failed') { btn_fail($s, 'هاستِ روتین گامِ ۳ را شلیک نکرد: ' . (string) ($fs['error'] ?? ''), 'step3'); return; }
+            if (($fs['state'] ?? '') === 'fired' && $stage === 'step2') {
+                btn_update(fn(array $x) => $same($x) ? btn_set($x, 'step3', ['note' => 'سشنِ گامِ ۳ ساخته شد']) : null); return;
+            }
+        }
+    }
     if ($stage === 'step3' && $key !== '') {
         $rep = gh_raw("Memory-Workflow/intake-pool/reports/$key.md");
-        if ($rep !== null && preg_match('/^status:\s*step3-done\b/m', $rep)) { btn_write(btn_set($s, 'delivering', ['note' => 'گزارشِ گامِ ۳ روی main'])); return; }
-        // سشنِ گامِ ۳ ِ ناتمام (فایلِ failed ِ دیسپچر پس از درخواست) یا دیرکرد ⇒ یک تلاشِ دوباره، بعد ناموفق
+        if ($rep !== null && preg_match('/^status:\s*step3-done\b/m', $rep)) {
+            btn_update(fn(array $x) => $same($x) ? btn_set($x, 'delivering', ['note' => 'گزارشِ گامِ ۳ روی main']) : null); return;
+        }
+        if ($rep !== null && preg_match('/^status:\s*(blocked-step2|nothing-to-do)\b/m', $rep, $m)) {
+            btn_fail($s, $m[1] === 'blocked-step2' ? 'گامِ ۳ ایستاد: گامِ ۲ ناقص بود' : 'گامِ ۳ چیزی برای انجام پیدا نکرد', 'step3'); return;
+        }
+        // فقط نشانهٔ واقعیِ شکست (فایلِ failed ِ دیسپچر پس از درخواست) تلاشِ دوباره می‌گیرد؛ دیرکردِ تنها هرگز دو سشنِ هم‌زمان نمی‌سازد
         [$c, $ls] = gh('GET', '/repos/' . CTL_REPO . '/contents/Memory-Workflow/routine-host/runs?ref=' . CTL_BRANCH);
         $failed = false; $mark = btn_tehran_stamp($since);
         foreach (($c === 200 ? $ls : []) as $f) {
             if (preg_match('/^step3-' . preg_quote($key, '/') . '-([0-9]{12})\.failed\.json$/', (string) ($f['name'] ?? ''), $m) && $m[1] >= $mark) $failed = true;
         }
-        if ($failed || $late) {
+        if ($failed) {
             if ((int) ($s['retries'] ?? 0) < BTN_RETRY_STEP3) {
-                $dir = ctl_var('fire-req'); if (!is_dir($dir)) mkdir($dir, 0700, true);
-                file_put_contents($dir . '/' . $now . '-' . $key . '.json', json_encode(['key' => $key, 'at' => $now, 'device' => 'button-watch']), LOCK_EX);
-                $s['retries'] = (int) ($s['retries'] ?? 0) + 1;
-                $s = btn_set($s, 'step3', ['note' => $failed ? 'سشنِ گامِ ۳ ناتمام ماند؛ دوباره درخواست شد' : 'گامِ ۳ دیر کرد؛ دوباره درخواست شد']);
-                $s['stage_at'] = $now;
-                ctl_log("button step3 retry $key (" . ($failed ? 'failed run' : 'late') . ')');
-                btn_write($s); return;
+                $n = btn_update(function (array $x) use ($same, $now, $key) {
+                    if (!$same($x)) return null;
+                    $dir = ctl_var('fire-req'); if (!is_dir($dir)) mkdir($dir, 0700, true);
+                    file_put_contents($dir . '/' . $now . '-' . $key . '.json', json_encode(['key' => $key, 'at' => $now, 'device' => 'button-watch']), LOCK_EX);
+                    $x['retries'] = (int) ($x['retries'] ?? 0) + 1;
+                    $x = btn_set($x, 'step3', ['note' => 'سشنِ گامِ ۳ ناتمام ماند؛ دوباره درخواست شد']);
+                    $x['stage_at'] = $now;
+                    return $x;
+                });
+                if (($n['retries'] ?? 0) > ($s['retries'] ?? 0)) ctl_log("button step3 retry $key");
+                return;
             }
-            btn_write(btn_set($s, 'failed', ['error' => $failed ? 'سشنِ گامِ ۳ دو بار ناتمام ماند' : 'گامِ ۳ پس از تلاشِ دوباره هم در مهلت تمام نشد', 'note' => 'step3']));
-            return;
+            btn_fail($s, 'سشنِ گامِ ۳ دو بار ناتمام ماند', 'step3'); return;
         }
-        return;
     }
     if ($stage === 'delivering' && $key !== '') {
         $st = json_decode((string) gh_raw("Memory-Workflow/intake-pool/state/telegram/$key/status.json"), true);
         $link = is_array($st) ? (string) (($st['archive'] ?? [])['link'] ?? '') : '';
-        if ($link !== '') { btn_write(btn_set($s, 'delivered', ['link' => $link, 'note' => 'در کانالِ Routine Trainer 1 & 2'])); return; }
+        if ($link !== '') { btn_update(fn(array $x) => $same($x) ? btn_set($x, 'delivered', ['link' => $link, 'note' => 'در کانالِ Routine Trainer 1 & 2']) : null); return; }
     }
-    if ($late) {
+    if ($now - $since > 60 * (BTN_LIMIT_MIN[$stage] ?? 120)) {
         $why = ['queued' => 'زنجیره روی گیت‌هاب شروع نشد', 'step1' => 'گامِ ۱ در مهلت تمام نشد', 'step2' => 'گامِ ۲ در مهلت تمام نشد',
-                'delivering' => 'انتقال به کانالِ Routine Trainer 1 & 2 در مهلت نرسید'][$stage] ?? 'مهلت گذشت';
-        btn_write(btn_set($s, 'failed', ['error' => $why, 'note' => $stage]));
+                'step3' => 'گامِ ۳ در مهلت تمام نشد', 'delivering' => 'انتقال به کانالِ Routine Trainer 1 & 2 در مهلت نرسید'][$stage] ?? 'مهلت گذشت';
+        btn_fail($s, $why, $stage);
     }
 }
