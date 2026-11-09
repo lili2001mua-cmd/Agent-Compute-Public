@@ -25,5 +25,6 @@ echo json_encode([
     'routing' => (function () { $x = @json_decode((string) @file_get_contents(ops_var('routing.json')), true); if (isset($x['result'])) unset($x['result']); return $x; })(),
     'drive_files' => @json_decode((string) @file_get_contents(ops_var('drive-files.json')), true),
     'bus' => (function () { $x = @json_decode((string) @file_get_contents(ops_var('bus-state.json')), true) ?: null; if (is_array($x)) { unset($x['etag'], $x['res_seen']); if (isset($x['polled_at'])) $x['poll_age_s'] = time() - $x['polled_at']; } return $x; })(),
+    'lander' => @json_decode((string) @file_get_contents(ops_var('lander.json')), true),   // ر۷: mode, sha256 of app/lander.php, last round
     'routines' => $rows,
 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);

@@ -20,11 +20,14 @@ Watched routines and their limits: `OPS_WATCH` in `files/app/lib.php`. Since 140
 
 | `sync-routing-digest.yml` (GitHub half) | `app/routing.php`: every 30 min it rebuilds the digest and the two consumer hooks from Agent-Project-Backup `main` (byte-identical to `Sys.scripts/sync-routing-digest.py`) and writes them to each repo of `routing-consumers.txt` only when they differ. The Google Drive half (`app/drive.php`, the `Agent-Repo-Bridge` folder) was retired on 1405-08-10 at the user's request; nothing on this host writes to Google Drive any more. |
 
+| landing queue (ر۷ of the private repo's `commit-path-repair`, 1405-08-19) | `app/lander.php`, every tick: mode from Agent-Project-Backup `main` → `Sys.registry/commit-path-flags.json` (`flags.r7_land`). `shadow` writes **only** `refs/heads/shadow/main`: for each `land/<session>` evidence commit (first parent = candidate, message `land-evidence: {…}`) it fast-forwards shadow/main to the candidate only while shadow/main still equals the evidence base (CAS), else answers `rebase`; afterwards shadow/main follows `main` for writers outside the queue. No guard, no generator, no git on the host. `live` is refused by this version. Answers: `land.php?s=<session>`; `status.php` → `lander` (mode, `sha256` of `app/lander.php`, last round). The private repo replays this same file locally (`Sys.scripts/land-replay.php`) and checks the sha256. |
+
 ## Doors
 
 - `POST https://ops.hohedoc.ir/beat.php` with `id=<routine>` [`sha=<commit>`]. No key: a forged beat can only
   delay one alert. Unknown ids get 404; one beat per id per 10 minutes.
 - `https://ops.hohedoc.ir/status.php` is public and shows only ages and booleans.
+- `https://ops.hohedoc.ir/land.php[?s=<session>]` is public: the landing queue's latest answer per session (JSON, no secret).
 
 ## Secrets
 

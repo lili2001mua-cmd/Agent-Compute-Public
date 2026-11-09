@@ -72,6 +72,11 @@ $sa = @json_decode((string) @file_get_contents(OPS_ROOT . '/drive-sa.json'), tru
 $df['sa_valid'] = is_array($sa) && ($sa['type'] ?? '') === 'service_account' && !empty($sa['private_key']);
 file_put_contents(ops_var('drive-files.json'), json_encode($df));
 
+// landing queue (app/lander.php, ر۷ ِ commit-path-repair, 1405-08-19): mode from the private repo's flag file; shadow
+// writes only refs/heads/shadow/main. Before the long bus tick.
+require_once __DIR__ . '/lander.php';
+land_tick();
+
 // chain-bus relay (app/bus.php, 1405-08-13): the long tick polls the private repo's chain-bus branch for ~285 s so a
 // Claude session with GitHub-only network still reaches every holding host. Last in the tick, behind its own lock.
 require_once __DIR__ . '/bus.php';
