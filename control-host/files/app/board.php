@@ -371,6 +371,7 @@ function board_build(): array {
         return ['topic' => (string) (($t['plain'] ?? '') ?: ($t['topic'] ?? '')), 'desc' => (string) ($t['desc'] ?? ''),
                 'tax_root' => $r ? ($tax[$r]['title'] ?? $r) : null, 'tax_sub' => ($r && $sb) ? ($tax[$r]['subs'][$sb] ?? $sb) : null];
     };
+    $s3runs = board_step3_runs();
     $out = [];
     foreach ($by as $k => $es) {
         $ent = count(array_filter($es, fn($e) => !empty($e['entered_repo'])));
@@ -420,8 +421,21 @@ function board_build(): array {
             }
             else { if ($step !== '3') $flags[] = 'ارتقا یا کاوشگر پیش از دیدنِ گزارش نوشته شد'; $kind = 'nightly'; $session = null; $step = '3'; $sub = 'تحلیلِ شبانه آماده؛ منتظرِ سشنِ تو'; }
         }
+        // a step 3 run by the app button (report origin «routine», 1405-08-18 · b8239): the user has not read the report
+        // yet, so a score ≥ 6 row is not «upgrade pending» — the bundle stays in step 3 until the step-3 feedback is taken
+        if (!$isclosed && !$pr && ($h['origin'] ?? '') === 'routine' && !isset($fb[$k]) && $ent === 0) {
+            $step = '3'; $sub = 'گزارش آماده؛ ببین و نظرت را بگو';
+        }
+        $rs = $s3runs[$k] ?? '';
+        if (!$isclosed && in_array($rs, ['partial', 'failed'], true)) {
+            $flags[] = 'اجرای گامِ ۳ «' . ($rs === 'partial' ? 'نیمه‌کاره' : 'ناموفق') . '» ثبت شد — پرامپتِ ترمیم: Memory-Workflow/routine-host/runs/repair-prompt.md';
+            if ($step !== '3' && $ent === 0) { $step = '3'; $sub = 'گامِ ۳ کامل نشد؛ اول ترمیم'; }
+        }
         if (!$isclosed && $ps === null && !$outpool) $flags[] = 'ردِ بستن پیدا نشد و در استخر هم نیست';
         $title = $titles[$k] ?? '';
+        // the bundle's own problem line (same as the waiting list) before the top mapping point — b8239 turned into its
+        // first upgrade's name the moment it left the queue (1405-08-18)
+        if ($title === '') $title = trim(preg_replace('/\s+/', ' ', (string) ($topics[$k]['topic'] ?? '')), " .");
         if ($title === '') {
             usort($es, fn($a, $b) => ($b['score'] ?? 0) <=> ($a['score'] ?? 0));
             $title = (string) ($es[0]['point'] ?? '');
@@ -515,9 +529,32 @@ function board_build(): array {
             'linked' => count(array_filter($out, fn($b) => $b['session'] || $b['kind'] === 'nightly')), 'bundles' => $out];
 }
 
+/** key => status of the latest routine-host run of step 3 (Memory-Workflow/routine-host/runs/step3-<key>-<ts>.*.json),
+ *  cached by blob sha. «partial» or «failed» means the session stopped short (b8239: coverage stamp missing). */
+function board_step3_runs(): array {
+    [$c, $ls] = gh('GET', '/repos/' . CTL_REPO . '/contents/Memory-Workflow/routine-host/runs?ref=' . CTL_BRANCH);
+    if ($c !== 200 || !is_array($ls)) return [];
+    $cache = board_read('step3-runs.json', []);
+    $latest = [];
+    foreach ($ls as $f) {
+        if (!preg_match('/^step3-(b[0-9]{1,8})-([0-9]{12})\.(done|failed)\.json$/', (string) ($f['name'] ?? ''), $m)) continue;
+        if (isset($latest[$m[1]]) && $latest[$m[1]]['ts'] >= $m[2]) continue;
+        $latest[$m[1]] = ['ts' => $m[2], 'name' => $f['name'], 'sha' => $f['sha'], 'kind' => $m[3]];
+    }
+    $out = []; $next = [];
+    foreach ($latest as $k => $x) {
+        if (($cache[$x['name']]['sha'] ?? '') === $x['sha']) $st = $cache[$x['name']]['status'];
+        else { $j = json_decode((string) gh_raw('Memory-Workflow/routine-host/runs/' . $x['name']), true); $st = (string) ($j['status'] ?? ($x['kind'] === 'failed' ? 'failed' : '')); }
+        $next[$x['name']] = ['sha' => $x['sha'], 'status' => $st];
+        $out[$k] = $x['kind'] === 'failed' ? 'failed' : $st;
+    }
+    board_write('step3-runs.json', $next);
+    return $out;
+}
+
 /** key => branch: unmerged branches of the private repo whose commits say «گامِ ۳ برای <key>».
  *  Compare results are cached by branch head sha, so a quiet tick costs one branch-list call. */
-const BOARD_STRANDED_COMPARES_PER_TICK = 25;
+const BOARD_STRANDED_COMPARES_PER_TICK = 200;   // first scan covers every branch in one tick (25 left b6943 unflagged for 5 ticks)
 function board_stranded(array $want): array {
     $cache = board_read('stranded-cache.json', []);
     $heads = [];
