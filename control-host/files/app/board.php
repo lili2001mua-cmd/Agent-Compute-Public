@@ -176,6 +176,8 @@ function board_cover_file(string $k): ?string {
     $dir = board_var('covers'); if (!is_dir($dir)) mkdir($dir, 0700, true);
     $f = $dir . '/' . md5($k) . '.jpg'; $miss = $f . '.none';
     if (is_file($f)) return $f;
+    // ⛔ نامِ تازهٔ نشانِ «نبود» (۱۴۰۵-۰۸-۱۸): نشان‌های پیشین پیش از راهِ عکسیِ Drive ساخته شده بودند و یک روز کاورِ ۵۵ بستهٔ عکسی را می‌بستند.
+    $miss = $f . '.none2';
     if (is_file($miss) && time() - filemtime($miss) < 86400) return null;
     $idx = board_read('covers.json', []);
     $path = is_array($idx[$k] ?? null) ? (string) ($idx[$k]['path'] ?? '') : '';
@@ -192,6 +194,9 @@ function board_cover_file(string $k): ?string {
         }
     }
     $raw = $path !== '' ? gh_raw($path) : null;
+    // ⛔ بستهٔ عکسی قابی روی گیت ندارد و نباید داشته باشد (قفل: photo-bundle-stays-off-git)؛ پس کاورش اسلایدِ اول از Drive است
+    //    (۱۴۰۵-۰۸-۱۸ · ردیف: photo-bundle-card-has-no-cover · قفل: photo-bundle-cover-comes-from-drive). فقط در کشِ همین هاست می‌ماند.
+    if ($raw === null) $raw = board_photo_cover($k);
     if ($raw === null) { touch($miss); return null; }
     if (function_exists('imagecreatefromstring') && ($im = @imagecreatefromstring($raw))) {
         $w = imagesx($im); $h = imagesy($im);
@@ -199,6 +204,55 @@ function board_cover_file(string $k): ?string {
         imagejpeg($im, $f . '.tmp', 78); rename($f . '.tmp', $f);
     } else { file_put_contents($f . '.tmp', $raw); rename($f . '.tmp', $f); }
     return $f;
+}
+
+/** Slide 1 of a photo bundle, read from Drive with the holding's single Drive account — the same account and files
+ *  studio.hohedoc.ir uses (var/drive-default.json, var/drive-accounts/<ACC>.json, var/drive-web-client.json in the sibling
+ *  domain folder of this host, outside every web root). No key is copied here; the access token is cached for 50 minutes. */
+function board_photo_cover(string $k): ?string {
+    $st = null;
+    foreach (['telegram', 'drive'] as $src) {
+        $raw = gh_raw('Memory-Workflow/intake-pool/state/' . $src . '/' . $k . '/status.json');
+        if ($raw !== null) { $st = json_decode($raw, true); break; }
+    }
+    if (!is_array($st) || ($st['media_kind'] ?? '') !== 'photo') return null;
+    $up = $st['drive_files']['uploaded'] ?? [];
+    $fr = [];
+    foreach ((array) $up as $u) {
+        $p = (string) ($u['rel_path'] ?? ''); $id = (string) ($u['drive_id'] ?? '');
+        if ($id !== '' && str_starts_with($p, 'frames/') && preg_match('/\.(jpe?g|png|webp)$/i', $p)) $fr[$p] = $id;
+    }
+    if (!$fr) return null;
+    ksort($fr);
+    $tok = board_drive_token();
+    if ($tok === null) return null;
+    $ch = curl_init('https://www.googleapis.com/drive/v3/files/' . rawurlencode(reset($fr)) . '?alt=media');
+    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 40, CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $tok, 'User-Agent: control-hohedoc']]);
+    $raw = curl_exec($ch); $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
+    return ($code === 200 && is_string($raw) && strlen($raw) > 100) ? $raw : null;
+}
+
+/** Access token of the holding's Drive account, refreshed from studio.hohedoc.ir's own files (same server account). */
+function board_drive_token(): ?string {
+    $cache = board_read('drive-token.json', []);
+    if (is_array($cache) && ($cache['exp'] ?? 0) > time() + 60) return (string) $cache['token'];
+    $root = realpath(CTL_ROOT) ?: CTL_ROOT;
+    $var = dirname($root) . '/studio.hohedoc.ir/var';
+    $def = @json_decode((string) @file_get_contents($var . '/drive-default.json'), true);
+    $acc = preg_replace('/[^A-Za-z0-9_-]/', '', (string) ($def['account'] ?? 'BACKUP'));
+    $a = @json_decode((string) @file_get_contents($var . '/drive-accounts/' . $acc . '.json'), true);
+    $c = @json_decode((string) @file_get_contents($var . '/drive-web-client.json'), true);
+    if (!is_array($a) || empty($a['refresh_token']) || !is_array($c) || empty($c['id']) || empty($c['secret'])) return null;
+    $ch = curl_init('https://oauth2.googleapis.com/token');
+    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 20, CURLOPT_POST => true,
+        CURLOPT_HTTPHEADER => ['Content-Type: application/x-www-form-urlencoded'],
+        CURLOPT_POSTFIELDS => http_build_query(['client_id' => $c['id'], 'client_secret' => $c['secret'],
+            'refresh_token' => $a['refresh_token'], 'grant_type' => 'refresh_token'])]);
+    $r = json_decode((string) curl_exec($ch), true); $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
+    if ($code !== 200 || empty($r['access_token'])) return null;
+    board_write('drive-token.json', ['token' => $r['access_token'], 'exp' => time() + 3000]);
+    return (string) $r['access_token'];
 }
 
 /** Taxonomy roots {id: {title, subs: {id: title}}} — port of nightly_pool.load_taxonomy (no YAML library). */
