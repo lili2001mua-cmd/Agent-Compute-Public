@@ -356,6 +356,13 @@ function board_build(): array {
             }
             else { if ($step !== '3') $flags[] = 'ارتقا یا کاوشگر پیش از دیدنِ گزارش نوشته شد'; $kind = 'nightly'; $session = null; $step = '3'; $sub = 'تحلیلِ شبانه آماده؛ منتظرِ سشنِ تو'; }
         }
+        // ⛔ منبعِ معتبرِ سشن: سشنِ ماندگارِ رله (session-relay → live-sessions/<key>/session.json) بر هر حدسِ
+        // استخراج‌شده از پیامِ کامیت مقدم است؛ حدس می‌تواند سشنِ نامربوطی را که فقط اسمِ کلید را در کامیت داشته بگیرد.
+        $lss = json_decode((string) gh_raw('Memory-Workflow/live-sessions/' . $k . '/session.json'), true);
+        if (is_array($lss) && preg_match('#^https://claude\.ai/code/session_[\w-]+#', (string) ($lss['url'] ?? ''))) {
+            $session = $lss['url'];
+            if ($kind === 'nightly') $kind = 'opened';
+        }
         if (!$isclosed && $ps === null && !$outpool) $flags[] = 'ردِ بستن پیدا نشد و در استخر هم نیست';
         $title = $titles[$k] ?? '';
         if ($title === '') {
