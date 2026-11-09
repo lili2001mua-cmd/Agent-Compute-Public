@@ -6,6 +6,7 @@
 //   POST api.php?op=toggle-confirm  {challenge}  → runs it: GitHub state + registry rows in one [skip ci] commit
 //   POST api.php?op=backup-request  {target: redlilium-db} → one DB dump to the Telegram backup channel (sites cron runs it)
 //   GET  api.php?op=backup-status                 → last backup result + pending count
+//   GET  api.php?op=projects                      → «پروژه‌ها»: orchestras by category (app/projects.php, cron) — live, no app rebuild
 //   GET  api.php?op=trainer-board                 → trainer project-control board (app/board.php, cron) + fire states
 //   POST api.php?op=step3-fire     {key}         → routine.hohedoc.ir opens a step-3 session for that bundle
 //   POST api.php?op=session-command {task, text} → writes the command into the bundle's live-session inbox on GitHub + drops a sc-req so routine.hohedoc.ir fires a session
@@ -36,6 +37,13 @@ if ($op === 'cover') {
     if ($f === null) out(404, ['ok' => false, 'error' => 'no cover']);
     header('Content-Type: image/jpeg'); header('Cache-Control: private, max-age=86400');
     readfile($f); exit;
+}
+if ($op === 'projects' && $_SERVER['REQUEST_METHOD'] === 'GET') {
+    // computed every 5 minutes by the cron from the IDEA-ORCH docs on GitHub (app/projects.php); never written by a session
+    $d = ctl_var('projects');
+    $p = @json_decode((string) @file_get_contents($d . '/projects.json'), true);
+    $st = @json_decode((string) @file_get_contents($d . '/state.json'), true);
+    out(200, ['ok' => is_array($p), 'state' => $st, 'at' => $p['at'] ?? null, 'orch_groups' => $p['orch_groups'] ?? []]);
 }
 if ($op === 'trainer-board' && $_SERVER['REQUEST_METHOD'] === 'GET') {
     // computed every 5 minutes by the cron from the trainer's records on GitHub (app/board.php); never written by a session

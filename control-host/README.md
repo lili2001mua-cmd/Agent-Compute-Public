@@ -43,3 +43,15 @@ in any Claude account. Titles were seeded once from the repo's `step3-board/titl
 The same tick also builds `queue` inside `board.json`: the «Routine Trainer List» (bundles waiting for step 3 —
 pool status with an archive and not closed, grouped by the identity taxonomy, urgent first). `step3-fire` accepts a
 bundle from either list.
+
+## Projects section of the app (`app/projects.php`)
+
+User decision 1405-08-18: the app's «پروژه‌ها» must follow the repo live, not a new app build. Every cron tick reads
+`Memory-Workflow/idea-orchestrations/*/IDEA-ORCH.md` of the private repo (only docs whose blob sha changed are
+re-parsed; the last real commit of each doc gives «last change») and the category rules in
+`Memory-Software-Builder/Android/My-Control-Project/orch-board/orch-categories.json`, and writes
+`var/projects/projects.json`. `GET api.php?op=projects` (signed) serves it. Steady state costs 3 GitHub calls per tick.
+The parser is a port of the private repo's `Sys.scripts/orch-board-build.py`; parity check on a checkout:
+`php -r 'require "control-host/files/app/projects.php"; echo json_encode(projects_from_local("<Agent-Project-Backup>"));'`
+must equal `orch_groups` of `source/tools/build-snapshot.py` (1405-08-18: 90 orchestras, 0 differences).
+
