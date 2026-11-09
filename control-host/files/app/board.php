@@ -496,11 +496,54 @@ function board_build(): array {
         $queue['total'] = max(0, (int) $queue['total'] - 1);
         if (!empty($it['urgent'])) $queue['urgent'] = max(0, (int) $queue['urgent'] - 1);
     }
+    // a step-3 session that committed its mapping on its own branch but never landed it on main leaves the bundle
+    // looking unmapped (b8239, 1405-08-18). Name the branch on the card instead of «no mapping row yet».
+    $want = [];
+    foreach ($out as $b) if (in_array($b['kind'], ['opened', 'nightly'], true) && empty($b['map'])) $want[$b['key']] = true;
+    $stranded = $want ? board_stranded($want) : [];
+    foreach ($out as &$b) {
+        if (!isset($stranded[$b['key']])) continue;
+        $b['stranded_branch'] = $stranded[$b['key']];
+        $b['sub'] = 'نگاشت روی برنچ مانده؛ به main نرسیده';
+        array_unshift($b['flags'], 'کارِ گامِ ۳ روی برنچِ ' . $stranded[$b['key']] . ' مانده و به main نرسیده — تا نیاید، این‌جا «نگاشت ثبت نشده» دیده می‌شود');
+    }
+    unset($b);
     usort($out, fn($a, $b) => strcmp($b['date'], $a['date']));
     $count = ['3' => 0, 'up' => 0, '3.6' => 0, '4' => 0];
     foreach ($out as $b) $count[$b['step']]++;
     return ['at' => time(), 'population' => count($out), 'count' => $count, 'queue' => $queue,
             'linked' => count(array_filter($out, fn($b) => $b['session'] || $b['kind'] === 'nightly')), 'bundles' => $out];
+}
+
+/** key => branch: unmerged branches of the private repo whose commits say «گامِ ۳ برای <key>».
+ *  Compare results are cached by branch head sha, so a quiet tick costs one branch-list call. */
+const BOARD_STRANDED_COMPARES_PER_TICK = 25;
+function board_stranded(array $want): array {
+    $cache = board_read('stranded-cache.json', []);
+    $heads = [];
+    for ($page = 1; $page <= 5; $page++) {
+        [$c, $br] = gh('GET', '/repos/' . CTL_REPO . '/branches?per_page=100&page=' . $page);
+        if ($c !== 200 || !is_array($br)) break;
+        foreach ($br as $x) if (($x['name'] ?? '') !== CTL_BRANCH) $heads[(string) $x['name']] = (string) ($x['commit']['sha'] ?? '');
+        if (count($br) < 100) break;
+    }
+    if (!$heads) return [];
+    $budget = BOARD_STRANDED_COMPARES_PER_TICK;
+    $next = [];
+    foreach ($heads as $name => $sha) {
+        if (isset($cache[$name]) && $cache[$name]['sha'] === $sha) { $next[$name] = $cache[$name]; continue; }
+        if ($budget-- <= 0) continue;
+        [$c, $cmp] = gh('GET', '/repos/' . CTL_REPO . '/compare/' . CTL_BRANCH . '...' . rawurlencode_path($name));
+        if ($c !== 200) continue;
+        $keys = [];
+        if ((int) ($cmp['ahead_by'] ?? 0) > 0) foreach ((array) ($cmp['commits'] ?? []) as $k)
+            if (preg_match_all('/گامِ ۳ برای (b[0-9]{1,8})/u', (string) ($k['commit']['message'] ?? ''), $m)) foreach ($m[1] as $x) $keys[$x] = true;
+        $next[$name] = ['sha' => $sha, 'keys' => array_keys($keys)];
+    }
+    board_write('stranded-cache.json', $next);
+    $out = [];
+    foreach ($next as $name => $x) foreach ($x['keys'] as $k) if (isset($want[$k])) $out[$k] = $name;
+    return $out;
 }
 
 /** From tick.php (cron). Never stops the workflow status tick. */
