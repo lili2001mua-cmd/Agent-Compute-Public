@@ -504,6 +504,23 @@ function board_build(): array {
 }
 
 /** From tick.php (cron). Never stops the workflow status tick. */
+/** Cron only: the web PHP may be fenced to its own domain folder, the cron is not; so photo covers are fetched here
+ *  (≤12 per tick) into the same cache op=cover serves. Its yes/no diagnosis is kept for op=ping&diag=cover. */
+function board_prefetch_photo_covers(array $b): void {
+    $d = board_photo_cover_diag();
+    board_write('photo-cover-diag.json', $d + ['at' => time()]);
+    if (!$d['token']) return;
+    $keys = [];
+    array_walk_recursive($b, function ($v, $k) use (&$keys) { if ($k === 'key' && is_string($v) && preg_match('/^b\d+$/', $v)) $keys[$v] = true; });
+    $dir = board_var('covers'); $n = 0;
+    foreach (array_keys($keys) as $k) {
+        if (is_file($dir . '/' . md5($k) . '.jpg')) continue;
+        @unlink($dir . '/' . md5($k) . '.jpg.none3');
+        board_cover_file($k);
+        if (++$n >= 12) break;
+    }
+}
+
 function board_tick(): void {
     $lock = fopen(board_var('board.lock'), 'c');
     if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) return;
@@ -512,6 +529,7 @@ function board_tick(): void {
         if ($b['population'] === 0 || array_sum($b['count']) !== $b['population']) throw new RuntimeException('columns do not add up to the population');
         board_write('board.json', $b);
         board_write('board-state.json', ['ok' => true, 'at' => time()]);
+        board_prefetch_photo_covers($b);
     } catch (Throwable $e) {
         board_write('board-state.json', ['ok' => false, 'at' => time(), 'error' => substr($e->getMessage(), 0, 200)]);
         ctl_log('board ' . substr($e->getMessage(), 0, 200));
