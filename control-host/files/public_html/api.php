@@ -120,6 +120,13 @@ if ($op === 'step3-fire') {
     if (($fs[$key]['state'] ?? '') === 'fired' && time() - (int) ($fs[$key]['at'] ?? 0) < 3600) out(409, ['ok' => false, 'error' => 'a session for this bundle was started less than an hour ago']);
     file_put_contents($dir . '/' . time() . '-' . $key . '.json', json_encode(['key' => $key, 'at' => time(),
         'device' => (string) $_SERVER['HTTP_X_HC_DEVICE']]), LOCK_EX);
+    // «در حال ساخت» survives a reload of the app: the request is in fire-state until routine.hohedoc.ir writes
+    // fired/failed over it (user ask 1405-08-18: the button must stay «در حال ساخت» until the bundle moves on)
+    $fs[$key] = ['key' => $key, 'state' => 'requested', 'at' => time()];
+    $ff = ctl_var('fire-state.json');
+    file_put_contents($ff . '.tmp', json_encode($fs, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), LOCK_EX);
+    @chmod($ff . '.tmp', 0600);
+    rename($ff . '.tmp', $ff);
     ctl_log("step3-fire request $key");
     out(200, ['ok' => true, 'key' => $key, 'note' => 'routine.hohedoc.ir fires it within 5 minutes']);
 }
