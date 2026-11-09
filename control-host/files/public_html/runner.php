@@ -2,6 +2,7 @@
 // درِ رانرِ زنجیرهٔ دکمه (button-chain.yml ِ مخزنِ خصوصی) — فقط با امضای OIDC ِ خودِ گیت‌هاب، بی هیچ رازی.
 //   POST runner.php?op=step3  {key}  → درخواستِ گامِ ۳ برای routine.hohedoc.ir (همان صفِ var/fire-req ِ op=step3-fire)
 //   POST runner.php?op=enrich {key, media_url, source, whisper_model, media_urls} → دیسپچِ enrich.yml ِ مخزنِ عمومی (گامِ ۲)
+//   POST runner.php?op=artifact {artifact_id} → {url}: نشانیِ امضاشدهٔ کوتاه‌عمرِ زیپِ یک آرتیفکتِ مخزنِ عمومی (فرودِ گامِ ۲)
 // ⛔ هیچ توکن یا رازی برگردانده نمی‌شود.
 require __DIR__ . '/../app/lib.php';
 require __DIR__ . '/../app/runner-auth.php';
@@ -48,5 +49,20 @@ if ($op === 'enrich') {
     ctl_log("runner enrich $key -> http=$code <- $run");
     if ($code !== 204) rout(502, ['ok' => false, 'error' => 'dispatch failed: HTTP ' . $code . ' ' . mb_substr($raw, 0, 200)]);
     rout(200, ['ok' => true, 'key' => $key]);
+}
+if ($op === 'artifact') {
+    // فقط آرتیفکتِ مخزنِ عمومی و فقط نامِ enriched-<key> ؛ پاسخ نشانیِ ریدایرکتِ یک‌دقیقه‌ایِ گیت‌هاب است، نه توکن.
+    $in = json_decode((string) file_get_contents('php://input'), true) ?: [];
+    $id = (int) ($in['artifact_id'] ?? 0);
+    if ($id <= 0) rout(400, ['ok' => false, 'error' => 'bad artifact_id']);
+    [$c0, $meta] = gh('GET', '/repos/lili2001mua-cmd/Agent-Compute-Public/actions/artifacts/' . $id);
+    if ($c0 !== 200 || !preg_match('/^enriched-b[0-9]{1,8}$/', (string) ($meta['name'] ?? ''))) rout(404, ['ok' => false, 'error' => 'artifact not allowed']);
+    $ch = curl_init('https://api.github.com/repos/lili2001mua-cmd/Agent-Compute-Public/actions/artifacts/' . $id . '/zip');
+    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_HEADER => true, CURLOPT_NOBODY => false, CURLOPT_FOLLOWLOCATION => false, CURLOPT_TIMEOUT => 25,
+        CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . ctl_gh_token(), 'Accept: application/vnd.github+json', 'User-Agent: control-hohedoc']]);
+    $raw = (string) curl_exec($ch); $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
+    if ($code !== 302 || !preg_match('/^location:\s*(https:\/\/\S+)/mi', $raw, $m)) rout(502, ['ok' => false, 'error' => 'no redirect: HTTP ' . $code]);
+    ctl_log("runner artifact $id ({$meta['name']}) <- $run");
+    rout(200, ['ok' => true, 'url' => trim($m[1])]);
 }
 rout(404, ['ok' => false, 'error' => 'unknown op']);
