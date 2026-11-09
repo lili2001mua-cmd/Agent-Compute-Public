@@ -2,6 +2,7 @@
 // درِ رانرِ زنجیرهٔ دکمه (button-chain.yml ِ مخزنِ خصوصی) — فقط با امضای OIDC ِ خودِ گیت‌هاب، بی هیچ رازی.
 //   POST runner.php?op=step3  {key}  → درخواستِ گامِ ۳ برای routine.hohedoc.ir (همان صفِ var/fire-req ِ op=step3-fire)
 //   POST runner.php?op=enrich {key, media_url, source, whisper_model, media_urls} → دیسپچِ enrich.yml ِ مخزنِ عمومی (گامِ ۲)
+//   POST runner.php?op=progress {stage, key, error, link} → وضعیتِ زندهٔ دکمهٔ «بستهٔ تازه» (app/button.php)
 //   POST runner.php?op=gh-get {path}  → {data}: فقط خواندنِ اجراها/آرتیفکت‌های enrich.yml ِ مخزنِ عمومی (دادهٔ عمومی)
 //   POST runner.php?op=artifact {artifact_id} → {url}: نشانیِ امضاشدهٔ کوتاه‌عمرِ زیپِ یک آرتیفکتِ مخزنِ عمومی (فرودِ گامِ ۲)
 // ⛔ هیچ توکن یا رازی برگردانده نمی‌شود.
@@ -50,6 +51,23 @@ if ($op === 'enrich') {
     ctl_log("runner enrich $key -> http=$code <- $run");
     if ($code !== 204) rout(502, ['ok' => false, 'error' => 'dispatch failed: HTTP ' . $code . ' ' . mb_substr($raw, 0, 200)]);
     rout(200, ['ok' => true, 'key' => $key]);
+}
+if ($op === 'progress') {
+    require_once __DIR__ . '/../app/button.php';
+    $in = json_decode((string) file_get_contents('php://input'), true) ?: [];
+    $stage = (string) ($in['stage'] ?? ''); $key = (string) ($in['key'] ?? '');
+    if (!in_array($stage, ['step1', 'step2', 'step3', 'delivering', 'delivered', 'failed'], true)) rout(400, ['ok' => false, 'error' => 'bad stage']);
+    if ($key !== '' && !preg_match('/^b[0-9]{1,8}$/', $key)) rout(400, ['ok' => false, 'error' => 'bad key']);
+    $s = btn_read();
+    // فقط رکوردِ زنده‌ای که همین بسته را دارد (یا هنوز کلید ندارد) جلو می‌رود؛ کارِ after ِ بسته‌های دیگر دست نمی‌زند
+    if (!btn_active($s) || (($s['key'] ?? '') !== '' && $key !== '' && $s['key'] !== $key)) rout(200, ['ok' => true, 'ignored' => true]);
+    $link = (string) ($in['link'] ?? '');
+    if ($link !== '' && !preg_match('~^https://t\.me/c/[0-9]+/[0-9]+$~', $link)) $link = '';
+    $s = btn_set($s, $stage, ['key' => $key, 'link' => $link, 'error' => mb_substr((string) ($in['error'] ?? ''), 0, 200),
+                              'run' => preg_replace('/[^0-9]/', '', (string) ($claims['run_id'] ?? '')), 'note' => mb_substr((string) ($in['note'] ?? ''), 0, 120)]);
+    btn_write($s);
+    ctl_log("runner progress $stage $key <- $run");
+    rout(200, ['ok' => true, 'button' => btn_public()]);
 }
 if ($op === 'gh-get') {
     // فقط سه مسیرِ خواندنیِ دادهٔ عمومیِ همان مخزن؛ هر چیزِ دیگر رد.

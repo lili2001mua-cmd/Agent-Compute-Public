@@ -427,6 +427,9 @@ function board_build(): array {
             $step = '3'; $sub = 'گزارش آماده؛ ببین و نظرت را بگو';
         }
         $rs = $s3runs[$k] ?? '';
+        // ⛔ اجرای ناتمامی که پس از آن گزارشِ کامل نشسته کهنه است (۱۴۰۵-۰۸-۱۹ · b8877: بارِ اول ناتمام، بارِ دوم کامل؛ دیسپچر
+        //    برای بارِ دوم فایلِ done ننوشت و کارت پرچمِ «ناموفق» گرفت)
+        if ($rs === 'failed' && ($h['status'] ?? '') === 'step3-done') $rs = '';
         if (!$isclosed && in_array($rs, ['partial', 'failed'], true)) {
             $flags[] = 'اجرای گامِ ۳ «' . ($rs === 'partial' ? 'نیمه‌کاره' : 'ناموفق') . '» ثبت شد — پرامپتِ ترمیم: Memory-Workflow/routine-host/runs/repair-prompt.md';
             if ($step !== '3' && $ent === 0) { $step = '3'; $sub = 'گامِ ۳ کامل نشد؛ اول ترمیم'; }
