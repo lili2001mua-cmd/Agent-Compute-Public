@@ -1,6 +1,7 @@
 <?php
 // درِ رانرِ زنجیرهٔ دکمه (button-chain.yml ِ مخزنِ خصوصی) — فقط با امضای OIDC ِ خودِ گیت‌هاب، بی هیچ رازی.
 //   POST runner.php?op=step3  {key}  → درخواستِ گامِ ۳ برای routine.hohedoc.ir (همان صفِ var/fire-req ِ op=step3-fire)
+//   POST runner.php?op=enrich {key, media_url, source, whisper_model, media_urls} → دیسپچِ enrich.yml ِ مخزنِ عمومی (گامِ ۲)
 // ⛔ هیچ توکن یا رازی برگردانده نمی‌شود.
 require __DIR__ . '/../app/lib.php';
 require __DIR__ . '/../app/runner-auth.php';
@@ -27,5 +28,25 @@ if ($op === 'step3') {
     file_put_contents($dir . '/' . time() . '-' . $key . '.json', json_encode(['key' => $key, 'at' => time(), 'device' => 'runner:' . $run]), LOCK_EX);
     ctl_log("runner step3 request $key <- $run");
     rout(200, ['ok' => true, 'key' => $key, 'note' => 'routine.hohedoc.ir fires it within 5 minutes']);
+}
+if ($op === 'enrich') {
+    // گامِ ۲: فقط همین یک ورک‌فلوی عمومی، با ورودی‌های سنجیده؛ لینک‌ها فقط لینکِ دانلودِ مستقیمِ درایو.
+    $in = json_decode((string) file_get_contents('php://input'), true) ?: [];
+    $drive = '~^https://drive\.google\.com/uc\?export=download&id=[A-Za-z0-9_-]{10,120}$~';
+    $key = (string) ($in['key'] ?? ''); $url = (string) ($in['media_url'] ?? '');
+    $src = (string) ($in['source'] ?? 'telegram'); $model = (string) ($in['whisper_model'] ?? 'medium');
+    $urls = (string) ($in['media_urls'] ?? '');
+    if (!preg_match('/^b[0-9]{1,8}$/', $key) || !preg_match($drive, $url)) rout(400, ['ok' => false, 'error' => 'bad key or media_url']);
+    if (!in_array($src, ['telegram', 'drive'], true) || !in_array($model, ['small', 'medium'], true)) rout(400, ['ok' => false, 'error' => 'bad source or model']);
+    if (strlen($urls) > 20000) rout(400, ['ok' => false, 'error' => 'media_urls too long']);
+    foreach (array_filter(explode("\n", $urls), 'strlen') as $line) {
+        if (!preg_match('~^\S{1,160} (\S+)$~', $line, $m) || !preg_match($drive, $m[1])) rout(400, ['ok' => false, 'error' => 'bad media_urls line']);
+    }
+    $inputs = ['key' => $key, 'media_url' => $url, 'source' => $src, 'whisper_model' => $model];
+    if ($urls !== '') $inputs['media_urls'] = $urls;
+    [$code, , $raw] = gh('POST', '/repos/lili2001mua-cmd/Agent-Compute-Public/actions/workflows/enrich.yml/dispatches', ['ref' => 'main', 'inputs' => $inputs]);
+    ctl_log("runner enrich $key -> http=$code <- $run");
+    if ($code !== 204) rout(502, ['ok' => false, 'error' => 'dispatch failed: HTTP ' . $code . ' ' . mb_substr($raw, 0, 200)]);
+    rout(200, ['ok' => true, 'key' => $key]);
 }
 rout(404, ['ok' => false, 'error' => 'unknown op']);
