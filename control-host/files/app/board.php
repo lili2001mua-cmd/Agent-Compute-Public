@@ -177,8 +177,8 @@ function board_cover_file(string $k): ?string {
     $f = $dir . '/' . md5($k) . '.jpg'; $miss = $f . '.none';
     if (is_file($f)) return $f;
     // ⛔ نامِ تازهٔ نشانِ «نبود» (۱۴۰۵-۰۸-۱۸): نشان‌های پیشین پیش از راهِ عکسیِ Drive ساخته شده بودند و یک روز کاورِ ۵۵ بستهٔ عکسی را می‌بستند.
-    $miss = $f . '.none2';
-    if (is_file($miss) && time() - filemtime($miss) < 86400) return null;
+    $miss = $f . '.none3';
+    if (is_file($miss) && time() - filemtime($miss) < 3600) return null;   // یک ساعت، نه یک روز: نبودِ کاور زود بازآزموده شود
     $idx = board_read('covers.json', []);
     $path = is_array($idx[$k] ?? null) ? (string) ($idx[$k]['path'] ?? '') : '';
     if ($path === '') {
@@ -231,6 +231,16 @@ function board_photo_cover(string $k): ?string {
         CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $tok, 'User-Agent: control-hohedoc']]);
     $raw = curl_exec($ch); $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
     return ($code === 200 && is_string($raw) && strlen($raw) > 100) ? $raw : null;
+}
+
+/** Booleans only (no path, no key): can this host read the studio's Drive files and mint a token? For op=ping&diag=cover. */
+function board_photo_cover_diag(): array {
+    $root = realpath(CTL_ROOT) ?: CTL_ROOT;
+    $var = dirname($root) . '/studio.hohedoc.ir/var';
+    $def = @json_decode((string) @file_get_contents($var . '/drive-default.json'), true);
+    $acc = preg_replace('/[^A-Za-z0-9_-]/', '', (string) ($def['account'] ?? 'BACKUP'));
+    return ['studio_var' => is_dir($var), 'default' => is_array($def), 'account' => is_file($var . '/drive-accounts/' . $acc . '.json'),
+            'client' => is_file($var . '/drive-web-client.json'), 'token' => board_drive_token() !== null];
 }
 
 /** Access token of the holding's Drive account, refreshed from studio.hohedoc.ir's own files (same server account). */
