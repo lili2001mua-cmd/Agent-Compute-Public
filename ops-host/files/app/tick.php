@@ -72,6 +72,10 @@ $sa = @json_decode((string) @file_get_contents(OPS_ROOT . '/drive-sa.json'), tru
 $df['sa_valid'] = is_array($sa) && ($sa['type'] ?? '') === 'service_account' && !empty($sa['private_key']);
 file_put_contents(ops_var('drive-files.json'), json_encode($df));
 
+// main debt deadlines (app/debt.php, ر۹ ِ commit-path-repair, 1405-08-19): one Telegram alert per step past its 48 h deadline.
+require_once __DIR__ . '/debt.php';
+debt_tick();
+
 // landing queue (app/lander.php, ر۷ ِ commit-path-repair, 1405-08-19): mode from the private repo's flag file; shadow
 // writes only refs/heads/shadow/main. Before the long bus tick.
 require_once __DIR__ . '/lander.php';

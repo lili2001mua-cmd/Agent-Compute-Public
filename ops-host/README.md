@@ -22,6 +22,8 @@ Watched routines and their limits: `OPS_WATCH` in `files/app/lib.php`. Since 140
 
 | landing queue (ر۷ of the private repo's `commit-path-repair`, 1405-08-19) | `app/lander.php`, every tick: mode from Agent-Project-Backup `main` → `Sys.registry/commit-path-flags.json` (`flags.r7_land`). `shadow` writes **only** `refs/heads/shadow/main`: for each `land/<session>` evidence commit (first parent = candidate, message `land-evidence: {…}`) it fast-forwards shadow/main to the candidate only while shadow/main still equals the evidence base (CAS), else answers `rebase`; afterwards shadow/main follows `main` for writers outside the queue. No guard, no generator, no git on the host. `live` is refused by this version. Answers: `land.php?s=<session>`; `status.php` → `lander` (mode, `sha256` of `app/lander.php`, last round). The private repo replays this same file locally (`Sys.scripts/land-replay.php`) and checks the sha256. |
 
+| main debt deadlines (ر۹ of `commit-path-repair`, 1405-08-19) | `app/debt.php`, once an hour: reads `Memory-Workflow/invariants-runs/debt-ledger.json` from Agent-Project-Backup `main` (built by `Sys.scripts/debt-ledger.py` after every local invariants run). One Telegram alert per red step past its 48 h deadline (with its owner), one recovery message when it leaves the ledger. `status.php` → `debt` (counts only). |
+
 ## Doors
 
 - `POST https://ops.hohedoc.ir/beat.php` with `id=<routine>` [`sha=<commit>`]. No key: a forged beat can only
