@@ -44,12 +44,23 @@ function board_probes(string $yaml): array {
         preg_match('/^\s*bundle:\s*"?([^"\n]+)"?/m', $blk, $b);
         preg_match('/^\s*test_result:\s*"?([^"\n]*)"?/m', $blk, $t);
         preg_match('/^\s*created:\s*"?([^"\n]*)"?/m', $blk, $c);
-        if (!empty($b[1])) $out[trim($b[1])][] = ['r' => trim($t[1] ?? ''), 'd' => board_jdigits(trim($c[1] ?? ''))];
+        // ⛔ 1405-08-19: latest run time (test_run_utc / last_run_utc). A re-run of step 3.6 on a probe that already passed
+        //    changed nothing on the board, so the app's «اجرا» spinner never stopped (it waits for the bundle signature to
+        //    change). The run time rides inside step36_result, so every run — even a re-run — changes the signature.
+        $ts = 0;
+        foreach (['test_run_utc', 'last_run_utc'] as $f)
+            if (preg_match('/^\s*' . $f . ':\s*"?([0-9T:\-Z]+)"?/m', $blk, $m)) $ts = max($ts, (int) strtotime($m[1]));
+        if (!empty($b[1])) $out[trim($b[1])][] = ['r' => trim($t[1] ?? ''), 'd' => board_jdigits(trim($c[1] ?? '')), 't' => $ts];
     }
     return $out;
 }
 
 /** «۱۴۰۵-۰۸-۰۲» ⇒ «1405-08-02» (ledger rows and probes write Jalali days in either digit set). */
+/** HH:MM in Tehran time with Persian digits (UTC+3:30; Iran has no DST). */
+function board_tehran_hm(int $ts): string {
+    return strtr(gmdate('H:i', $ts + 12600), ['0' => '۰', '1' => '۱', '2' => '۲', '3' => '۳', '4' => '۴', '5' => '۵', '6' => '۶', '7' => '۷', '8' => '۸', '9' => '۹']);
+}
+
 function board_jdigits(string $s): string { return strtr($s, ['۰' => '0', '۱' => '1', '۲' => '2', '۳' => '3', '۴' => '4', '۵' => '5', '۶' => '6', '۷' => '7', '۸' => '8', '۹' => '9']); }
 
 function board_head(string $md): array {
@@ -383,7 +394,8 @@ function board_build(): array {
         // a probe belongs to the cycle it was written in: a bundle re-harvested and mapped again (urgent-reharvest-41
         // purged reports, feedback and ledger rows but not probes.yaml) must not inherit the old cycle's 3.6 (b6943, 1405-08-18)
         $cycle = min(array_map(fn($e) => board_jdigits((string) ($e['date'] ?? '')), $es) ?: ['']);
-        $pr = array_values(array_map(fn($x) => $x['r'], array_filter($probes[$k] ?? [], fn($x) => $cycle === '' || $x['d'] === '' || $x['d'] >= $cycle)));
+        $prE = array_values(array_filter($probes[$k] ?? [], fn($x) => $cycle === '' || $x['d'] === '' || $x['d'] >= $cycle));
+        $pr = array_map(fn($x) => $x['r'], $prE);
         $ps = $pool[$k]['status'] ?? null;
         $outpool = $ps === null && !isset($closed[$k]) && !isset($docsClosed[$k]);
         $allpass = $pr && count(array_filter($pr, fn($x) => $x === 'pass')) === count($pr);
@@ -458,7 +470,8 @@ function board_build(): array {
         $step36res = [];
         foreach (array_values($pr) as $pi => $pres) {
             $lbl = $pres === 'pass' ? 'پاس' : ($pres === 'fail' ? 'رد' : ($pres !== '' ? $pres : 'آزمون نشده'));
-            $step36res[] = 'کاوشگرِ ' . ($pi + 1) . ': ' . $lbl;
+            $rt = (int) ($prE[$pi]['t'] ?? 0);
+            $step36res[] = 'کاوشگرِ ' . ($pi + 1) . ': ' . $lbl . ($rt ? ' · ' . board_tehran_hm($rt) : '');
         }
         $step4res = [];
         if ($isclosed) { $step4res[] = $sub; foreach ($flags as $fl) $step4res[] = $fl; }
