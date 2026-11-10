@@ -56,5 +56,18 @@ require_once __DIR__ . '/board.php';
 board_tick();   // trainer project-control board (separate lock; its error never stops the status above)
 require_once __DIR__ . '/button.php';
 try { btn_tick(); } catch (Throwable $e) { ctl_log('button tick ' . substr($e->getMessage(), 0, 200)); }   // نگهبانِ دکمهٔ «بستهٔ تازه»
+// ⛔ در مرحله‌های step3 و delivering نگهبان هر ۳۰ ثانیه تا ۲۴۰ ثانیه دوباره می‌سنجد (دفترچهٔ بهینه‌سازی ۱۴۰۵-۰۸-۱۹، بندِ ۲):
+//    فاصلهٔ شلیکِ الف تا ب و تلاشِ دوباره از «تا ۵ دقیقه» به «تا ۳۰ ثانیه». همان الگوی R_POLL_SECONDS ِ هاستِ روتین؛ قفلِ خودش
+//    دو کرونِ هم‌پوشان را یکی می‌کند و بررسیِ «$same» در btn_tick از دو بار شلیک جلوگیری می‌کند. C_POLL_SECONDS=0 ⇒ رفتارِ قبلی.
+$__bpoll = (int) (getenv('C_POLL_SECONDS') !== false ? getenv('C_POLL_SECONDS') : 240);
+$__blk = @fopen(ctl_var('button-poll.lock'), 'c');
+if ($__bpoll > 0 && $__blk && flock($__blk, LOCK_EX | LOCK_NB)) {
+    for ($__t = 30; $__t <= $__bpoll; $__t += 30) {
+        if (!in_array(btn_read()['stage'] ?? '', ['step3', 'delivering'], true)) break;
+        sleep(30);
+        try { btn_tick(); } catch (Throwable $e) { ctl_log('button tick(poll) ' . substr($e->getMessage(), 0, 200)); }
+    }
+    flock($__blk, LOCK_UN);
+}
 require_once __DIR__ . '/projects.php';
 try { projects_tick(); } catch (Throwable $e) { ctl_log('projects tick: ' . $e->getMessage()); }   // «پروژه‌ها» of the app, live from the IDEA-ORCH docs (own lock; its error never stops the rest)

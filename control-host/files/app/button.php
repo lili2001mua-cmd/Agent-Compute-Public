@@ -101,7 +101,9 @@ function btn_tick(): void {
     }
     if (!btn_active($s)) return;
     $now = time(); $stage = $s['stage']; $since = (int) ($s['stage_at'] ?? $now); $key = (string) ($s['key'] ?? '');
-    $same = fn(array $x) => ($x['id'] ?? '') === ($s['id'] ?? '') && ($x['stage'] ?? '') === $stage && (int) ($x['stage_at'] ?? 0) === $since;
+    // ⛔ «عوض نشده» شمارهٔ تلاش را هم می‌سنجد: دو تیکِ هم‌زمان در یک ثانیه هر دو stage_at ِ یکسان می‌دیدند و retries دو بار بالا می‌رفت
+    $same = fn(array $x) => ($x['id'] ?? '') === ($s['id'] ?? '') && ($x['stage'] ?? '') === $stage && (int) ($x['stage_at'] ?? 0) === $since
+                            && (int) ($x['retries'] ?? 0) === (int) ($s['retries'] ?? 0);
     if ($now - (int) ($s['pressed_at'] ?? $now) > 60 * BTN_TOTAL_MIN) { btn_fail($s, 'زمانِ کلِ این بسته گذشت', $stage); return; }
     // هاستِ روتین شلیک را رد کرد (مسلح نیست، کشورِ نامعتبر، کلیدِ ناسالم) یا شلیک کرد ولی گزارشِ step3 ِ رانر نرسید
     if ($key !== '' && in_array($stage, ['step2', 'step3'], true)) {
