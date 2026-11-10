@@ -25,7 +25,18 @@ if ($op === 'step3') {
     $key = (string) ($in['key'] ?? '');
     if (!preg_match('/^b[0-9]{1,8}$/', $key)) rout(400, ['ok' => false, 'error' => 'bad key']);
     $fs = @json_decode((string) @file_get_contents(ctl_var('fire-state.json')), true) ?: [];
-    if (($fs[$key]['state'] ?? '') === 'fired' && time() - (int) ($fs[$key]['at'] ?? 0) < 3600) rout(409, ['ok' => false, 'error' => 'step 3 for this bundle was started less than an hour ago']);
+    // ⛔ قفلِ هوشمند (۱۴۰۵-۰۸-۱۹ · خواستِ کاربر «شلیکِ ب را بعد از موفقیتِ الف بزن و یک ساعت صبر نکن»): شلیکِ دوباره فقط تا
+    //    وقتی رد می‌شود که سشنِ قبلی هنوز فایلِ پایانش (done/failed ِ step3-<key>-<زمانِ تهران>) را روی main ننشانده؛ سقفِ ۱ ساعت
+    //    همچنان پشتیبان است اگر سشن هیچ ردی نگذاشت.
+    if (($fs[$key]['state'] ?? '') === 'fired' && time() - (int) ($fs[$key]['at'] ?? 0) < 3600) {
+        $mark = (new DateTime('@' . (int) $fs[$key]['at']))->setTimezone(new DateTimeZone('Asia/Tehran'))->format('YmdHi');
+        [$c, $ls] = gh('GET', '/repos/' . CTL_REPO . '/contents/Memory-Workflow/routine-host/runs?ref=' . CTL_BRANCH);
+        $ended = false;
+        foreach (($c === 200 && is_array($ls) ? $ls : []) as $f) {
+            if (preg_match('/^step3-' . preg_quote($key, '/') . '-([0-9]{12})\.(done|failed)\.json$/', (string) ($f['name'] ?? ''), $m) && $m[1] >= $mark) $ended = true;
+        }
+        if (!$ended) rout(409, ['ok' => false, 'error' => 'the step-3 session for this bundle is still running (no end file yet)']);
+    }
     $dir = ctl_var('fire-req');
     if (!is_dir($dir)) mkdir($dir, 0700, true);
     file_put_contents($dir . '/' . time() . '-' . $key . '.json', json_encode(['key' => $key, 'at' => time(), 'device' => 'runner:' . $run]), LOCK_EX);
