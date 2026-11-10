@@ -231,21 +231,29 @@ function board_photo_cover(string $k): ?string {
         if ($raw !== null) { $st = json_decode($raw, true); break; }
     }
     if (!is_array($st) || ($st['media_kind'] ?? '') !== 'photo') return null;
-    $up = $st['drive_files']['uploaded'] ?? [];
+    // ⛔ کاورِ ماندگار اول (۱۴۰۵-۰۸-۱۹ · ردیف: photo-bundle-cover-dies-with-the-drive-purge · قفل: photo-bundle-cover-outlives-the-purge):
+    //    تحویلِ شبانه پوشهٔ درایوِ بسته را همان شب پاک می‌کند؛ نسخهٔ intake-pool/covers/<key>.jpg می‌ماند (Sys.scripts/pool_cover_keep.py).
     $fr = [];
+    $cid = (string) ($st['cover_drive_id'] ?? '');
+    if ($cid !== '') $fr[''] = $cid;
+    $up = $st['drive_files']['uploaded'] ?? [];
     foreach ((array) $up as $u) {
         $p = (string) ($u['rel_path'] ?? ''); $id = (string) ($u['drive_id'] ?? '');
         if ($id !== '' && str_starts_with($p, 'frames/') && preg_match('/\.(jpe?g|png|webp)$/i', $p)) $fr[$p] = $id;
     }
     if (!$fr) return null;
-    ksort($fr);
+    ksort($fr);                       // '' (کاورِ ماندگار) پیش از هر frames/...
     $tok = board_drive_token();
     if ($tok === null) return null;
-    $ch = curl_init('https://www.googleapis.com/drive/v3/files/' . rawurlencode(reset($fr)) . '?alt=media');
-    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 40, CURLOPT_FOLLOWLOCATION => true,
-        CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $tok, 'User-Agent: control-hohedoc']]);
-    $raw = curl_exec($ch); $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
-    return ($code === 200 && is_string($raw) && strlen($raw) > 100) ? $raw : null;
+    foreach ([reset($fr), next($fr)] as $id) {   // کاورِ ماندگار، و اگر نبود اسلایدِ اولِ پوشهٔ بسته
+        if (!$id) break;
+        $ch = curl_init('https://www.googleapis.com/drive/v3/files/' . rawurlencode($id) . '?alt=media');
+        curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 40, CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $tok, 'User-Agent: control-hohedoc']]);
+        $raw = curl_exec($ch); $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
+        if ($code === 200 && is_string($raw) && strlen($raw) > 100) return $raw;
+    }
+    return null;
 }
 
 /** Booleans only (no path, no key): can this host read the studio's Drive files and mint a token? For op=ping&diag=cover. */
