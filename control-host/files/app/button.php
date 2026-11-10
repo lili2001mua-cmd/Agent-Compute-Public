@@ -73,6 +73,19 @@ function btn_archive_link(string $key): string {
     return '';
 }
 
+/** شاهدِ اینکه گامِ ۳ ِ بسته واقعاً تمام شده: گزارشِ step3-done روی main ، یا بستهٔ بسته‌شده (close-package گزارش را پاک می‌کند).
+ *  ⛔ پیوندِ آرشیو شاهد نیست: تحویلِ شبانه (nightly-pool) بسته را پیش از نگاشت هم به کانال می‌برد
+ *  (۱۴۰۵-۰۸-۱۹ · b8875 · ردیف: archive-link-taken-as-step3-proof). */
+function btn_step3_proven(string $key): bool {
+    $rep = gh_raw("Memory-Workflow/intake-pool/reports/$key.md");
+    if ($rep !== null && preg_match('/^status:\s*step3-done\b/m', $rep)) return true;
+    foreach (['telegram', 'drive'] as $src) {
+        $st = json_decode((string) gh_raw("Memory-Workflow/intake-pool/state/$src/$key/status.json"), true);
+        if (is_array($st)) return ($st['status'] ?? '') === 'بسته‌شده';
+    }
+    return false;
+}
+
 function btn_tehran_stamp(int $t): string { return (new DateTime('@' . $t))->setTimezone(new DateTimeZone('Asia/Tehran'))->format('YmdHi'); }
 
 /** شکستِ کرون: اجرای گیت‌هابِ همان فشار هم لغو می‌شود تا فشارِ بعدی پشتِ آن در صف نماند. */
@@ -88,9 +101,10 @@ function btn_fail(array $obs, string $why, string $at): void {
 function btn_tick(): void {
     require_once __DIR__ . '/board.php';   // gh_raw
     $s = btn_read();
-    // ⛔ «نشد»ی که بسته‌اش بعداً (با ترمیم یا شلیکِ دستی) به کانال رسید، «رسید» می‌شود؛ وگرنه کارتِ قرمز دروغ می‌گوید (b8879)
+    // ⛔ «نشد»ی که بسته‌اش بعداً (با ترمیم یا شلیکِ دستی) گامِ ۳ را تمام کرد و به کانال رسید، «رسید» می‌شود؛ وگرنه کارتِ قرمز
+    //    دروغ می‌گوید (b8879). ⛔ ولی فقط با شاهدِ گامِ ۳ — پیوندِ کانال به‌تنهایی را تحویلِ شبانه هم می‌سازد (b8875).
     if (($s['stage'] ?? '') === 'failed' && ($s['key'] ?? '') !== '' && time() - (int) ($s['done_at'] ?? 0) < 24 * 3600) {
-        $link = btn_archive_link((string) $s['key']);
+        $link = btn_step3_proven((string) $s['key']) ? btn_archive_link((string) $s['key']) : '';
         if ($link !== '') btn_update(function (array $x) use ($s, $link) {
             if (($x['id'] ?? '') !== ($s['id'] ?? '') || ($x['stage'] ?? '') !== 'failed') return null;
             $x['stage'] = 'delivered'; $x['link'] = $link; $x['done_at'] = time(); unset($x['error'], $x['failed_stage']);
@@ -138,6 +152,8 @@ function btn_tick(): void {
         if ($failed) {
             $why = (string) ((json_decode((string) gh_raw('Memory-Workflow/routine-host/runs/' . $fname), true) ?: [])['reason'] ?? '');
             if (preg_match('/unreachable|403|denied|blocked|artifact|not-found/i', $why)) { btn_fail($s, 'گامِ ۳ به منبعِ لازم نرسید: ' . $why, 'step3'); return; }
+            // ⛔ شکستِ ساختاری (کار در یک نوبت جا نمی‌شود) هم با شلیکِ دوباره درست نمی‌شود — b8875: خوانشِ ۱۵۸۲ فایل
+            if (preg_match('/infeasible|did-not-fit/i', $why)) { btn_fail($s, 'گامِ ۳ در یک نوبت جا نشد (نیاز به ترمیم): ' . $why, 'step3'); return; }
         }
         if ($failed) {
             if ((int) ($s['retries'] ?? 0) < BTN_RETRY_STEP3) {
