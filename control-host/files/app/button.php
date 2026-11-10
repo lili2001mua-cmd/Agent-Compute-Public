@@ -101,9 +101,15 @@ function btn_tick(): void {
         }
         // فقط نشانهٔ واقعیِ شکست (فایلِ failed ِ دیسپچر پس از درخواست) تلاشِ دوباره می‌گیرد؛ دیرکردِ تنها هرگز دو سشنِ هم‌زمان نمی‌سازد
         [$c, $ls] = gh('GET', '/repos/' . CTL_REPO . '/contents/Memory-Workflow/routine-host/runs?ref=' . CTL_BRANCH);
-        $failed = false; $mark = btn_tehran_stamp($since);
+        $failed = false; $mark = btn_tehran_stamp($since); $fname = '';
         foreach (($c === 200 ? $ls : []) as $f) {
-            if (preg_match('/^step3-' . preg_quote($key, '/') . '-([0-9]{12})\.failed\.json$/', (string) ($f['name'] ?? ''), $m) && $m[1] >= $mark) $failed = true;
+            if (preg_match('/^step3-' . preg_quote($key, '/') . '-([0-9]{12})\.failed\.json$/', (string) ($f['name'] ?? ''), $m) && $m[1] >= $mark) { $failed = true; $fname = $f['name']; }
+        }
+        // ⛔ شکستِ محیطی (دسترسیِ بسته، 403 ، آرتیفکتِ نبود) با تلاشِ دوباره درست نمی‌شود — همان‌جا با دلیل بایست، سشنِ دوم نسوزان
+        //    (ردیف: photo-step3-needs-drive-but-session-is-github-only · b8879 دو بار با studio 403 افتاد)
+        if ($failed) {
+            $why = (string) ((json_decode((string) gh_raw('Memory-Workflow/routine-host/runs/' . $fname), true) ?: [])['reason'] ?? '');
+            if (preg_match('/unreachable|403|denied|blocked|artifact|not-found/i', $why)) { btn_fail($s, 'گامِ ۳ به منبعِ لازم نرسید: ' . $why, 'step3'); return; }
         }
         if ($failed) {
             if ((int) ($s['retries'] ?? 0) < BTN_RETRY_STEP3) {
