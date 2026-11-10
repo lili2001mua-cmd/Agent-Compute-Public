@@ -57,6 +57,8 @@ function btn_press(): array {
 function btn_public(): array {
     $s = btn_read();
     if (!$s) return ['stage' => ''];
+    // ⛔ «رسید» کارِ تمام‌شده است: ده دقیقه بعد کارت بسته می‌شود (خواستِ کاربر ۱۴۰۵-۰۸-۱۹ «باید بسته شده باشد و نشان داده نشود»)
+    if (($s['stage'] ?? '') === 'delivered' && time() - (int) ($s['done_at'] ?? 0) > 600) return ['stage' => ''];
     $out = array_intersect_key($s, array_flip(['id', 'pressed_at', 'stage', 'stage_at', 'key', 'link', 'error', 'retries', 'done_at', 'failed_stage']));
     $out['active'] = btn_active($s);
     return $out;
@@ -77,6 +79,18 @@ function btn_fail(array $obs, string $why, string $at): void {
 function btn_tick(): void {
     require_once __DIR__ . '/board.php';   // gh_raw
     $s = btn_read();
+    // ⛔ «نشد»ی که بسته‌اش بعداً (با ترمیم یا شلیکِ دستی) به کانال رسید، «رسید» می‌شود؛ وگرنه کارتِ قرمز دروغ می‌گوید (b8879)
+    if (($s['stage'] ?? '') === 'failed' && ($s['key'] ?? '') !== '' && time() - (int) ($s['done_at'] ?? 0) < 24 * 3600) {
+        $st = json_decode((string) gh_raw('Memory-Workflow/intake-pool/state/telegram/' . $s['key'] . '/status.json'), true);
+        $link = is_array($st) ? (string) (($st['archive'] ?? [])['link'] ?? '') : '';
+        if ($link !== '') btn_update(function (array $x) use ($s, $link) {
+            if (($x['id'] ?? '') !== ($s['id'] ?? '') || ($x['stage'] ?? '') !== 'failed') return null;
+            $x['stage'] = 'delivered'; $x['link'] = $link; $x['done_at'] = time(); unset($x['error'], $x['failed_stage']);
+            $x['history'][] = ['stage' => 'delivered', 'at' => time(), 'note' => 'پس از ترمیم به کانال رسید'];
+            return $x;
+        });
+        return;
+    }
     if (!btn_active($s)) return;
     $now = time(); $stage = $s['stage']; $since = (int) ($s['stage_at'] ?? $now); $key = (string) ($s['key'] ?? '');
     $same = fn(array $x) => ($x['id'] ?? '') === ($s['id'] ?? '') && ($x['stage'] ?? '') === $stage && (int) ($x['stage_at'] ?? 0) === $since;
