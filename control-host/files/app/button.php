@@ -11,7 +11,7 @@ require_once __DIR__ . '/lib.php';
 const BTN_STAGES = ['queued', 'step1', 'step2', 'step3', 'delivering', 'delivered', 'failed'];
 const BTN_LIMIT_MIN = ['queued' => 15, 'step1' => 60, 'step2' => 120, 'step3' => 90, 'delivering' => 45];
 const BTN_TOTAL_MIN = 330;   // سقفِ کلِ یک فشار (۵٫۵ ساعت) — زیرِ قفلِ ۶ ساعتهٔ اپ و فشارِ دوباره
-const BTN_RETRY_STEP3 = 1;   // یک تلاشِ دوبارهٔ خودکار برای گامِ ۳ (سشنِ ناتمام یا دیرکرد)، بعد «ناموفق»
+const BTN_RETRY_STEP3 = 2;   // دو شلیکِ دوباره: سشنِ اول ممکن است فقط گامِ ۲ را تمام کند (partial)، دومی فقط گامِ ۳ ؛ بعد «ناموفق»
 
 function btn_read(): array { return ctl_json_read('button-state.json', []) ?: []; }
 function btn_write(array $s): void { ctl_json_write('button-state.json', $s); }
@@ -104,6 +104,10 @@ function btn_tick(): void {
         $failed = false; $mark = btn_tehran_stamp($since); $fname = '';
         foreach (($c === 200 ? $ls : []) as $f) {
             if (preg_match('/^step3-' . preg_quote($key, '/') . '-([0-9]{12})\.failed\.json$/', (string) ($f['name'] ?? ''), $m) && $m[1] >= $mark) { $failed = true; $fname = $f['name']; }
+            // ⛔ اجرای «ناقص» (done با status=partial ، گزارشِ گامِ ۳ هنوز نیست) = سشن فقط بخشی را تمام کرد (معمولاً نیمهٔ سشنیِ گامِ ۲)؛
+            //    شلیکِ بعدی فقط گامِ ۳ را دارد (ایجنتِ تصمیم‌گیر ۱۴۰۵-۰۸-۱۹ · ردیف: step3-session-quit-saying-it-did-not-fit · b8879)
+            elseif (preg_match('/^step3-' . preg_quote($key, '/') . '-([0-9]{12})\.done\.json$/', (string) ($f['name'] ?? ''), $m) && $m[1] >= $mark
+                    && ((json_decode((string) gh_raw('Memory-Workflow/routine-host/runs/' . $f['name']), true) ?: [])['status'] ?? '') === 'partial') { $failed = true; $fname = $f['name']; }
         }
         // ⛔ شکستِ محیطی (دسترسیِ بسته، 403 ، آرتیفکتِ نبود) با تلاشِ دوباره درست نمی‌شود — همان‌جا با دلیل بایست، سشنِ دوم نسوزان
         //    (ردیف: photo-step3-needs-drive-but-session-is-github-only · b8879 دو بار با studio 403 افتاد)
@@ -118,14 +122,14 @@ function btn_tick(): void {
                     $dir = ctl_var('fire-req'); if (!is_dir($dir)) mkdir($dir, 0700, true);
                     file_put_contents($dir . '/' . $now . '-' . $key . '.json', json_encode(['key' => $key, 'at' => $now, 'device' => 'button-watch']), LOCK_EX);
                     $x['retries'] = (int) ($x['retries'] ?? 0) + 1;
-                    $x = btn_set($x, 'step3', ['note' => 'سشنِ گامِ ۳ ناتمام ماند؛ دوباره درخواست شد']);
+                    $x = btn_set($x, 'step3', ['note' => 'سشنِ گامِ ۳ ناتمام یا نیمه‌کاره ماند؛ شلیکِ بعدی فقط گامِ ۳']);
                     $x['stage_at'] = $now;
                     return $x;
                 });
                 if (($n['retries'] ?? 0) > ($s['retries'] ?? 0)) ctl_log("button step3 retry $key");
                 return;
             }
-            btn_fail($s, 'سشنِ گامِ ۳ دو بار ناتمام ماند', 'step3'); return;
+            btn_fail($s, 'سشنِ گامِ ۳ پس از سه شلیک هم گزارش نداد', 'step3'); return;
         }
     }
     if ($stage === 'delivering' && $key !== '') {
