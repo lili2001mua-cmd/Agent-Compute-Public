@@ -64,6 +64,15 @@ function btn_public(): array {
     return $out;
 }
 
+/** پیوندِ آرشیوِ بسته از main ، برای هر منبع (telegram یا drive) — یک جا برای همهٔ بررسی‌های «رسید». */
+function btn_archive_link(string $key): string {
+    foreach (['telegram', 'drive'] as $src) {
+        $st = json_decode((string) gh_raw("Memory-Workflow/intake-pool/state/$src/$key/status.json"), true);
+        if (is_array($st)) return (string) (($st['archive'] ?? [])['link'] ?? '');
+    }
+    return '';
+}
+
 function btn_tehran_stamp(int $t): string { return (new DateTime('@' . $t))->setTimezone(new DateTimeZone('Asia/Tehran'))->format('YmdHi'); }
 
 /** شکستِ کرون: اجرای گیت‌هابِ همان فشار هم لغو می‌شود تا فشارِ بعدی پشتِ آن در صف نماند. */
@@ -81,8 +90,7 @@ function btn_tick(): void {
     $s = btn_read();
     // ⛔ «نشد»ی که بسته‌اش بعداً (با ترمیم یا شلیکِ دستی) به کانال رسید، «رسید» می‌شود؛ وگرنه کارتِ قرمز دروغ می‌گوید (b8879)
     if (($s['stage'] ?? '') === 'failed' && ($s['key'] ?? '') !== '' && time() - (int) ($s['done_at'] ?? 0) < 24 * 3600) {
-        $st = json_decode((string) gh_raw('Memory-Workflow/intake-pool/state/telegram/' . $s['key'] . '/status.json'), true);
-        $link = is_array($st) ? (string) (($st['archive'] ?? [])['link'] ?? '') : '';
+        $link = btn_archive_link((string) $s['key']);
         if ($link !== '') btn_update(function (array $x) use ($s, $link) {
             if (($x['id'] ?? '') !== ($s['id'] ?? '') || ($x['stage'] ?? '') !== 'failed') return null;
             $x['stage'] = 'delivered'; $x['link'] = $link; $x['done_at'] = time(); unset($x['error'], $x['failed_stage']);
@@ -147,8 +155,7 @@ function btn_tick(): void {
         }
     }
     if ($stage === 'delivering' && $key !== '') {
-        $st = json_decode((string) gh_raw("Memory-Workflow/intake-pool/state/telegram/$key/status.json"), true);
-        $link = is_array($st) ? (string) (($st['archive'] ?? [])['link'] ?? '') : '';
+        $link = btn_archive_link($key);
         if ($link !== '') { btn_update(fn(array $x) => $same($x) ? btn_set($x, 'delivered', ['link' => $link, 'note' => 'در کانالِ Routine Trainer 1 & 2']) : null); return; }
     }
     if ($now - $since > 60 * (BTN_LIMIT_MIN[$stage] ?? 120)) {
