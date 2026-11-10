@@ -20,25 +20,40 @@ function sc_state(array $s): void {
     @rename($f . '.tmp', $f);
 }
 
+// ⛔ آزمونِ ۱۴۰۵-۰۸-۱۹ (ردیف: session-command-request-lost-on-coalesce): تا امروز هر نوبت فقط درخواستِ اول را برمی‌داشت
+//    و فایلِ درخواستی را که در پنجرهٔ ۵ دقیقه‌ای «ادغام» می‌شد پیش از تصمیم پاک می‌کرد؛ رانبوک هم در هر اجرا فقط
+//    قدیمی‌ترین فرمانِ pending را برمی‌دارد ⇒ فرمانِ دوم برای همیشه pending می‌ماند. حالا هر نوبت تا سه کارِ جدا
+//    شلیک می‌شود و درخواستِ ادغام‌شده سرِ جایش می‌ماند تا بعد از پنجره شلیک شود.
 function r_session_command_fire(): void {
     $reqs = glob(f_control_var() . '/sc-req/*.json') ?: [];
     if (!$reqs) return;
     sort($reqs);
-    $file = $reqs[0];
-    $q = json_decode((string) @file_get_contents($file), true) ?: [];
-    @unlink($file);                                         // one try per request; the app shows progress from the ledger
-    $task = (string) ($q['task'] ?? '');
-    if (!preg_match('/^(b[0-9]{1,8}|t-[a-z0-9-]{1,40})$/', $task)) return;
+    $done = [];
+    foreach ($reqs as $file) {
+        if (count($done) >= 3) break;                       // سقفِ هر نوبت: سه شلیک، تا اکانت سیل نخورد
+        $q = json_decode((string) @file_get_contents($file), true) ?: [];
+        $task = (string) ($q['task'] ?? '');
+        if (isset($done[$task])) { @unlink($file); continue; }   // همان کار در همین نوبت شلیک شد؛ سشن کلِ inbox را می‌خواند
+        $done[$task] = 1;
+        if (!r_session_command_fire_one($file, $task)) break;    // خطای اکانت/کلید ⇒ این نوبت بس است
+    }
+}
+
+/** یک درخواست؛ false یعنی شلیک به‌خاطرِ اکانت/کلید/مسلح‌نبودن شکست خورد و بقیهٔ نوبت هم بی‌فایده است. */
+function r_session_command_fire_one(string $file, string $task): bool {
+    if (!preg_match('/^(b[0-9]{1,8}|t-[a-z0-9-]{1,40})$/', $task)) { @unlink($file); return true; }
     $d = new DateTime('now', new DateTimeZone('Asia/Tehran'));
     $runId = 'sc-' . $task . '-' . $d->format('YmdHi');
     $base = ['task' => $task, 'run' => $runId, 'at' => time()];
-    // a session fired for this task less than 5 minutes ago is probably still draining the inbox; let it.
+    // a session fired for this task less than 5 minutes ago is probably still draining the inbox; keep the request
+    // file so the next tick after the window fires it (it used to be deleted here and the command was lost).
     $fs = @json_decode((string) @file_get_contents(f_control_var() . '/sc-fire-state.json'), true) ?: [];
-    if (($fs[$task]['state'] ?? '') === 'fired' && time() - (int) ($fs[$task]['at'] ?? 0) < 300) { sc_state($base + ['state' => 'coalesced']); return; }
-    if (!r_armed() || !r_country_ok()) { sc_state($base + ['state' => 'failed', 'error' => !r_armed() ? 'firing is not armed' : 'host country not confirmed']); return; }
+    if (($fs[$task]['state'] ?? '') === 'fired' && time() - (int) ($fs[$task]['at'] ?? 0) < 300) { return true; }
+    @unlink($file);                                         // one try per request; the app shows progress from the ledger
+    if (!r_armed() || !r_country_ok()) { sc_state($base + ['state' => 'failed', 'error' => !r_armed() ? 'firing is not armed' : 'host country not confirmed']); return false; }
     $jobs = r_jobs()['jobs'] ?? [];
     $job = null; foreach ($jobs as $j) if (($j['id'] ?? '') === 'session-command') $job = $j;
-    if (!$job) { sc_state($base + ['state' => 'failed', 'error' => 'session-command missing from jobs.json']); return; }
+    if (!$job) { sc_state($base + ['state' => 'failed', 'error' => 'session-command missing from jobs.json']); return false; }
     $keys = r_keys()['keys'];
     $health = r_read_json('keys-health.json');
     $scope = $job['account_class'];
@@ -53,11 +68,12 @@ function r_session_command_fire(): void {
         $health[$hk] = ['state' => 'ok', 'last_code' => $r['code'], 'at' => time()];
         if ($r['code'] === 429) $health[$hk] = ['state' => 'cooldown', 'until' => time() + max($r['retry'], 3600), 'last_code' => 429, 'at' => time()];
         r_write_json('keys-health.json', $health);
-        if ($r['code'] >= 200 && $r['code'] < 300) { sc_state($base + ['state' => 'fired', 'session' => $r['session']]); return; }
+        if ($r['code'] >= 200 && $r['code'] < 300) { sc_state($base + ['state' => 'fired', 'session' => $r['session']]); return true; }
         sc_state($base + ['state' => 'failed', 'error' => $r['code'] === 429 ? 'usage cap of the account' : 'Claude answered HTTP ' . $r['code']]);
-        return;                                             // one account, one try: never work around a cap or a refusal
+        return false;                                       // one account, one try: never work around a cap or a refusal
     }
     sc_state($base + ['state' => 'failed', 'error' => 'no healthy dispatcher key on the host']);
+    return false;
 }
 
 // ── پیگیریِ دفترِ زنده روی خودِ هاست (۱۴۰۵-۰۸-۱۷ · ردیف: progress-follow-up-was-scheduled-on-the-claude-account) ──
