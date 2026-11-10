@@ -1,14 +1,8 @@
 {
-<<<<<<< HEAD
-  "version": "20261109215123",
+  "version": "20261110040327",
   "files": {
-    "app/board.php": "b942e154cb8715a7e996d96ade349be69a73b8f8c6fcbec2c191ec7b2b4d59c4",
-=======
-  "version": "20261109215956",
-  "files": {
-    "app/board.php": "61b7b058a2eeabf9c532e9d5e53ff26cbbe77092e6946d20d1e87dc12dbbccda",
+    "app/board.php": "ff078167734a4c3581dfdaee5306220db3cd7a211207eb5034959bf3b5e26881",
     "app/button.php": "64c39cc8744c06fec2b900028765361e66d48b5f37314989f2d14c375c84c0e6",
->>>>>>> origin/ccr-36d89aed-vpwiz2
     "app/lib.php": "e91773ba13519fc78e810b2fd0e3e7f822cfdef80dda228210ae3ccacdea85e3",
     "app/projects.php": "8e480f6faeca9f17a46cb36e677c8dd5f8d073f944359a4ac8a077e4448921f5",
     "app/runner-auth.php": "75e766af15f079e9cd00a9581ab8b00072487863a8a44559b5c1b05282ba04bb",
