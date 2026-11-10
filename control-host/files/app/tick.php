@@ -54,5 +54,7 @@ ctl_json_write('status.json', ['at' => time(), 'repo' => CTL_REPO, 'workflows' =
 flock($lock, LOCK_UN);
 require_once __DIR__ . '/board.php';
 board_tick();   // trainer project-control board (separate lock; its error never stops the status above)
+require_once __DIR__ . '/button.php';
+try { btn_tick(); } catch (Throwable $e) { ctl_log('button tick ' . substr($e->getMessage(), 0, 200)); }   // نگهبانِ دکمهٔ «بستهٔ تازه»
 require_once __DIR__ . '/projects.php';
 try { projects_tick(); } catch (Throwable $e) { ctl_log('projects tick: ' . $e->getMessage()); }   // «پروژه‌ها» of the app, live from the IDEA-ORCH docs (own lock; its error never stops the rest)

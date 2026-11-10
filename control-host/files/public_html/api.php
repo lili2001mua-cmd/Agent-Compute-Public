@@ -51,7 +51,8 @@ if ($op === 'trainer-board' && $_SERVER['REQUEST_METHOD'] === 'GET') {
     $b = @json_decode((string) @file_get_contents(ctl_var('trainer-board') . '/board.json'), true);
     $st = @json_decode((string) @file_get_contents(ctl_var('trainer-board') . '/board-state.json'), true);
     $fire = @json_decode((string) @file_get_contents(ctl_var('fire-state.json')), true);   // written by routine.hohedoc.ir
-    out(200, ['ok' => true, 'state' => $st, 'board' => $b, 'fire' => is_array($fire) ? $fire : (object) []]);
+    require_once __DIR__ . '/../app/button.php';
+    out(200, ['ok' => true, 'state' => $st, 'board' => $b, 'fire' => is_array($fire) ? $fire : (object) [], 'button' => btn_public()]);
 }
 
 if ($op === 'backup-status' && $_SERVER['REQUEST_METHOD'] === 'GET') {
@@ -146,6 +147,12 @@ if ($op === 'session-command') {
     // ⛔ دکمهٔ «بستهٔ تازه» (t-intake) دیگر سشنِ کلاد را شلیک نمی‌کند (۱۴۰۵-۰۸-۱۸ · زنجیرهٔ مستقلِ دکمه): گام‌های ۱ و ۲ را
     // ورک‌فلوی button-chain.yml ِ مخزنِ خصوصی روی رانرِ گیت‌هاب اجرا می‌کند و گامِ ۳ را از راهِ runner.php درخواست می‌دهد.
     $button = $task === 't-intake';
+    if ($button) {
+        // ⛔ فشارِ دوم وقتی بستهٔ قبلی هنوز در راه است رد می‌شود (app/button.php)؛ اپ همان حالتِ در راه را نشان می‌دهد
+        require_once __DIR__ . '/../app/button.php';
+        [$fresh, $bs] = btn_press();
+        if (!$fresh) out(409, ['ok' => false, 'error' => 'بستهٔ تازهٔ قبلی هنوز در راه است', 'button' => btn_public()]);
+    }
     $files = [$path => json_encode(['text' => $text, 'at' => time(), 'device' => (string) ($_SERVER['HTTP_X_HC_DEVICE'] ?? ''), 'status' => $button ? 'button-chain' : 'pending'],
         JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)];
     // بستهٔ تازه دفتر ندارد (op فقط inbox می‌نوشت) — state.json/TASK.md را فقط اگر نبود بذر کن تا سشن مثلِ هر بستهٔ دیگر راه بیفتد.
@@ -161,12 +168,18 @@ if ($op === 'session-command') {
         $seeded = true;
     }
     [$ok, $sha] = ctl_commit($files, 'live-session ' . $task . ': فرمانِ مستقیم' . ($seeded ? ' + بذرِ دفتر' : '') . ' از نرم‌افزار [skip ci]');
-    if (!$ok) out(502, ['ok' => false, 'error' => 'commit failed: ' . $sha]);
+    if (!$ok) {
+        if ($button) btn_update(fn(array $x) => btn_set($x, 'failed', ['error' => 'ثبتِ فرمان روی گیت‌هاب نشد', 'note' => 'queued', 'at_stage' => 'queued']));
+        out(502, ['ok' => false, 'error' => 'commit failed: ' . $sha]);
+    }
     if ($button) {
         [$dc, , $draw] = gh('POST', '/repos/' . CTL_REPO . '/actions/workflows/button-chain.yml/dispatches', ['ref' => CTL_BRANCH, 'inputs' => ['mode' => 'intake']]);
         ctl_log("session-command $task -> button-chain dispatch http=$dc");
-        if ($dc !== 204) out(502, ['ok' => false, 'error' => 'button-chain dispatch failed: HTTP ' . $dc . ' ' . mb_substr($draw, 0, 200)]);
-        out(200, ['ok' => true, 'task' => $task, 'path' => $path, 'commit' => $sha, 'fire' => 'button-chain']);
+        if ($dc !== 204) {
+            btn_update(fn(array $x) => btn_set($x, 'failed', ['error' => 'شروعِ زنجیره روی گیت‌هاب نشد (HTTP ' . $dc . ')', 'note' => 'queued', 'at_stage' => 'queued']));
+            out(502, ['ok' => false, 'error' => 'button-chain dispatch failed: HTTP ' . $dc . ' ' . mb_substr($draw, 0, 200), 'button' => btn_public()]);
+        }
+        out(200, ['ok' => true, 'task' => $task, 'path' => $path, 'commit' => $sha, 'fire' => 'button-chain', 'button' => btn_public()]);
     }
     // درخواستِ آتش: routine.hohedoc.ir (session-command-fire.php) سشن را با job=session-command اجرا می‌کند.
     // coalesce: اگر برای همین task درخواستی در صف است، دوباره نگذار — سشنِ آتش‌شده همهٔ inbox را می‌خواند.
