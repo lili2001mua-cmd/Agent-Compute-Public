@@ -36,4 +36,16 @@ if ((int) r_tehran(time(), 'G') === 9 && ($alive['day'] ?? '') !== $day) {
            . ($k['problems'] ? "\n⚠️ " . implode(' · ', $k['problems']) : ''));
     r_write_json('alive.json', ['day' => $day]);
 }
+// ⛔ صفِ دکمه‌ها بین دو نوبتِ کرون (۱۴۰۵-۰۸-۱۹ · ردیف: app-command-waits-for-the-five-minute-cron): درخواستِ
+//    «سشن بساز» و «فرمانِ مستقیم» تا نوبتِ بعدیِ کرون (تا ۵ دقیقه) می‌ماند و معیارِ کاربر «زیرِ ۲ دقیقه در سشن» را
+//    می‌شکست. وبِ control به پوشهٔ این هاست دسترسی ندارد (open_basedir)، پس شلیکِ همان‌لحظه از وب ممکن نیست؛ همین
+//    نوبت تا ۲۴۰ ثانیه پس از شروع هر ۱۰ ثانیه دو صف را نگاه می‌کند (هزینه: دو glob). قفلِ tick.lock تا پایان نگه
+//    داشته می‌شود و نوبتِ بعدی (۳۰۰ ثانیه) هرگز با این یکی هم‌پوشانی ندارد.
+$__t0 = (int) ($_SERVER['REQUEST_TIME'] ?? time());
+$__poll = (int) (getenv('R_POLL_SECONDS') !== false ? getenv('R_POLL_SECONDS') : 240);
+while (time() - $__t0 < $__poll - 10) {
+    sleep(10);
+    try { r_step3_fire(); } catch (Throwable $e) { r_log('step3-fire(poll) ' . substr($e->getMessage(), 0, 200)); }
+    try { r_session_command_fire(); } catch (Throwable $e) { r_log('session-command-fire(poll) ' . substr($e->getMessage(), 0, 200)); }
+}
 flock($lock, LOCK_UN);
