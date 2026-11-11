@@ -1,5 +1,5 @@
 {
-  "version": "20261111140959",
+  "version": "20261111230452",
   "files": {
     "app/jobs/phase1.php": "acdc3e6c1ad3feba83f33cd45c59ef317bdde7db70913ccabaf210dc7518eeea",
     "app/jobs/phase2.php": "8569fe4101251012e2366f3fe58bc00b08a48811a3b9280cc16c702a0341a5ad",
@@ -7,11 +7,12 @@
     "app/jobs/phase5.php": "025799f4a421e849a564c3db0e76ebfbc904ef206b4edae9c0afa6f7fd461c2a",
     "app/jobs/phase6.php": "23cc691df06f41265959f0dca8080fbe8a57c3d6c0123d0d9c7fab8fe18123d0",
     "app/jobs/phase7.php": "79360b303993e44c4931ec3b463cdc15c791fc05004b9fa6e38b46c1d67d93ed",
-    "app/jobs/registry.php": "35178560dbc2cff734208b0b1d998b0ea34d4a35e98b64066f273912148d0e6b",
+    "app/jobs/phase8.php": "9f20513c17da8e46c84bc3603b4b5ad6dda24597d6d34c63dccd6e44b95f1e01",
+    "app/jobs/registry.php": "4ca50c5c12d6e8090f603f31b8bd326d1f3595badf42a1415f2f0778b0949a04",
     "app/keys.php": "29997960280a16e64eda23b9e33aa33c795782ea23fa090e3b7ef3a94c457e0f",
     "app/lib.php": "6af804884d6971cf74ebd34cab90613871166e5d4338a5caf5637ce7eea5c79b",
     "app/mp-vendor.tgz": "db34e772d5ddabb47a77def2d23bddb07a7c8c90a3d5a2f82cca8f8f34282fe8",
-    "app/tick.php": "b7bfe097d7d1c2498b86469c4b826443b827e0d4d21b62710da8d2a16b70927e",
+    "app/tick.php": "7eaf78af548c88980a6d59c62ec4523e2e9a1d1077f3852b9e5c72a398376880",
     "app/vault-sync.php": "03c50c26e4c2fb51b9e42779564bd4a6a658505b8fd8197b56252ff6a3153d04",
     "public_html/run.php": "b5c31899b0e02162707361bb6fea78c03f2427ed04c3599e1751212915836017",
     "public_html/status.php": "ff9a586961e523bc97597c01ee21cdd384852a3fb2fc8e30161cf613cecf6fdb"
