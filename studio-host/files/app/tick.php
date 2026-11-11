@@ -14,4 +14,6 @@ if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) exit;   // a long job from an ea
 $start = time();
 while (time() - $start < 50 && queue_run_one() !== null) {}
 try { drive_migrate_step(max(10, 45 - (time() - $start))); } catch (Throwable $e) { studio_log('drive-migrate', 'step failed: ' . $e->getMessage()); }
+// hourly, see link_sweep.php — loaded only if present, so a missing/rejected file can never stop the tick
+if (is_file(__DIR__ . '/link_sweep.php')) { try { require_once __DIR__ . '/link_sweep.php'; link_sweep_step(); } catch (Throwable $e) { studio_log('link-sweep', 'step failed: ' . $e->getMessage()); } }
 queue_cleanup();
