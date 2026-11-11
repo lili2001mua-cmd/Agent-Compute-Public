@@ -11,6 +11,7 @@
 //   POST api.php?op=step3-fire     {key}         → routine.hohedoc.ir opens a step-3 session for that bundle
 //   POST api.php?op=session-command {task, text} → writes the command into the bundle's live-session inbox on GitHub + drops a sc-req so routine.hohedoc.ir fires a session
 //        (task t-intake = the «بستهٔ تازه» button: dispatches the private repo's button-chain.yml instead — no Claude session)
+//   GET  api.php?op=sizes                         → «حجمِ واقعی» of repos, hosts and Drive accounts (app/sizes.php, cron: 1 h / 6 h)
 //   POST api.php?op=cover          {key}         → image/jpeg: the bundle's cover frame (app/board.php board_cover_file), 404 when none
 // Two steps on purpose: the phone asks, shows the summary, the user confirms again (all workflows are critical).
 require __DIR__ . '/../app/lib.php';
@@ -59,6 +60,11 @@ if ($op === 'backup-status' && $_SERVER['REQUEST_METHOD'] === 'GET') {
     // written by the sites.hohedoc.ir cron (app/phone-backup.php) into our var/
     $pending = count(glob(ctl_var('backup-req') . '/*.json') ?: []);
     out(200, ['ok' => true, 'pending' => $pending, 'last' => ctl_json_read('backup-state.json', null)]);
+}
+
+if ($op === 'sizes' && $_SERVER['REQUEST_METHOD'] === 'GET') {
+    // measured by the cron (app/sizes.php); the phone never measures anything itself
+    out(200, ['ok' => true, 'now' => time()] + ctl_json_read('sizes.json', ['error' => 'no sizes yet']));
 }
 
 if ($op === 'status' && $_SERVER['REQUEST_METHOD'] === 'GET') {

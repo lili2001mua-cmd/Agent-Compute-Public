@@ -71,3 +71,5 @@ if ($__bpoll > 0 && $__blk && flock($__blk, LOCK_EX | LOCK_NB)) {
 }
 require_once __DIR__ . '/projects.php';
 try { projects_tick(); } catch (Throwable $e) { ctl_log('projects tick: ' . $e->getMessage()); }   // «پروژه‌ها» of the app, live from the IDEA-ORCH docs (own lock; its error never stops the rest)
+require_once __DIR__ . '/sizes.php';
+try { sizes_tick(); } catch (Throwable $e) { ctl_log('sizes tick: ' . substr($e->getMessage(), 0, 200)); }   // «حجمِ واقعی» of repos, hosts and Drive (own lock, own periods: 1 h / 6 h)
