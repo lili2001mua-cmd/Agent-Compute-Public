@@ -16,6 +16,7 @@
 //   5. Every approval, refusal and expiry is announced to the owner and logged; the SHA is never deployed silently.
 //   6. The manifest still cannot write deploy*, secrets* or var/ (deploy.php) — this code is the only writer of deploy-ref.txt.
 // Lock name: tg-host-deploys-only-on-the-owners-telegram-tap
+// First live proposal (1405-08-20): this comment line is the whole change — a harmless test of the owner-tap path.
 
 const TG_DEPLOY_REQ = 'Memory-Workflow/nightly-chain-independence/tg-deploy-request.json';
 const TG_DEPLOY_PUBLIC = 'lili2001mua-cmd/Agent-Compute-Public';
