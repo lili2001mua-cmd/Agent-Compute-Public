@@ -23,4 +23,6 @@ return [
     'chain_ops'   => ['roles' => ['chain'], 'args' => ['run' => 'str:[A-Za-z0-9_.:-]{6,80}', 'lease' => 'int:1:2000000000', 'ops' => 'json'], 'retry' => false, 'tg' => true],
     'chain_alert' => ['roles' => [], 'args' => ['text' => 'str:.{1,1000}'], 'retry' => true, 'tg' => true],
     'chain_admin' => ['roles' => ['admin'], 'args' => ['ops' => 'json'], 'retry' => false, 'tg' => true],
+    // phase 8 (B1) — internal only (no door role): the tick enqueues it at the night slot; read-only history, dry plan file
+    'host_plan'   => ['roles' => [], 'args' => ['date' => 'str:[0-9]{4}-[0-9]{2}-[0-9]{2}'], 'retry' => true, 'tg' => true],
 ];
