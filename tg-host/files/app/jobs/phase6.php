@@ -482,7 +482,7 @@ function tg_chain_op($api, string $op, array $a, ?string $idem): array {
 
 /** The chain job: a batch of named ops in one MadelineProto session; `$N.path` in a string arg refers to op N's result. */
 function job_chain_ops(array $a, callable $hb, string $role = 'read'): array {
-    tg_chain_lease_check((string) $a['run'], (int) $a['lease']);
+    tg_chain_lease_check((string) ($a['run'] ?? ''), (int) ($a['lease'] ?? 0), 'tg');
     $ops = json_decode($a['ops'], true);
     if (!is_array($ops) || !$ops || count($ops) > 60) throw new RuntimeException('chain_ops: 1..60 ops');
     return tg_mp_with(tg_session_dir(), function ($api) use ($ops, $hb) {
@@ -564,28 +564,138 @@ function job_chain_admin(array $a, callable $hb, string $role = 'read'): array {
 }
 
 // ---- lease + heartbeat (driven from run.php, no MadelineProto) ---------------------------------------
-function tg_chain_lease_check(string $run, int $token): void {
-    $l = tg_read_json(tg_var('chain-lease.json'));
-    if (!$l || $l['run'] !== $run || (int) $l['token'] !== $token || $l['exp'] < time()) throw new RuntimeException('LEASE: not the current chain lease holder');
+// ⛔ Scoped lease (1405-08-20 · Agent-Project-Backup Memory-Workflow/idea-orchestrations/chain-lease-scopes/PLAN.md v1,
+//    three-expert consensus). One lease per resource: `tg` (the host Telegram session, checked by chain_ops) and `drive`
+//    (checked by drive_token). A run asks for a subset; only runs that need the same resource wait. No `scopes` ⇒ both
+//    (old clients behave exactly as before). Legacy files (no "v") read as both scopes held by their run.
+const TG_LEASE_SCOPES = ['drive', 'tg'];
+const TG_LEASE_TICKET_TTL = 60;
+const TG_LEASE_TICKET_MAX = 16;
+/** H1: absent ⇒ both; else a JSON list of 1–2 known scopes, dedup+sorted; anything else ⇒ null (caller answers 400). */
+function tg_lease_scopes_in($v): ?array {
+    if ($v === null) return TG_LEASE_SCOPES;
+    if (!is_array($v) || !array_is_list($v) || count($v) < 1 || count($v) > 2) return null;
+    foreach ($v as $x) if (!is_string($x) || !in_array($x, TG_LEASE_SCOPES, true)) return null;
+    $v = array_values(array_unique($v)); sort($v); return $v;
 }
-/** acquire|renew|release|status under one flock; returns [http code, body]. */
+/** H2: the v2 record, migrating a legacy file in memory (written back only on a change). */
+function tg_lease_load(): array {
+    $l = tg_read_json(tg_var('chain-lease.json')) ?? [];
+    if (!isset($l['v'])) {
+        $out = ['v' => 2, 'seq' => (int) ($l['token'] ?? 0), 'scopes' => [], 'waiting' => []];
+        if (($l['run'] ?? '') !== '') foreach (TG_LEASE_SCOPES as $sc)
+            $out['scopes'][$sc] = ['run' => (string) $l['run'], 'token' => (int) ($l['token'] ?? 0), 'exp' => (int) ($l['exp'] ?? 0), 'since' => (int) ($l['since'] ?? 0)];
+        return $out;
+    }
+    $l['seq'] = (int) ($l['seq'] ?? 0);
+    $l['scopes'] = is_array($l['scopes'] ?? null) ? $l['scopes'] : [];
+    $l['waiting'] = is_array($l['waiting'] ?? null) ? array_values($l['waiting']) : [];
+    return $l;
+}
+/** H2: top-level run/token/exp/since mirror the tg holder, else drive, else exp 0 — old code after a rollback fails closed. */
+function tg_lease_save(array $l): void {
+    $m = null;
+    foreach (['tg', 'drive'] as $sc) if (!$m && is_array($l['scopes'][$sc] ?? null)) $m = $l['scopes'][$sc];
+    $l['v'] = 2;
+    $l['run'] = (string) ($m['run'] ?? ''); $l['token'] = (int) ($m['token'] ?? 0);
+    $l['exp'] = (int) ($m['exp'] ?? 0); $l['since'] = (int) ($m['since'] ?? 0);
+    tg_write_json(tg_var('chain-lease.json'), $l);
+}
+function tg_lease_live($e, int $now): bool { return is_array($e) && (int) ($e['exp'] ?? 0) >= $now && ($e['run'] ?? '') !== ''; }
+/** H5: the caller must hold `$scope` with this run+token. Read without the flock (tg_write_json renames atomically). */
+function tg_chain_lease_check(string $run, int $token, string $scope = 'tg'): void {
+    $e = tg_lease_load()['scopes'][$scope] ?? null;
+    if (!tg_lease_live($e, time()) || ($e['run'] ?? '') !== $run || (int) ($e['token'] ?? -1) !== $token)
+        throw new RuntimeException('LEASE: not the current chain lease holder');
+}
+/** H7: record or refresh this run's waiting ticket (opt-in `queue: true`), at most TG_LEASE_TICKET_MAX. */
+function tg_lease_ticket(array &$l, string $run, array $want, int $now): void {
+    foreach ($l['waiting'] as &$t) if (($t['run'] ?? '') === $run) { $t['scopes'] = $want; $t['seen'] = $now; return; }
+    unset($t);
+    if (count($l['waiting']) < TG_LEASE_TICKET_MAX) $l['waiting'][] = ['run' => $run, 'scopes' => $want, 'since' => $now, 'seen' => $now];
+}
+/** acquire|renew|release|status under one flock; returns [http code, body]. Every 409 keeps {error, run, exp}. */
 function tg_chain_lease(array $in): array {
     $fh = fopen(tg_var('chain-lease.lock'), 'c'); flock($fh, LOCK_EX);
     try {
-        $f = tg_var('chain-lease.json'); $l = tg_read_json($f); $now = time();
+        $l = tg_lease_load(); $now = time();
         $op = (string) ($in['op'] ?? 'status'); $run = (string) ($in['run'] ?? ''); $ttl = max(60, min(7200, (int) ($in['ttl'] ?? 900)));
-        if (!preg_match('/^[A-Za-z0-9_.:-]{6,80}$/', $run) && $op !== 'status') return [400, ['error' => 'bad run id']];
-        $live = $l && $l['exp'] >= $now;
-        if ($op === 'status') { $k = include __DIR__ . '/../keys.php'; return [200, ['ok' => true, 'held' => $live, 'run' => $live ? $l['run'] : null, 'exp' => $live ? $l['exp'] : null, 'read_key_holds_chain' => ($k['read'] ?? '') !== '' && ($k['read'] ?? '') === ($k['chain'] ?? '')]]; }
-        if ($op === 'acquire') {
-            if ($live && $l['run'] !== $run) return [409, ['error' => 'held', 'run' => $l['run'], 'exp' => $l['exp']]];
-            $l = ['run' => $run, 'token' => (int) (($l['token'] ?? 0) + 1), 'exp' => $now + $ttl, 'since' => $now];
-            tg_write_json($f, $l); return [200, ['ok' => true, 'token' => $l['token'], 'exp' => $l['exp']]];
+        $before = json_encode($l);
+        // tickets expire unless a poll refreshed them (H7)
+        $l['waiting'] = array_values(array_filter($l['waiting'], fn($t) => is_array($t) && (int) ($t['seen'] ?? 0) >= $now - TG_LEASE_TICKET_TTL
+            && tg_lease_scopes_in($t['scopes'] ?? []) !== null));
+        $save = function () use (&$l, $before) { if (json_encode($l) !== $before) tg_lease_save($l); };
+        if ($op === 'status') {
+            $save();
+            $k = include __DIR__ . '/../keys.php';
+            $sc = []; $first = null;
+            foreach (TG_LEASE_SCOPES as $s) {
+                $e = $l['scopes'][$s] ?? null; $live = tg_lease_live($e, $now);
+                $sc[$s] = ['held' => $live, 'run' => $live ? $e['run'] : null, 'exp' => $live ? (int) $e['exp'] : null];
+                if ($live && (!$first || $s === 'tg')) $first = $e;
+            }
+            return [200, ['ok' => true, 'held' => (bool) $first, 'run' => $first['run'] ?? null, 'exp' => isset($first['exp']) ? (int) $first['exp'] : null,
+                'scopes' => $sc, 'waiting' => count($l['waiting']),
+                'read_key_holds_chain' => ($k['read'] ?? '') !== '' && ($k['read'] ?? '') === ($k['chain'] ?? '')]];
         }
-        if (!$live || $l['run'] !== $run || (int) ($in['token'] ?? -1) !== (int) $l['token']) return [409, ['error' => 'not holder']];
-        if ($op === 'renew') { $l['exp'] = $now + $ttl; tg_write_json($f, $l); return [200, ['ok' => true, 'token' => $l['token'], 'exp' => $l['exp']]]; }
-        if ($op === 'release') { $l['exp'] = 0; tg_write_json($f, $l); return [200, ['ok' => true]]; }
-        return [400, ['error' => 'bad op']];
+        if (!preg_match('/^[A-Za-z0-9_.:-]{6,80}$/', $run)) return [400, ['error' => 'bad run id']];
+        if ($op === 'acquire') {
+            $want = tg_lease_scopes_in(array_key_exists('scopes', $in) ? $in['scopes'] : null);
+            if ($want === null) return [400, ['error' => 'bad scopes']];
+            $queue = !empty($in['queue']);
+            $mine = [];
+            foreach (TG_LEASE_SCOPES as $s) { $e = $l['scopes'][$s] ?? null; if (tg_lease_live($e, $now) && $e['run'] === $run) $mine[$s] = $e; }
+            if ($mine) {
+                // H3: a run never escalates while holding; a subset is answered with its current token (children keep theirs)
+                if (array_diff($want, array_keys($mine))) {
+                    if ($queue) tg_lease_ticket($l, $run, $want, $now);
+                    $save(); return [409, ['error' => 'no escalation', 'run' => $run, 'exp' => (int) reset($mine)['exp']]];
+                }
+                $e = reset($mine); $save();
+                return [200, ['ok' => true, 'token' => (int) $e['token'], 'exp' => (int) $e['exp'], 'scopes' => array_keys($mine)]];
+            }
+            foreach ($want as $s) {
+                $e = $l['scopes'][$s] ?? null;
+                if (tg_lease_live($e, $now)) {
+                    if ($queue) tg_lease_ticket($l, $run, $want, $now);
+                    $save(); return [409, ['error' => 'held', 'run' => $e['run'], 'exp' => (int) $e['exp'], 'scope' => $s]];
+                }
+            }
+            // H7: an older live ticket of another run that overlaps blocks this acquire (a run's own ticket never blocks it)
+            //    order = position in the list (append-only), so two tickets filed in the same second keep their arrival order
+            $myPos = PHP_INT_MAX;
+            foreach ($l['waiting'] as $i => $t) if ($t['run'] === $run) $myPos = $i;
+            foreach ($l['waiting'] as $i => $t) {
+                if ($t['run'] === $run || !array_intersect($want, $t['scopes'])) continue;
+                if ($i < $myPos) {
+                    if ($queue) tg_lease_ticket($l, $run, $want, $now);
+                    $save(); return [409, ['error' => 'queued', 'run' => $t['run'], 'exp' => null]];
+                }
+            }
+            $l['seq'] = (int) $l['seq'] + 1; $tok = $l['seq'];
+            foreach ($want as $s) $l['scopes'][$s] = ['run' => $run, 'token' => $tok, 'exp' => $now + $ttl, 'since' => $now];
+            $l['waiting'] = array_values(array_filter($l['waiting'], fn($t) => $t['run'] !== $run));
+            tg_lease_save($l);
+            return [200, ['ok' => true, 'token' => $tok, 'exp' => $now + $ttl, 'scopes' => $want]];
+        }
+        // H4: renew/release act on every scope this run+token holds, all-or-nothing
+        $tok = (int) ($in['token'] ?? -1); $owned = [];
+        foreach (TG_LEASE_SCOPES as $s) { $e = $l['scopes'][$s] ?? null; if (is_array($e) && ($e['run'] ?? '') === $run && (int) ($e['token'] ?? -2) === $tok) $owned[] = $s; }
+        $deny = function () use (&$l, $now, $save) {
+            $f = null; foreach (['tg', 'drive'] as $s) if (!$f && tg_lease_live($l['scopes'][$s] ?? null, $now)) $f = $l['scopes'][$s];
+            $save(); return [409, ['error' => 'not holder', 'run' => $f['run'] ?? null, 'exp' => isset($f['exp']) ? (int) $f['exp'] : null]];
+        };
+        if (!$owned) return $deny();
+        if ($op === 'renew') {
+            foreach ($owned as $s) if (!tg_lease_live($l['scopes'][$s], $now)) return $deny();
+            foreach ($owned as $s) $l['scopes'][$s]['exp'] = $now + $ttl;
+            tg_lease_save($l); return [200, ['ok' => true, 'token' => $tok, 'exp' => $now + $ttl, 'scopes' => $owned]];
+        }
+        if ($op === 'release') {
+            foreach ($owned as $s) $l['scopes'][$s]['exp'] = 0;
+            tg_lease_save($l); return [200, ['ok' => true, 'scopes' => $owned]];
+        }
+        $save(); return [400, ['error' => 'bad op']];
     } finally { flock($fh, LOCK_UN); fclose($fh); }
 }
 /** Session heartbeat: start | bundle | stage | delivered | end, for a night (Tehran date of the 03:00 run).
@@ -732,7 +842,7 @@ function tg_chain_bot(array $in): array {
 function tg_chain_drive_token(array $in, array $roles): array {
     $admin = in_array('admin', $roles, true);
     if (!$admin) {
-        try { tg_chain_lease_check((string) ($in['run'] ?? ''), (int) ($in['lease'] ?? 0)); } catch (Throwable $e) { return [409, ['error' => 'lease required']]; }
+        try { tg_chain_lease_check((string) ($in['run'] ?? ''), (int) ($in['lease'] ?? 0), 'drive'); } catch (Throwable $e) { return [409, ['error' => 'lease required']]; }
         $m = tg_tehran_minutes();
         $win = ($m >= 165 && $m < 390) || ($m >= 465 && $m < 600) || ($m >= 765 && $m < 900); // 02:45-06:30, 07:45-10:00, 12:45-15:00
         if (!$win) return [403, ['error' => 'outside chain windows']];
