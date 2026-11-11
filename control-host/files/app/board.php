@@ -183,9 +183,10 @@ function board_topics(array $keys, array $idx, array $plain, array $pool): array
 }
 
 /** Cover image of one bundle (protocol: Agent-Project-Backup/Memory-Software-Builder/Android/My-Control-Project/design/BUNDLE-COVER.md).
- *  The frame named in data/bundle-covers.json (picked by source/tools/bundle-cover.py); a bundle not listed there gets
- *  the middle frame of its first video. Cached here once, shrunk to 480 px wide when GD is present; a miss is
- *  remembered for a day so a bundle without frames never costs a GitHub call per card. Returns the cached file or null. */
+ *  Every frame lives on Drive only (1405-08-20, lock photo-bundle-stays-off-git): the lasting cover_drive_id, else the
+ *  Drive id named in data/bundle-covers.json (picked by source/tools/bundle-cover.py), else slide 1 / the middle frame of
+ *  the first video. Cached here once, shrunk to 480 px wide when GD is present; a miss is remembered for an hour.
+ *  Returns the cached file or null. */
 function board_cover_file(string $k): ?string {
     if (!preg_match('/^[A-Za-z0-9_+-]{3,90}$/', $k)) return null;
     $dir = board_var('covers'); if (!is_dir($dir)) mkdir($dir, 0700, true);
@@ -194,24 +195,12 @@ function board_cover_file(string $k): ?string {
     // ⛔ نامِ تازهٔ نشانِ «نبود» (۱۴۰۵-۰۸-۱۸): نشان‌های پیشین پیش از راهِ عکسیِ Drive ساخته شده بودند و یک روز کاورِ ۵۵ بستهٔ عکسی را می‌بستند.
     $miss = $f . '.none3';
     if (is_file($miss) && time() - filemtime($miss) < 3600) return null;   // یک ساعت، نه یک روز: نبودِ کاور زود بازآزموده شود
+    // ⛔ هیچ بسته‌ای قابی روی گیت ندارد (قفل: photo-bundle-stays-off-git — عکس از ۱۴۰۵-۰۷-۰۵ ، ویدیو از ۱۴۰۵-۰۸-۲۰ · ردیف:
+    //    video-frames-ride-git-after-drive-already-has-them)؛ کاور فقط از Drive و فقط در کشِ همین هاست می‌ماند
+    //    (۱۴۰۵-۰۸-۱۸ · ردیف: photo-bundle-card-has-no-cover · قفل: photo-bundle-cover-comes-from-drive).
     $idx = board_read('covers.json', []);
-    $path = is_array($idx[$k] ?? null) ? (string) ($idx[$k]['path'] ?? '') : '';
-    if ($path === '') {
-        foreach (['telegram', 'drive'] as $src) {
-            [$c, $l] = gh('GET', '/repos/' . CTL_REPO . '/contents/Memory-Workflow/intake-pool/state/' . $src . '/' . rawurlencode($k) . '/frames?ref=' . CTL_BRANCH);
-            if ($c !== 200 || !is_array($l)) continue;
-            $names = array_values(array_filter(array_column($l, 'name'), fn($n) => str_ends_with($n, '.jpg'))); sort($names);
-            if (!$names) continue;
-            $first = preg_replace('/_f\d+\.jpg$/', '', $names[0]);
-            $mine = array_values(array_filter($names, fn($n) => str_starts_with($n, $first . '_f')));
-            $path = 'Memory-Workflow/intake-pool/state/' . $src . '/' . $k . '/frames/' . $mine[intdiv(count($mine), 2)];
-            break;
-        }
-    }
-    $raw = $path !== '' ? gh_raw($path) : null;
-    // ⛔ بستهٔ عکسی قابی روی گیت ندارد و نباید داشته باشد (قفل: photo-bundle-stays-off-git)؛ پس کاورش اسلایدِ اول از Drive است
-    //    (۱۴۰۵-۰۸-۱۸ · ردیف: photo-bundle-card-has-no-cover · قفل: photo-bundle-cover-comes-from-drive). فقط در کشِ همین هاست می‌ماند.
-    if ($raw === null) $raw = board_photo_cover($k);
+    $pick = is_array($idx[$k] ?? null) ? (string) ($idx[$k]['drive_id'] ?? '') : '';
+    $raw = board_photo_cover($k, $pick);
     if ($raw === null) { touch($miss); return null; }
     if (function_exists('imagecreatefromstring') && ($im = @imagecreatefromstring($raw))) {
         $w = imagesx($im); $h = imagesy($im);
@@ -221,32 +210,40 @@ function board_cover_file(string $k): ?string {
     return $f;
 }
 
-/** Slide 1 of a photo bundle, read from Drive with the holding's single Drive account — the same account and files
+/** Cover of a bundle from Drive: the lasting cover (cover_drive_id), then the frame bundle-cover.py picked, then slide 1
+ *  of a photo bundle or the middle frame of the first video. Read with the holding's single Drive account — the same account and files
  *  studio.hohedoc.ir uses (var/drive-default.json, var/drive-accounts/<ACC>.json, var/drive-web-client.json in the sibling
  *  domain folder of this host, outside every web root). No key is copied here; the access token is cached for 50 minutes. */
-function board_photo_cover(string $k): ?string {
+function board_photo_cover(string $k, string $pick = ''): ?string {
     $st = null;
     foreach (['telegram', 'drive'] as $src) {
         $raw = gh_raw('Memory-Workflow/intake-pool/state/' . $src . '/' . $k . '/status.json');
         if ($raw !== null) { $st = json_decode($raw, true); break; }
     }
-    if (!is_array($st) || ($st['media_kind'] ?? '') !== 'photo') return null;
+    if (!is_array($st)) return null;
     // ⛔ کاورِ ماندگار اول (۱۴۰۵-۰۸-۱۹ · ردیف: photo-bundle-cover-dies-with-the-drive-purge · قفل: photo-bundle-cover-outlives-the-purge):
     //    تحویلِ شبانه پوشهٔ درایوِ بسته را همان شب پاک می‌کند؛ نسخهٔ intake-pool/covers/<key>.jpg می‌ماند (Sys.scripts/pool_cover_keep.py).
     $fr = [];
-    $cid = (string) ($st['cover_drive_id'] ?? '');
-    if ($cid !== '') $fr[''] = $cid;
     $up = $st['drive_files']['uploaded'] ?? [];
     foreach ((array) $up as $u) {
         $p = (string) ($u['rel_path'] ?? ''); $id = (string) ($u['drive_id'] ?? '');
         if ($id !== '' && str_starts_with($p, 'frames/') && preg_match('/\.(jpe?g|png|webp)$/i', $p)) $fr[$p] = $id;
     }
-    if (!$fr) return null;
-    ksort($fr);                       // '' (کاورِ ماندگار) پیش از هر frames/...
+    ksort($fr);
+    $frame = '';
+    if ($fr && ($st['media_kind'] ?? '') === 'photo') $frame = reset($fr);          // اسلایدِ اول
+    elseif ($fr) {                                                                     // قابِ میانیِ ویدیوی اول
+        $names = array_keys($fr);
+        $first = preg_replace('/_f\d+\.jpg$/i', '', $names[0]);
+        $mine = array_values(array_filter($names, fn($n) => str_starts_with($n, $first . '_f'))) ?: $names;
+        $frame = $fr[$mine[intdiv(count($mine), 2)]];
+    }
+    // کاورِ ماندگار اول (پوشهٔ بسته پس از تحویل پاک می‌شود)، بعد قابِ گزیدهٔ bundle-cover.py ، بعد قابِ قاعده.
+    $ids = array_values(array_unique(array_filter([(string) ($st['cover_drive_id'] ?? ''), $pick, $frame])));
+    if (!$ids) return null;
     $tok = board_drive_token();
     if ($tok === null) return null;
-    foreach ([reset($fr), next($fr)] as $id) {   // کاورِ ماندگار، و اگر نبود اسلایدِ اولِ پوشهٔ بسته
-        if (!$id) break;
+    foreach ($ids as $id) {
         $ch = curl_init('https://www.googleapis.com/drive/v3/files/' . rawurlencode($id) . '?alt=media');
         curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 40, CURLOPT_FOLLOWLOCATION => true,
             CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $tok, 'User-Agent: control-hohedoc']]);
