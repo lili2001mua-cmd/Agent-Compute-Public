@@ -23,6 +23,7 @@ if (function_exists('tg_phase2_pre')) tg_phase2_pre();
 if (function_exists('tg_chain_watchdog')) tg_chain_watchdog(); // dead-man switch, no library load (ک16)
 if (function_exists('tg_chain_button_poll')) tg_chain_button_poll(); // the Telegram «pull» button (ک23), one Bot API call
 if (function_exists('tg_host_beat')) tg_host_beat(); // phase 7: hourly heartbeat on main (host → repo writer test)
+if (function_exists('tg_deploy_request_tick')) tg_deploy_request_tick(); // phase 9: propose a new SHA to the owner; only their Telegram tap deploys
 if (function_exists('tg_host_plan_tick')) tg_host_plan_tick(); // phase 8 (B1): enqueue the night's dry plan at 03:07–03:30 Tehran
 
 // media dir: no listing (deploy refuses dot-files, so the tick writes it)

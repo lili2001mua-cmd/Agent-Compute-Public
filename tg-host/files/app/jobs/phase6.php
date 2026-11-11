@@ -930,7 +930,8 @@ function tg_chain_drive_token(array $in, array $roles): array {
 /** Poll the bot once a minute; `/pull` (DM) or the pinned inline button (callback «pull») from the owner fires the routine. */
 function tg_chain_button_poll(): void {
     $s = tg_chain_secrets();
-    if (empty($s['TELEGRAM_BOT_TOKEN']) || empty($s['ROUTINE_FIRE_URL']) || empty($s['ROUTINE_FIRE_TOKEN'])) return;
+    if (empty($s['TELEGRAM_BOT_TOKEN'])) return;   // the poll also carries the deploy-approval buttons (phase9), so it runs without the routine secrets
+    $canFire = !empty($s['ROUTINE_FIRE_URL']) && !empty($s['ROUTINE_FIRE_TOKEN']);
     $owner = (int) ((tg_read_json(tg_var('chain-owner.json')) ?? [])['id'] ?? 0);
     if (!$owner) return;
     $f = tg_var('chain-button.json');
@@ -944,7 +945,13 @@ function tg_chain_button_poll(): void {
         $from = (int) ($u['message']['from']['id'] ?? $cb['from']['id'] ?? 0);
         $chat = $u['message']['chat']['id'] ?? $cb['message']['chat']['id'] ?? null;
         $text = mb_strtolower(trim((string) ($u['message']['text'] ?? $cb['data'] ?? '')));
-        if ($from !== $owner || !in_array($text, ['/pull', 'pull', 'بکش'], true)) continue; // anyone else: silence
+        // phase9: the owner's tap on a deploy-approval button (only path that writes deploy-ref.txt)
+        if ($cb && function_exists('tg_deploy_on_callback') && str_starts_with((string) ($cb['data'] ?? ''), 'deploy:')) {
+            $say = tg_deploy_on_callback($from, (string) $cb['data']);
+            if ($say !== '') tg_bot_call('answerCallbackQuery', ['callback_query_id' => (string) $cb['id'], 'text' => mb_substr($say, 0, 190), 'show_alert' => 'true']);
+            continue;
+        }
+        if ($from !== $owner || !in_array($text, ['/pull', 'pull', 'بکش'], true) || !$canFire) continue; // anyone else: silence
         if (!is_file(tg_var('chain-armed'))) $say = '⏸ زنجیره خاموش است — دکمه کاری نکرد.';
         elseif (time() - (int) $st['last_fire'] < 1800) $say = '⏳ کمتر از ۳۰ دقیقه از شلیکِ قبلی گذشته؛ همان اجرا در راه است.';
         else {
