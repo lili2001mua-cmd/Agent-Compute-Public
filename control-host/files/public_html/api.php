@@ -11,6 +11,7 @@
 //   POST api.php?op=step3-fire     {key}         → routine.hohedoc.ir opens a step-3 session for that bundle
 //   POST api.php?op=session-command {task, text} → writes the command into the bundle's live-session inbox on GitHub + drops a sc-req so routine.hohedoc.ir fires a session
 //        (task t-intake = the «بستهٔ تازه» button: dispatches the private repo's button-chain.yml instead — no Claude session)
+//   GET  api.php?op=hub                           → «پروژه‌های جدید»: hub.json ِ سشنِ مدیریت + نشانیِ سشنِ t-projects-hub (کش ۶۰ ثانیه)
 //   GET  api.php?op=sizes                         → «حجمِ واقعی» of repos, hosts and Drive accounts (app/sizes.php, cron: 1 h / 6 h)
 //   POST api.php?op=cover          {key}         → image/jpeg: the bundle's cover frame (app/board.php board_cover_file), 404 when none
 // Two steps on purpose: the phone asks, shows the summary, the user confirms again (all workflows are critical).
@@ -46,6 +47,27 @@ if ($op === 'projects' && $_SERVER['REQUEST_METHOD'] === 'GET') {
     $p = @json_decode((string) @file_get_contents($d . '/projects.json'), true);
     $st = @json_decode((string) @file_get_contents($d . '/state.json'), true);
     out(200, ['ok' => is_array($p), 'state' => $st, 'at' => $p['at'] ?? null, 'orch_groups' => $p['orch_groups'] ?? []]);
+}
+if ($op === 'hub' && $_SERVER['REQUEST_METHOD'] === 'GET') {
+    // «پروژه‌های جدید» (ارکستر projects-hub ، ۱۴۰۵-۰۸-۲۰): فهرستِ ماشین‌خوانِ پروژه‌ها، برچسب‌ها و درخت‌ها که سشنِ مدیریت
+    // در Memory-Workflow/projects-hub/hub.json نگه می‌دارد + نشانیِ همان سشن. فقط‌خواندنی؛ کشِ ۶۰ ثانیه‌ای تا هر بازکردنِ اپ
+    // دو فراخوانِ گیت‌هاب نسازد. سشن نوشته نمی‌شود، چیزی ساخته نمی‌شود.
+    $c = ctl_json_read('hub.json', null);
+    if (!is_array($c) || (time() - (int) ($c['fetched'] ?? 0)) > 60) {
+        $raw = gh_file('Memory-Workflow/projects-hub/hub.json');
+        $hub = $raw === null ? null : json_decode($raw, true);
+        $ses = @json_decode((string) gh_file('Memory-Workflow/live-sessions/t-projects-hub/session.json'), true);
+        $url = is_array($ses) ? (string) ($ses['url'] ?? '') : '';
+        if (!preg_match('#^https://claude\.ai/code/session_[A-Za-z0-9]+$#', $url)) $url = '';
+        if ($raw === null && is_array($c)) {
+            $c['stale'] = true; // گیت‌هاب جواب نداد: آخرین پاسخِ درست با نشانِ کهنگی
+        } else {
+            $c = ['fetched' => time(), 'hub' => is_array($hub) ? $hub : null, 'session_url' => $url, 'stale' => false];
+            ctl_json_write('hub.json', $c);
+        }
+    }
+    out(200, ['ok' => is_array($c['hub'] ?? null), 'at' => $c['fetched'] ?? null, 'stale' => (bool) ($c['stale'] ?? false),
+        'hub' => $c['hub'] ?? null, 'session_url' => $c['session_url'] ?? '']);
 }
 if ($op === 'trainer-board' && $_SERVER['REQUEST_METHOD'] === 'GET') {
     // computed every 5 minutes by the cron from the trainer's records on GitHub (app/board.php); never written by a session
