@@ -17,7 +17,8 @@ const APP_FOLDER = 'نسخه‌های نصبی';
 
 function app_check(string $app, string $ver, string $name): void {
     if (!preg_match(APP_RE, $app)) throw new RuntimeException('bad app (e.g. Workout-Player)');
-    if (!preg_match('/^[0-9]{1,5}$/', $ver)) throw new RuntimeException('bad version (digits only)');
+    // digits (47) or a dotted/tagged name (1.0.2 · 0.1-test · hub-1.0.0) — every app's last two live only on Drive (1405-08-20)
+    if (!preg_match('/^[0-9A-Za-z][0-9A-Za-z._-]{0,30}$/', $ver) || str_contains($ver, '..')) throw new RuntimeException('bad version (e.g. 47 or 1.0.2)');
     if (!preg_match(APP_ZIP_RE, $name)) throw new RuntimeException('bad name (letters, digits, . _ - and .zip)');
 }
 
@@ -66,11 +67,11 @@ function run_app_send(array $a): array {
         $folder = drive_ensure_folder('v' . $ver, drive_ensure_folder($app, drive_ensure_folder(APP_FOLDER, drive_root_id())));
         $ex = drive_find($folder, $name);
         if ($ex && ($ex['md5Checksum'] ?? '') === $md5) {
-            return ['app' => $app, 'version' => (int) $ver, 'name' => $name, 'drive_id' => $ex['id'],
+            return ['app' => $app, 'version' => ctype_digit($ver) ? (int) $ver : $ver, 'name' => $name, 'drive_id' => $ex['id'],
                 'web_view_link' => $ex['webViewLink'] ?? '', 'md5' => $md5, 'verified' => true, 'skipped_existing' => true];
         }
         $r = drive_upload_file($held, $name, $folder, 'application/zip');
-        return ['app' => $app, 'version' => (int) $ver, 'name' => $name, 'drive_id' => $r['id'],
+        return ['app' => $app, 'version' => ctype_digit($ver) ? (int) $ver : $ver, 'name' => $name, 'drive_id' => $r['id'],
             'web_view_link' => $r['webViewLink'] ?? '', 'md5' => $md5, 'verified' => ($r['md5Checksum'] ?? '') === $md5,
             'skipped_existing' => false];
     } finally { @unlink($held); }
@@ -361,7 +362,7 @@ function run_relay_fetch(array $a): array {
 }
 
 // ---------------------------------------------------------------- queue (cron-driven, no web time limit)
-const QUEUED = ['relay_fetch'];            // only relay_fetch is queued straight from the door (GitHub-pass or key)
+const QUEUED = ['relay_fetch', 'app_fetch'];            // only relay_fetch is queued straight from the door (GitHub-pass or key)
 const INTERNAL = ['app_send', 'doc_send'];  // only enqueued by the host itself
 
 function queue_dir(): string { $d = apps_var('queue'); if (!is_dir($d)) mkdir($d, 0700, true); return $d; }
@@ -410,3 +411,48 @@ function queue_cleanup(): void {
     foreach (glob(queue_dir() . '/*.json') ?: [] as $p) if (filemtime($p) < time() - 14 * 86400) unlink($p);
     foreach (glob(apps_var('inbox') . '/*') ?: [] as $t) if (filemtime($t) < time() - 86400) is_dir($t) ? apps_rrmdir($t) : unlink($t);   // doc-<id>/ parts of an abandoned upload
 }
+
+// ---------------------------------------------------------------- app_fetch: Drive ⇒ an expiring download link (1405-08-20)
+// Drive will not hand an .apk (even zipped) to a browser: "can't scan / may be harmful". The host reads it with the holding's
+// own Drive token (alt=media&acknowledgeAbuse=true) and serves it from var/out/<token>/ for APP_FETCH_TTL. Rule: only the last
+// two versions of each app live on Drive and none on GitHub (lock: installables-live-on-drive-not-github).
+const APP_FETCH_TTL = 86400;
+
+function run_app_fetch(array $a): array {
+    $app = (string) ($a['app'] ?? ''); $ver = (string) ($a['version'] ?? '');
+    app_check($app, $ver, 'x.zip');
+    $root = drive_find(drive_root_id(), APP_FOLDER); if (!$root) throw new RuntimeException('no installables folder on Drive');
+    $af = drive_find($root['id'], $app); if (!$af) throw new RuntimeException("no $app on Drive");
+    $vf = drive_find($af['id'], 'v' . $ver); if (!$vf) throw new RuntimeException("no v$ver of $app on Drive");
+    $files = drive_list("trashed=false and '" . $vf['id'] . "' in parents", 'id,name,md5Checksum,size', 50);
+    if (!$files) throw new RuntimeException("v$ver of $app is empty on Drive");
+    $tok = apps_new_token(); $dir = apps_out_dir($tok); mkdir($dir, 0700, true);
+    $out = [];
+    foreach ($files as $f) {
+        $name = (string) $f['name'];
+        if (!preg_match(APP_ZIP_RE, $name)) continue;
+        $dest = "$dir/$name";
+        $fh = fopen($dest, 'wb');
+        $ch = curl_init(DRIVE_API . '/files/' . rawurlencode($f['id']) . '?alt=media&acknowledgeAbuse=true&supportsAllDrives=true');
+        curl_setopt_array($ch, [CURLOPT_FILE => $fh, CURLOPT_TIMEOUT => 600, CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . drive_token()]]);
+        curl_exec($ch); $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch); fclose($fh);
+        if ($code !== 200) { apps_rrmdir($dir); throw new RuntimeException("drive download failed ($code) for $name"); }
+        $md5 = md5_file($dest);
+        if (!empty($f['md5Checksum']) && $md5 !== $f['md5Checksum']) { apps_rrmdir($dir); throw new RuntimeException("md5 mismatch for $name"); }
+        $out[] = ['name' => $name, 'bytes' => filesize($dest), 'md5' => $md5,
+                  'url' => 'https://apps.hohedoc.ir/get.php?t=' . $tok . '&f=' . rawurlencode($name)];
+    }
+    file_put_contents("$dir/.expires", (string) (time() + APP_FETCH_TTL));
+    apps_log('app-fetch', "$app v$ver " . count($out) . ' file(s)');
+    return ['app' => $app, 'version' => $ver, 'expires_in_hours' => APP_FETCH_TTL / 3600, 'files' => $out];
+}
+
+/** Cron: drop app_fetch outputs past their expiry. */
+function app_fetch_cleanup(): void {
+    foreach (glob(apps_var('out') . '/*', GLOB_ONLYDIR) ?: [] as $d) {
+        $e = @file_get_contents("$d/.expires");
+        if ($e !== false && (int) $e < time()) apps_rrmdir($d);
+    }
+}
+

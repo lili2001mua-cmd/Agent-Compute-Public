@@ -19,3 +19,4 @@ while (time() - $start < 50 && queue_run_one() !== null) {}
 require_once __DIR__ . '/drive-trash.php';
 try { drive_trash_tick(); } catch (Throwable $e) { apps_log('drive-trash', $e->getMessage()); }
 queue_cleanup();
+try { app_fetch_cleanup(); } catch (Throwable $e) { apps_log('app-fetch', $e->getMessage()); }   // expired download links
