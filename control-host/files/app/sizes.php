@@ -12,6 +12,7 @@ const SZ_REPOS = ['Agent-Project-Backup', 'Agent-Compute-Public', 'stylistcrm', 
                   'Gemini-Agent-Backup', 'ChatGPT-Agent-Backup'];
 const SZ_FAST = 3600;        // repos + drive
 const SZ_SLOW = 6 * 3600;    // host disks
+const SZ_RETRY = 1800;       // a host that failed (e.g. the relay before its disk job landed) is retried after 30 min, not 6 h
 const SZ_RELAY = 'https://relay.hohe1.ir/run.php?job=disk';
 
 function sz_owner(): string { return explode('/', CTL_REPO)[0]; }
@@ -131,10 +132,20 @@ function sizes_tick(): void {
         $s['fast_at'] = $now;
         ctl_json_write('sizes.json', $s + ['period_fast' => SZ_FAST, 'period_slow' => SZ_SLOW]);
     }
+    $failed = [];
+    foreach (($s['hosts'] ?? []) as $h) if (($h['bytes'] ?? null) === null) $failed[] = $h['id'] ?? '';
     if ($now - (int) ($s['slow_at'] ?? 0) >= SZ_SLOW) {
         @set_time_limit(900);
         $s['hosts'] = sz_merge($s['hosts'] ?? [], [sz_germany(), sz_iran()], 'id');
         $s['slow_at'] = time();
+    } elseif ($failed && $now - (int) ($s['retry_at'] ?? $s['slow_at'] ?? 0) >= SZ_RETRY) {
+        // only the failed host is measured again; slow_at (the 6-hour clock of the good ones) stays as it is
+        @set_time_limit(900);
+        $out = [];
+        foreach (($s['hosts'] ?? []) as $h) $out[] = in_array($h['id'] ?? '', $failed, true)
+            ? sz_merge([$h], [($h['id'] ?? '') === 'iran' ? sz_iran() : sz_germany()], 'id')[0] : $h;
+        $s['hosts'] = $out;
+        $s['retry_at'] = time();
     }
     $s['period_fast'] = SZ_FAST; $s['period_slow'] = SZ_SLOW;
     ctl_json_write('sizes.json', $s);
