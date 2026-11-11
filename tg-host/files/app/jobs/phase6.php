@@ -93,6 +93,15 @@ function tg_update_ids(array $u): array {
     sort($ids);
     return $ids;
 }
+/** Largest stored byte size of a photo (photoSize.size or the last of photoSizeProgressive.sizes); 0 when unknown. */
+function tg_photo_max_bytes(array $photo): int {
+    $m = 0;
+    foreach ($photo['sizes'] ?? [] as $z) {
+        if (isset($z['size'])) $m = max($m, (int) $z['size']);
+        if (!empty($z['sizes']) && is_array($z['sizes'])) $m = max($m, (int) end($z['sizes']));
+    }
+    return $m;
+}
 function tg_is_channel(int $id): bool { return $id <= -1000000000000; }
 function tg_get_msgs($api, int $peer, array $ids): array {
     $r = tg_is_channel($peer) ? $api->channels->getMessages(channel: tg_ip($peer), id: $ids) : $api->messages->getMessages(id: $ids);
@@ -451,6 +460,64 @@ function tg_chain_op($api, string $op, array $a, ?string $idem): array {
             $left = array_values(array_filter(array_map(fn($m, $i) => $m ? $i : null, tg_get_msgs($api, $peer, $ids), $ids)));
             tg_log('chain', 'delete_source requested=' . count($ids) . ' deleted=' . count($todo) . ' still=' . count($left));
             return ['deleted' => true, 'pts_count' => count($todo), 'still_present' => $left];
+        case 'delete_source_matched':
+            // ک5-b (1405-08-20 · flaw drive-relay-is-a-single-road-and-its-failures-kill-the-night, row «legacy fence»):
+            // bundles forwarded by the OLD path (GitHub/Telethon) have no row in forwarded.jsonl, so delete_source refuses them
+            // forever. This op proves the copy itself instead of trusting a journal: every pair names a source message and the
+            // archive message the caller says is its copy; the host reads BOTH and deletes the source only when the copy holds
+            // the very same file (same Telegram document/photo id — a forward keeps it), or, for a document re-uploaded from
+            // Drive, the same byte size and mime type. Media-less companions (the bot's link message) within 20 ids of a
+            // proven source may go with it. Two-step confirm token and the night delete cap, exactly as delete_source.
+            $peer = tg_chain_peer($a['peer'], ['source']);
+            $arch = tg_chain_peer($a['archive'], ['archive']);
+            $key = (string) ($a['key'] ?? '');
+            $pairs = [];
+            $want = [];   // optional byte size the archive record holds for the file it posted (photos re-uploaded from Drive)
+            foreach ((array) ($a['pairs'] ?? []) as $p) { $s_ = (int) ($p['src'] ?? 0); $d_ = (int) ($p['dst'] ?? 0); if ($s_ > 0 && $d_ > 0) { $pairs[$s_] = $d_; if (!empty($p['size'])) $want[$s_] = (int) $p['size']; } }
+            $extra = array_values(array_unique(array_map('intval', (array) ($a['companions'] ?? []))));
+            if (!$pairs || count($pairs) + count($extra) > 60) throw new RuntimeException('delete_source_matched: 1..60 ids');
+            $srcIds = array_keys($pairs);
+            $src = tg_get_msgs($api, $peer, $srcIds);
+            $dst = tg_get_msgs($api, $arch, array_values($pairs));
+            $ok = []; $bad = []; $gone = [];
+            foreach ($srcIds as $n => $sid) {
+                $sm = $src[$n]; $dm = $dst[$n];
+                if (!$sm) { $gone[] = $sid; continue; }
+                if (!$dm) { $bad[] = $sid; continue; }
+                $sd = tg_m_document($sm); $dd = tg_m_document($dm); $sp = tg_m_photo($sm); $dp = tg_m_photo($dm);
+                $same = ($sd && $dd && ((string) $sd['id'] === (string) $dd['id']
+                            || ((int) ($sd['size'] ?? -1) === (int) ($dd['size'] ?? -2) && (string) ($sd['mime_type'] ?? '') === (string) ($dd['mime_type'] ?? '-'))))
+                     || ($sp && $dp && ((string) $sp['id'] === (string) $dp['id']
+                            // re-uploaded photo: Telegram re-encodes, so ids differ; the source's largest stored size must be
+                            // exactly the bytes the archive record says it posted (the Drive file was downloaded from it)
+                            || (isset($want[$sid]) && tg_photo_max_bytes($sp) === $want[$sid])));
+                if ($same) $ok[] = $sid; else $bad[] = $sid;
+            }
+            if ($bad) throw new RuntimeException('DELETE_FENCE: ' . count($bad) . ' source id(s) without a matching archived copy: ' . implode(',', array_slice($bad, 0, 10)));
+            $todo = $ok;
+            if ($extra) {
+                foreach (tg_get_msgs($api, $peer, $extra) as $n => $m) {
+                    if (!$m) continue;
+                    if (tg_m_document($m) || tg_m_photo($m)) throw new RuntimeException('DELETE_FENCE: companion ' . $extra[$n] . ' carries media');
+                    if (!array_filter($ok, fn($v) => abs($v - $extra[$n]) <= 20)) throw new RuntimeException('DELETE_FENCE: companion ' . $extra[$n] . ' is not next to a proven source');
+                    $todo[] = $extra[$n];
+                }
+            }
+            sort($todo);
+            $digest = hash('sha256', 'matched|' . $key . '|' . implode(',', $todo));
+            $cdir = tg_dir(tg_var('confirm'));
+            if (empty($a['confirm'])) {
+                $token = bin2hex(random_bytes(16));
+                tg_write_json($cdir . '/' . $token . '.json', ['digest' => $digest, 'expires' => time() + 900]);
+                return ['preview' => true, 'to_delete' => $todo, 'already_gone' => $gone, 'confirm_token' => $token];
+            }
+            $tf = $cdir . '/' . preg_replace('/[^0-9a-f]/', '', (string) $a['confirm']) . '.json';
+            $t = tg_read_json($tf); if (is_file($tf)) unlink($tf);
+            if (!$t || $t['digest'] !== $digest || $t['expires'] < time()) throw new RuntimeException('DELETE_FENCE: confirm token invalid');
+            if ($todo) { tg_rate('delete_night', count($todo)); $api->messages->deleteMessages(revoke: true, id: $todo); }
+            $left = $todo ? array_values(array_filter(array_map(fn($m, $i) => $m ? $i : null, tg_get_msgs($api, $peer, $todo), $todo))) : [];
+            tg_log('chain', 'delete_source_matched key=' . $key . ' deleted=' . count($todo) . ' still=' . count($left) . ' gone=' . count($gone));
+            return ['deleted' => true, 'pts_count' => count($todo), 'still_present' => $left, 'already_gone' => $gone];
         case 'create_channel':
             $c = tg_chain_chats();
             if (count($c['chats']) >= TG_CHAIN_MAX_CHATS) throw new RuntimeException('CHAIN_CHAT_CAP');
