@@ -93,14 +93,16 @@ function tg_update_ids(array $u): array {
     sort($ids);
     return $ids;
 }
-/** Largest stored byte size of a photo (photoSize.size or the last of photoSizeProgressive.sizes); 0 when unknown. */
+/** Byte size of the photo's highest-resolution variant (the LAST entry of `sizes` that carries bytes: photoSize.size, or
+ *  the last of photoSizeProgressive.sizes); 0 when unknown. Not the largest byte count: a lower-resolution variant can
+ *  weigh more than the progressive full-size one (b8284, 1405-08-20 — 8290 has y=120471 > w=117380). */
 function tg_photo_max_bytes(array $photo): int {
-    $m = 0;
+    $last = 0;
     foreach ($photo['sizes'] ?? [] as $z) {
-        if (isset($z['size'])) $m = max($m, (int) $z['size']);
-        if (!empty($z['sizes']) && is_array($z['sizes'])) $m = max($m, (int) end($z['sizes']));
+        if (!empty($z['sizes']) && is_array($z['sizes'])) { $v = array_values($z['sizes']); $last = (int) $v[count($v) - 1]; }
+        elseif (isset($z['size'])) $last = (int) $z['size'];
     }
-    return $m;
+    return $last;
 }
 function tg_is_channel(int $id): bool { return $id <= -1000000000000; }
 function tg_get_msgs($api, int $peer, array $ids): array {
