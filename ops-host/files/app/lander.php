@@ -19,6 +19,9 @@
 
 const LAND_PREFIX = 'land/';
 const LAND_SHADOW = 'shadow/main';
+// ر۰ ِ PLAN-R7-LIVE (۱۴۰۵-۰۸-۲۰): شاهدی که ts اش بیش از یک روز کهنه است دیگر پرسیده نمی‌شود — یک بار «stale» جواب می‌گیرد
+// و علامت می‌خورد؛ ارجاع پاک نمی‌شود (برگشت‌پذیر)، فقط هر دور دوباره پردازش نمی‌شود.
+const LAND_STALE_S = 86400;
 
 function land_parse_evidence(string $msg): ?array {
     if (!preg_match('/^land-evidence:\s*(\{.*\})\s*$/m', $msg, $m)) return null;
@@ -40,7 +43,7 @@ function land_parse_evidence(string $msg): ?array {
 //   seen(key): bool, mark(key)  idempotence store
 //   result(session, row)        write the answer the session (or a chat with curl) reads
 function land_round(array $a, string $mode): array {
-    $sum = ['mode' => $mode, 'landed' => 0, 'rebase' => 0, 'invalid' => 0, 'already' => 0, 'external' => 0, 'diverged' => 0, 'refs' => 0];
+    $sum = ['mode' => $mode, 'landed' => 0, 'rebase' => 0, 'invalid' => 0, 'already' => 0, 'external' => 0, 'diverged' => 0, 'stale' => 0, 'refs' => 0];
     if ($mode !== 'shadow') return $sum + ['skipped' => "mode $mode"];
     $tip = ($a['target'])();
     if ($tip === null) { $up = ($a['upstream'])(); if ($up === null || !($a['reset'])($up)) return $sum + ['error' => 'no target']; $tip = $up; }
@@ -55,6 +58,10 @@ function land_round(array $a, string $mode): array {
             continue;
         }
         if (($a['seen'])("ok:$sha")) continue;
+        if ((int) ($e['ts'] ?? 0) < time() - LAND_STALE_S) {
+            ($a['result'])($session, ['state' => 'stale', 'evidence' => $sha]);
+            ($a['mark'])("ok:$sha"); $sum['stale']++; continue;
+        }
         $cc = ($a['commit'])($e['candidate']);
         if (!$cc || $cc['tree'] !== $e['tree']) {
             ($a['result'])($session, ['state' => 'invalid', 'why' => 'candidate tree differs from evidence', 'evidence' => $sha]);
