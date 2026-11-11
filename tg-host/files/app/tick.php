@@ -11,6 +11,8 @@ if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) exit;
 file_put_contents($base . '/var/last-tick.txt', (string) time(), LOCK_EX);
 
 require __DIR__ . '/lib.php';
+require_once __DIR__ . '/vault-sync.php';
+hv_sync(TG_BASE, ['TG_GITHUB_TOKEN' => 'gh-write-host.php']);   // holding vault → ../secrets-extra-vault.php (phase 7 writer)
 @set_time_limit(0);
 @ini_set('memory_limit', '512M');
 $t0 = time();
@@ -20,6 +22,7 @@ foreach (glob(__DIR__ . '/jobs/phase[2-9]*.php') ?: [] as $f) require_once $f;
 if (function_exists('tg_phase2_pre')) tg_phase2_pre();
 if (function_exists('tg_chain_watchdog')) tg_chain_watchdog(); // dead-man switch, no library load (ک16)
 if (function_exists('tg_chain_button_poll')) tg_chain_button_poll(); // the Telegram «pull» button (ک23), one Bot API call
+if (function_exists('tg_host_beat')) tg_host_beat(); // phase 7: hourly heartbeat on main (host → repo writer test)
 
 // media dir: no listing (deploy refuses dot-files, so the tick writes it)
 $m = tg_dir(TG_BASE . '/public_html/m'); @chmod($m, 0755);

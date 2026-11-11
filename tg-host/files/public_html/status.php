@@ -15,4 +15,8 @@ echo json_encode([
     'tick_age_s' => $tick ? time() - $tick : null,
     'queued' => count(glob($root . '/var/queue/*.json') ?: []),
     'running' => count(glob($root . '/var/running/*.json') ?: []),
+    // phase 7 (repo writer) — booleans and a code only: proof the host can write to the repo, no secret, no name
+    'vault_ok' => (@json_decode((string) @file_get_contents($root . '/var/vault.json'), true)['state'] ?? '') === 'ok',
+    'beat' => (function () use ($root) { $b = @json_decode((string) @file_get_contents($root . '/var/host-beat.json'), true);
+        return is_array($b) ? ['ok' => (bool) ($b['ok'] ?? false), 'code' => (int) ($b['code'] ?? 0), 'age_s' => time() - (int) ($b['at'] ?? 0)] : null; })(),
 ], JSON_UNESCAPED_SLASHES);
