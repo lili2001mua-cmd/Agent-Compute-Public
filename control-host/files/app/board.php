@@ -311,7 +311,8 @@ function board_queue(array $pc, ?array $ni): array {
         $k = $s['key']; $i = $idx[$k] ?? []; $a = $s['archive'];
         $topic = $plain[$k] ?? ($i['plain'] ?? null) ?: ($a['topic'] ?? $i['topic'] ?? '—');
         $rows[] = ['key' => $k, 'root' => $i['root'] ?? null, 'sub' => $i['sub'] ?? null, 'plain' => $topic, 'issue' => (string) ($i['topic'] ?? ''),
-                   'urgent' => !empty($s['urgent']), 'link' => $a['link'] ?? null, 'date' => $a['date'] ?? '', 'jalali' => $a['jalali'] ?? ''];
+                   'urgent' => !empty($s['urgent']), 'link' => $a['link'] ?? null, 'date' => $a['date'] ?? '', 'jalali' => $a['jalali'] ?? '',
+                   'posted' => strtotime((string) ($a['posted_utc'] ?? '')) ?: 0];
     }
     usort($rows, fn($x, $y) => [$y['urgent'], $x['date'], $x['key']] <=> [$x['urgent'], $y['date'], $y['key']]);
     $groups = [];
@@ -333,7 +334,7 @@ function board_queue(array $pc, ?array $ni): array {
         $t = ($t === '' || $t === '—') ? '' : $t;                       // full text: the app shows up to five lines, never «…»
         $short = mb_strlen($t) > 60 ? rtrim(mb_substr($t, 0, 59)) : $t;   // the session name stays short
         $issue = trim(preg_replace('/\s+/', ' ', (string) ($x['issue'] ?? '')), " .");
-        $items[$x['key']] = ['plain' => $t, 'title' => $issue, 'urgent' => $x['urgent'], 'link' => $x['link'], 'jalali' => $x['jalali'],
+        $items[$x['key']] = ['plain' => $t, 'title' => $issue, 'urgent' => $x['urgent'], 'link' => $x['link'], 'jalali' => $x['jalali'], 'posted' => $x['posted'],
                              'prompt' => 'گامِ ۳ · ' . $x['key'] . ($short !== '' ? ' · ' . $short : '')];
     }
     return ['total' => count($rows), 'urgent' => count(array_filter($rows, fn($x) => $x['urgent'])), 'groups' => $groups, 'items' => $items];
@@ -485,7 +486,10 @@ function board_build(): array {
                   'prompt' => $kind === 'nightly' ? 'گامِ ۳ · ' . $k . ' · ' . mb_substr($title, 0, 60) : null,
                   'closed_utc' => $closedAt, 'closed_j' => $closedAt ? ctl_jalali(strtotime($closedAt)) : '',
                   'step36_result' => $step36res, 'step4_result' => $step4res,
-                  'date' => min(array_map(fn($e) => (string) ($e['date'] ?? ''), $es)), 'rows' => count($es)]
+                  'date' => min(array_map(fn($e) => (string) ($e['date'] ?? ''), $es)), 'rows' => count($es),
+                  // بذرِ «زمانِ ورود به مرحله» برای بسته‌ای که تابلو بارِ اول می‌بیند (۱۴۰۵-۰۸-۲۱): بستن ⇐ closed_utc ؛ ۳٫۶ ⇐ آخرین کاوشگر؛
+                  // بقیه ⇐ اولین کامیتِ ردیفِ دفترِ گامِ ۳
+                  '_seed' => $isclosed ? (strtotime($closedAt) ?: 0) : ($pr ? max(array_map(fn($x) => (int) ($x['t'] ?? 0), $prE)) : (strtotime((string) ($first[0]['at'] ?? '')) ?: 0))]
                 + $about($k) + ['map' => array_map(fn($e) => ['node' => board_leaf((string) ($e['leaf'] ?? '')), 'dest' => board_dest((string) ($e['destination'] ?? '')),
                     'score' => (int) ($e['score'] ?? 0), 'consulted' => array_values(array_filter((array) ($e['consulted'] ?? []), 'is_string')),
                     'name' => board_pname((string) ($e['point'] ?? '')), 'point' => (string) ($e['point'] ?? ''),
@@ -553,6 +557,20 @@ function board_build(): array {
         array_unshift($b['flags'], 'کارِ گامِ ۳ روی برنچِ ' . $stranded[$b['key']] . ' مانده و به main نرسیده — تا نیاید، این‌جا «نگاشت ثبت نشده» دیده می‌شود');
     }
     unset($b);
+    // ⛔ ترتیبِ ورود به هر مرحله (خواستِ کاربر ۱۴۰۵-۰۸-۲۱): هر تیک مرحلهٔ هر بسته را با تیکِ قبل مقایسه می‌کند و لحظهٔ عوض‌شدن را
+    //    نگه می‌دارد (var/stage-since.json ، دقتِ یک تیکِ ۵ دقیقه‌ای). بستهٔ تازه‌دیده با بذرِ بالا شروع می‌کند. اپ با step_since مرتب می‌کند.
+    $since = board_read('stage-since.json', []);
+    $keep = [];
+    foreach ($out as &$b) {
+        $k = $b['key']; $rec = $since[$k] ?? null;
+        if (!is_array($rec) || ($rec['step'] ?? '') !== $b['step']) {
+            $seed = (int) ($b['_seed'] ?? 0);
+            $rec = ['step' => $b['step'], 't' => (!is_array($rec) && $seed > 0) ? $seed : time()];
+        }
+        $keep[$k] = $rec; $b['step_since'] = (int) $rec['t']; unset($b['_seed']);
+    }
+    unset($b);
+    board_write('stage-since.json', $keep);
     usort($out, fn($a, $b) => strcmp($b['date'], $a['date']));
     $count = ['3' => 0, 'up' => 0, '3.6' => 0, '4' => 0];
     foreach ($out as $b) $count[$b['step']]++;
