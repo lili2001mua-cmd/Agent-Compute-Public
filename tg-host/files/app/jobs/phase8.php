@@ -11,9 +11,12 @@
 //   in       = min(media dates) in [since, until) and ≥1 video/photo/doc    telegram_pool.py in_window() + window_keys
 //   key      = "b" + min(media ids)                                          telegram_pool.py bundle_key()
 //   minus    = keys whose Memory-Workflow/nightly-pool/archive/<k>.json is on main (nightly-pool.yml, plan step)
-// ⛔ B1 is dry: no download, no Drive, no Telegram write, no lease (read-only history, like job_batches). `live` is not
-//    implemented here and runs as `dry` (logged). Switch: var/host-config.json {"mode":"off|dry|live","limit":N,
-//    "plan_date":"YYYY-MM-DD"} — missing ⇒ dry; unreadable ⇒ off (fail closed).
+// ⛔ The plan itself is always read-only: no download, no Drive, no Telegram write, no lease (read-only history, like
+//    job_batches). It also keeps the night's bundles locally (var/host-plan.json) for the B2 pull (phase10.php), which
+//    runs only in mode `live`. Switch {"mode":"off|dry|live","limit":N,"plan_date":"YYYY-MM-DD"}: var/host-config.json on
+//    the host wins; else the repo proposal Memory-Workflow/nightly-chain-independence/host-config.json (written only on the
+//    owner's typed approval — Agent-Project-Backup Sys.scripts/lib/host_transfer_gate.py); else dry.
+//    Unreadable ⇒ off (fail closed).
 
 const TG_HOST_PLAN_SLOT = [187, 210];          // Tehran minutes: 03:07 ≤ t < 03:30
 const TG_HOST_PLAN_MAX_ATTEMPTS = 4;
@@ -24,19 +27,44 @@ const TG_HOST_PLAN_SOURCE_HINT = 'instant saver';
 
 function tg_tehran_tz(): DateTimeZone { return new DateTimeZone('+03:30'); } // nightly_pool.TEHRAN is a fixed +03:30
 
-/** Local switch, never from the repo. */
+const TG_HOST_CONFIG_REPO = 'Memory-Workflow/nightly-chain-independence/host-config.json';
+const TG_HOST_CONFIG_POLL_S = 300;
+
+/** Tick (CLI): cache the repo proposal in var/host-config-repo.json. 404 ⇒ {} (defaults); a transient error keeps the
+ *  last known copy; a 200 that is not a JSON object ⇒ null (read as off). Never throws. */
+function tg_host_config_sync(?int $now = null): void {
+    if (PHP_SAPI !== 'cli' || !function_exists('tg_gh')) return;
+    $now ??= time();
+    $f = tg_var('host-config-repo.json');
+    $c = tg_read_json($f) ?? [];
+    if ($now - (int) ($c['polled'] ?? 0) < TG_HOST_CONFIG_POLL_S) return;
+    try {
+        [$code, $doc] = tg_gh('GET', '/repos/' . TG_REPO . '/contents/' . TG_HOST_CONFIG_REPO . '?ref=main');
+        $out = ['polled' => $now, 'code' => $code];
+        if ($code === 200) { $j = json_decode((string) base64_decode((string) ($doc['content'] ?? '')), true); $out['config'] = is_array($j) ? $j : null; }
+        elseif ($code === 404) $out['config'] = [];
+        else $out['config'] = array_key_exists('config', $c) ? $c['config'] : [];
+        tg_write_json($f, $out);
+    } catch (Throwable $e) { tg_log('chain', 'host config sync error ' . get_class($e)); }
+}
+
+/** The switch: local file wins, else the repo proposal, else defaults. */
 function tg_host_config(): array {
     $f = tg_var('host-config.json');
     $c = ['mode' => 'dry', 'limit' => 0, 'plan_date' => null, 'source' => 'default'];
-    if (!is_file($f)) return $c;
-    $j = tg_read_json($f);
+    if (is_file($f)) { $j = tg_read_json($f); $src = 'file'; }
+    else {
+        $r = tg_read_json(tg_var('host-config-repo.json'));
+        if ($r === null || !array_key_exists('config', $r) || $r['config'] === []) return $c;
+        $j = is_array($r['config']) ? $r['config'] : null; $src = 'repo';
+    }
     if ($j === null) return ['mode' => 'off', 'source' => 'unreadable'] + $c;
     $m = (string) ($j['mode'] ?? 'dry');
     $c['mode'] = in_array($m, ['off', 'dry', 'live'], true) ? $m : 'off';
     $c['limit'] = max(0, (int) ($j['limit'] ?? 0));
     $pd = (string) ($j['plan_date'] ?? '');
     $c['plan_date'] = preg_match('/^\d{4}-\d{2}-\d{2}$/', $pd) && DateTimeImmutable::createFromFormat('!Y-m-d', $pd) ? $pd : null;
-    $c['source'] = 'file';
+    $c['source'] = $src;
     return $c;
 }
 
@@ -141,6 +169,16 @@ function tg_host_plan_collect($api, int $peer, int $floor, ?callable $hb = null,
     throw new RuntimeException('history deeper than ' . (TG_HOST_PLAN_MAX_PAGES * $page) . ' messages');
 }
 
+const TG_SOURCE_URL_RX = '~https?://(?:www\\.)?(?:instagram\\.com|instagr\\.am)/[^\\s)\\]>"\']+~i';
+/** telegram_pool.source_url(): media texts first, then the text before and after; no guess. */
+function tg_host_source_url(array $b): ?string {
+    $texts = array_map('tg_m_text', $b['media']);
+    $texts[] = $b['text_before'] ? tg_m_text($b['text_before']) : '';
+    $texts[] = $b['text_after'] ? tg_m_text($b['text_after']) : '';
+    foreach ($texts as $t) if (preg_match(TG_SOURCE_URL_RX, $t, $mm)) return rtrim($mm[0], '.,،');
+    return null;
+}
+
 /** Pure: newest-first messages ⇒ the night's bundles, in Python's order (old → new). */
 function tg_host_plan_build(array $newestFirst, int $since, int $until): array {
     $bundles = [];
@@ -150,7 +188,7 @@ function tg_host_plan_build(array $newestFirst, int $since, int $until): array {
         $first = min(array_map(fn($m) => (int) ($m['date'] ?? 0), $b['media']));
         if (!($first >= $since && $first < $until)) continue;
         if (!array_intersect($types, ['video', 'photo', 'document'])) continue;   // a-bundle-without-media-is-not-a-package
-        $bundles[] = ['key' => 'b' . min($ids), 'media_ids' => $ids, 'types' => $types];
+        $bundles[] = ['key' => 'b' . min($ids), 'media_ids' => $ids, 'types' => $types, 'source_url' => tg_host_source_url($b)];
     }
     return $bundles;
 }
@@ -172,7 +210,7 @@ function tg_host_plan_finish(string $date, array $bundles, array $meta, callable
     $r = $put($path, json_encode($doc, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n",
         'tg-host: night plan ' . $date . ' (dry, ' . count($keep) . ' keys)');
     if (empty($r['ok'])) throw new RuntimeException('repo write failed code=' . (int) ($r['code'] ?? 0));
-    return ['path' => $path, 'keys' => $doc['keys'], 'excluded_archived' => $excluded, 'write' => $r];
+    return ['path' => $path, 'keys' => $doc['keys'], 'bundles' => $keep, 'excluded_archived' => $excluded, 'write' => $r];
 }
 
 /** nightly-pool.yml plan step: `git cat-file -e origin/main:$HOME_DIR/archive/$k.json`. */
@@ -182,14 +220,13 @@ function tg_host_plan_archived(string $key): ?bool {
     return $c === 200 ? true : ($c === 404 ? false : null);
 }
 
-/** Internal job (no door role): plan one night, dry. */
+/** Internal job (no door role): plan one night (read-only). */
 function job_host_plan(array $a, callable $hb, string $role = 'read'): array {
     if ($role !== 'internal') throw new RuntimeException('internal job');
     $date = (string) ($a['date'] ?? '');
     try {
         if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) throw new RuntimeException('bad date');
         $cfg = tg_host_config();
-        if ($cfg['mode'] === 'live') tg_log('chain', 'host plan: mode live requested, B1 runs dry');
         $peer = tg_host_plan_source();
         if ($peer === null) throw new RuntimeException('NO_SOURCE_CHAT: no single kind=source chat in chain-chats.json');
         [$since, $until] = tg_host_window($date);
@@ -205,7 +242,8 @@ function job_host_plan(array $a, callable $hb, string $role = 'read'): array {
         if ($date !== '') tg_host_plan_mark($date, ['state' => 'failed', 'error' => get_class($e) . ': ' . mb_substr($e->getMessage(), 0, 120), 'next_at' => time() + TG_HOST_PLAN_RETRY_S]);
         throw $e;
     }
-    tg_host_plan_mark($date, ['state' => 'done', 'keys' => count($res['keys']), 'code' => (int) ($res['write']['code'] ?? 0)]);
+    tg_host_plan_mark($date, ['state' => 'done', 'keys' => count($res['keys']), 'code' => (int) ($res['write']['code'] ?? 0),
+        'bundles' => $res['bundles'], 'peer' => $peer]);
     tg_log('chain', 'host plan done night=' . $date . ' keys=' . count($res['keys']));
     return $res;
 }

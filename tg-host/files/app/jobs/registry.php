@@ -25,4 +25,6 @@ return [
     'chain_admin' => ['roles' => ['admin'], 'args' => ['ops' => 'json'], 'retry' => false, 'tg' => true],
     // phase 8 (B1) — internal only (no door role): the tick enqueues it at the night slot; read-only history, dry plan file
     'host_plan'   => ['roles' => [], 'args' => ['date' => 'str:[0-9]{4}-[0-9]{2}-[0-9]{2}'], 'retry' => true, 'tg' => true],
+    // phase 10 (B2) — internal only: mode live, one planned bundle Telegram → Drive per job slice (resumable)
+    'host_pull'   => ['roles' => [], 'args' => ['date' => 'str:[0-9]{4}-[0-9]{2}-[0-9]{2}', 'key' => 'str:b[0-9]{1,12}'], 'retry' => true, 'tg' => true],
 ];
