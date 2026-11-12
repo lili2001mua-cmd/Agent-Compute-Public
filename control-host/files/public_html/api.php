@@ -201,7 +201,10 @@ if ($op === 'session-command') {
         out(502, ['ok' => false, 'error' => 'commit failed: ' . $sha]);
     }
     if ($button) {
-        [$dc, , $draw] = gh('POST', '/repos/' . CTL_REPO . '/actions/workflows/button-chain.yml/dispatches', ['ref' => CTL_BRANCH, 'inputs' => ['mode' => 'intake']]);
+        // «دوباره همین بسته» (تصمیمِ کاربر ۱۴۰۵-۰۸-۲۱): کلیدِ بستهٔ شکست‌خورده ⇒ همان بسته از جایی که ایستاده ادامه می‌یابد (بی کشیدنِ تازه)
+        $rk = (string) ($in['key'] ?? '');
+        $inputs = ['mode' => 'intake'] + (preg_match('/^b[0-9]{1,8}$/', $rk) ? ['key' => $rk] : []);
+        [$dc, , $draw] = gh('POST', '/repos/' . CTL_REPO . '/actions/workflows/button-chain.yml/dispatches', ['ref' => CTL_BRANCH, 'inputs' => $inputs]);
         ctl_log("session-command $task -> button-chain dispatch http=$dc");
         if ($dc !== 204) {
             btn_update(fn(array $x) => btn_set($x, 'failed', ['error' => 'شروعِ زنجیره روی گیت‌هاب نشد (HTTP ' . $dc . ')', 'note' => 'queued', 'at_stage' => 'queued']));

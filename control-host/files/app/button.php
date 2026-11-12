@@ -9,8 +9,10 @@
 require_once __DIR__ . '/lib.php';
 
 const BTN_STAGES = ['queued', 'step1', 'step2', 'step3', 'delivering', 'delivered', 'failed'];
-const BTN_LIMIT_MIN = ['queued' => 15, 'step1' => 60, 'step2' => 120, 'step3' => 90, 'delivering' => 45];
-const BTN_TOTAL_MIN = 330;   // سقفِ کلِ یک فشار (۵٫۵ ساعت) — زیرِ قفلِ ۶ ساعتهٔ اپ و فشارِ دوباره
+// ⛔ ۱۴۰۵-۰۸-۲۱ (تصمیمِ کاربر، کمیتهٔ پنج‌نفره): step2 ۱۲۰ ⇒ ۱۸۰ — صبرِ ۸۰ دقیقه‌ایِ رانرِ عمومی + کلید + فرود از ۱۲۰ می‌گذشت
+const BTN_LIMIT_MIN = ['queued' => 15, 'step1' => 60, 'step2' => 180, 'step3' => 90, 'delivering' => 45];
+const BTN_HEAL_MIN = 15;     // «در حالِ انتقال» بی پیوند پس از ۱۵ دقیقه ⇒ یک بار تحویلِ دوباره (mode=deliver) — خودترمیم
+const BTN_TOTAL_MIN = 355;   // سقفِ کلِ یک فشار — زیرِ قفلِ ۶ ساعتهٔ اپ (۳۶۰) و فشارِ دوباره؛ ۳۳۰ ⇒ ۳۵۵ با step2 ِ تازه (۱۴۰۵-۰۸-۲۱)
 const BTN_RETRY_STEP3 = 2;   // دو شلیکِ دوباره: سشنِ اول ممکن است فقط گامِ ۲ را تمام کند (partial)، دومی فقط گامِ ۳ ؛ بعد «ناموفق»
 
 function btn_read(): array { return ctl_json_read('button-state.json', []) ?: []; }
@@ -175,6 +177,16 @@ function btn_tick(): void {
     if ($stage === 'delivering' && $key !== '') {
         $link = btn_archive_link($key);
         if ($link !== '') { btn_update(fn(array $x) => $same($x) ? btn_set($x, 'delivered', ['link' => $link, 'note' => 'در کانالِ Routine Trainer 1 & 2']) : null); return; }
+        // ⛔ خودترمیم (تصمیمِ کاربر ۱۴۰۵-۰۸-۲۱ · کمیتهٔ پنج‌نفره، ایرادِ ۷): گزارشِ گامِ ۳ روی main هست ولی پس از ۱۵ دقیقه هنوز
+        //    چیزی به کانال نرسیده (رلهٔ after نزد، یا تحویل افتاد) ⇒ یک بار تحویلِ همین بسته را مستقیم دیسپچ کن (mode=deliver).
+        if ($now - $since > 60 * BTN_HEAL_MIN && empty($s['healed'])) {
+            $n = btn_update(function (array $x) use ($same, $now) { if (!$same($x)) return null; $x['healed'] = $now; $x['history'][] = ['stage' => 'delivering', 'at' => $now, 'note' => 'خودترمیم: تحویلِ دوباره دیسپچ شد']; return $x; });
+            if (!empty($n['healed']) && (int) $n['healed'] === $now) {
+                [$dc] = gh('POST', '/repos/' . CTL_REPO . '/actions/workflows/button-chain.yml/dispatches', ['ref' => CTL_BRANCH, 'inputs' => ['mode' => 'deliver', 'key' => $key]]);
+                ctl_log("button heal $key -> deliver dispatch http=$dc");
+            }
+            return;
+        }
     }
     if ($now - $since > 60 * (BTN_LIMIT_MIN[$stage] ?? 120)) {
         $why = ['queued' => 'زنجیره روی گیت‌هاب شروع نشد', 'step1' => 'گامِ ۱ در مهلت تمام نشد', 'step2' => 'گامِ ۲ در مهلت تمام نشد',
