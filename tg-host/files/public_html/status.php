@@ -21,11 +21,9 @@ echo json_encode([
     'bot_poll' => (function () use ($root) { $b = @json_decode((string) @file_get_contents($root . '/var/bot-poll.json'), true);
         return is_array($b) ? ['age_s' => time() - (int) ($b['at'] ?? 0), 'ok' => (bool) ($b['ok'] ?? false), 'code' => (int) ($b['code'] ?? 0),
             'why' => (string) ($b['why'] ?? ''), 'last_cb_age_s' => empty($b['last_cb_at']) ? null : time() - (int) $b['last_cb_at']] : null; })(),
-    'deploy' => (function () use ($root) { $p = @json_decode((string) @file_get_contents($root . '/var/deploy-pending.json'), true) ?: [];
-        $c = @json_decode((string) @file_get_contents($root . '/var/deploy-last-callback.json'), true) ?: [];
-        return ['pending' => !empty($p['nonce']) && (int) ($p['expires'] ?? 0) > time(), 'approved' => !empty($p['approved_sha']),
-            'last_tap' => $c ? ['age_s' => time() - (int) ($c['at'] ?? 0), 'from_is_owner' => (bool) ($c['from_is_owner'] ?? false),
-                'shape_ok' => (bool) ($c['shape_ok'] ?? false), 'answer' => (string) ($c['answer'] ?? '')] : null]; })(),
+    'deploy' => (function () use ($root) { $d = @json_decode((string) @file_get_contents($root . '/var/deploy-state.json'), true) ?: [];
+        return ['last_poll_age_s' => isset($d['polled']) ? time() - (int) $d['polled'] : null, 'read_code' => (int) ($d['last_read_code'] ?? 0),
+            'applied' => !empty($d['applied_sha']), 'write_ok' => (bool) ($d['write_ok'] ?? false), 'rejected' => !empty($d['rejected_sha'])]; })(),
     'beat' => (function () use ($root) { $b = @json_decode((string) @file_get_contents($root . '/var/host-beat.json'), true);
         return is_array($b) ? ['ok' => (bool) ($b['ok'] ?? false), 'code' => (int) ($b['code'] ?? 0), 'age_s' => time() - (int) ($b['at'] ?? 0)] : null; })(),
 ], JSON_UNESCAPED_SLASHES);

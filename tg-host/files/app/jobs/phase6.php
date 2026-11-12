@@ -950,12 +950,6 @@ function tg_chain_button_poll(): void {
         $from = (int) ($u['message']['from']['id'] ?? $cb['from']['id'] ?? 0);
         $chat = $u['message']['chat']['id'] ?? $cb['message']['chat']['id'] ?? null;
         $text = mb_strtolower(trim((string) ($u['message']['text'] ?? $cb['data'] ?? '')));
-        // phase9: the owner's tap on a deploy-approval button (only path that writes deploy-ref.txt)
-        if ($cb && function_exists('tg_deploy_on_callback') && str_starts_with((string) ($cb['data'] ?? ''), 'deploy:')) {
-            $say = tg_deploy_on_callback($from, (string) $cb['data']);
-            if ($say !== '') tg_bot_call('answerCallbackQuery', ['callback_query_id' => (string) $cb['id'], 'text' => mb_substr($say, 0, 190), 'show_alert' => 'true']);
-            continue;
-        }
         if ($from !== $owner || !in_array($text, ['/pull', 'pull', 'بکش'], true) || !$canFire) continue; // anyone else: silence
         if (!is_file(tg_var('chain-armed'))) $say = '⏸ زنجیره خاموش است — دکمه کاری نکرد.';
         elseif (time() - (int) $st['last_fire'] < 1800) $say = '⏳ کمتر از ۳۰ دقیقه از شلیکِ قبلی گذشته؛ همان اجرا در راه است.';
