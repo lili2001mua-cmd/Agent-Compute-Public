@@ -939,6 +939,11 @@ function tg_chain_button_poll(): void {
     if (time() - (int) $st['last_poll'] < 50) return;
     $st['last_poll'] = time();
     $r = tg_bot_call('getUpdates', ['offset' => (int) $st['offset'], 'timeout' => 0, 'allowed_updates' => json_encode(['message', 'callback_query'])]);
+    // diagnostics (status.php): did the poll hear Telegram at all? (a webhook on the bot makes getUpdates fail with 409)
+    $bp = tg_read_json(tg_var('bot-poll.json')) ?? [];
+    $ncb = count(array_filter($r['result'] ?? [], fn($u) => isset($u['callback_query'])));
+    tg_write_json(tg_var('bot-poll.json'), ['at' => time(), 'ok' => !empty($r['ok']), 'code' => (int) ($r['error_code'] ?? 0),
+        'why' => mb_substr((string) ($r['description'] ?? ''), 0, 60), 'last_cb_at' => $ncb ? time() : (int) ($bp['last_cb_at'] ?? 0)]);
     foreach ($r['result'] ?? [] as $u) {
         $st['offset'] = (int) $u['update_id'] + 1;
         $cb = $u['callback_query'] ?? null;

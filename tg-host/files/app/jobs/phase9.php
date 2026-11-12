@@ -55,7 +55,8 @@ function tg_deploy_request_tick(): void {
     $summary = mb_substr(trim((string) ($req['summary'] ?? '')), 0, 600);
     $text = "🔐 درخواستِ به‌روزرسانیِ هاستِ تلگرام\n\n" . ($summary !== '' ? $summary . "\n\n" : '')
           . 'نسخه: ' . substr($sha, 0, 12) . ' · ' . (string) ($man['version'] ?? '?') . "\n"
-          . 'فقط با لمسِ «✅ تأییدِ استقرار» اجرا می‌شود؛ ۲۴ ساعت اعتبار دارد.';
+          . "فقط با لمسِ «✅ تأییدِ استقرار» اجرا می‌شود؛ ۲۴ ساعت اعتبار دارد.\n"
+          . 'اگر دکمه جواب نداد، این لینکِ یک‌بارمصرف همان کار را می‌کند: https://tg.hohedoc.ir/approve.php?n=' . $nonce;
     $kb = ['inline_keyboard' => [[['text' => '✅ تأییدِ استقرار', 'callback_data' => 'deploy:' . $nonce . ':ok'],
                                    ['text' => '❌ رد', 'callback_data' => 'deploy:' . $nonce . ':no']]]];
     $r = tg_bot_call('sendMessage', ['chat_id' => (string) $owner, 'text' => $text, 'reply_markup' => json_encode($kb, JSON_UNESCAPED_UNICODE)]);
@@ -68,6 +69,14 @@ function tg_deploy_request_tick(): void {
 
 /** Called from the bot poll for callback data «deploy:<nonce>:ok|no». Returns the toast text. */
 function tg_deploy_on_callback(int $from, string $data): string {
+    $r = tg_deploy_on_callback_inner($from, $data);
+    // diagnostics for status.php — booleans and a short reason only, never ids or the nonce
+    tg_write_json(tg_var('deploy-last-callback.json'), ['at' => time(), 'from_is_owner' => $from !== 0 && $from === tg_deploy_owner(),
+        'shape_ok' => (bool) preg_match('/^deploy:[0-9a-f]{16}:(ok|no)$/', $data), 'answer' => $r === '' ? 'silent' : mb_substr($r, 0, 40)]);
+    return $r;
+}
+
+function tg_deploy_on_callback_inner(int $from, string $data): string {
     if ($from !== tg_deploy_owner() || $from === 0) return '';
     if (!preg_match('/^deploy:([0-9a-f]{16}):(ok|no)$/', $data, $m)) return '';
     $pf = tg_var('deploy-pending.json');
