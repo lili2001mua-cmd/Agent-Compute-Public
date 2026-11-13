@@ -28,7 +28,9 @@ RELAY = os.environ.get("IRAN_RELAY_URL", "https://relay.hohe1.ir/run.php")
 # Kept in step with $IRANIAN_COM in the relay's run.php (Agent-Project-Backup,
 # Memory-Workflow/iran-relay-host/site/relay/public_html/run.php).
 IRANIAN_COM = ("digikala.com", "torob.com", "aparat.com", "behtarino.com", "shahrint.com",
-               "royasho.com", "digistyle.com", "basalam.com", "sheypoor.com", "filimo.com")
+               "royasho.com", "digistyle.com", "basalam.com", "sheypoor.com", "filimo.com",
+               # 1405-08-22: named Iranian .org sites (the .org suffix alone is not a signal)
+               "sanjesh.org", "azmoon.org", "iranbar.org")
 
 
 def is_iranian(url):
