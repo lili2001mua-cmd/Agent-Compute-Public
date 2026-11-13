@@ -77,7 +77,9 @@ if ($op === 'hub' && $_SERVER['REQUEST_METHOD'] === 'GET') {
                 $t = (string) ($n['session'] ?? '');
                 if ($t === '' || (string) ($n['session_url'] ?? '') !== '') continue;
                 $u = (string) ($fs[$t]['session'] ?? '');
-                if (preg_match('#^https://claude\.ai/code/session_[A-Za-z0-9]+$#', $u)) $hub['projects'][$pi]['nodes'][$ni]['session_url'] = $u;
+                // شناسهٔ سشنِ آتش‌شده گاهی با پیشوندِ cse_ برمی‌گردد؛ نشانیِ بازشدنی همیشه session_ است.
+                if (preg_match('#^https://claude\.ai/code/(?:session|cse)_([A-Za-z0-9]+)$#', $u, $m))
+                    $hub['projects'][$pi]['nodes'][$ni]['session_url'] = 'https://claude.ai/code/session_' . $m[1];
             }
         }
     }
