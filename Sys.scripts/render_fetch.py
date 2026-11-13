@@ -112,6 +112,18 @@ def main():
             b.close()
             return 1
 
+        if iran:
+            # Anti-bot interstitials ("Transferring to the website...") set a cookie and reload; give them time.
+            for _ in range(4):
+                if len(pg.inner_text("body").strip()) >= a.min_chars:
+                    break
+                pg.wait_for_timeout(6000)
+                try:
+                    pg.wait_for_load_state("networkidle", timeout=30000)
+                except Exception:                             # noqa: BLE001
+                    pass
+            if a.out:
+                open(os.path.splitext(a.out)[0] + ".html", "w", encoding="utf-8").write(pg.content())
         for _ in range(a.scroll):
             pg.mouse.wheel(0, 20000)
             pg.wait_for_timeout(1200)                         # give the page time to load the next batch
@@ -159,6 +171,11 @@ def relay_route(route, request, ctx, a, stats, iran_relay):
         stats["relay_failed"] += 1
         return route.abort()
     stats["relayed"] += 1
+    stats.setdefault("log", []).append([m, u[:200], x["status"], (x["ctype"] or "")[:40], len(x["body"]),
+                                        x["final"][:200] if x["final"] != u else ""])
+    if x["final"] and x["final"] != u and request.is_navigation_request():
+        # The relay followed a redirect; tell the browser so relative links resolve against the real page.
+        return route.fulfill(status=302, headers={"location": x["final"]}, body=b"")
     hdrs = {"content-type": x["ctype"] or "application/octet-stream"}
     origin = request.headers.get("origin")
     if origin:                                                # the relay drops CORS headers; restore them
