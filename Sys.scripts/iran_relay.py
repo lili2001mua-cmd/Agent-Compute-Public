@@ -13,6 +13,7 @@ Iranian URL fails loudly instead of being fetched from outside Iran.
 
 CLI (for quick checks):  python3 iran_relay.py job dk-search "<query>"
 """
+import base64
 import hashlib
 import hmac
 import json
@@ -54,14 +55,15 @@ class RelayError(RuntimeError):
     pass
 
 
-def job(name, q="", timeout=60):
+def job(name, q="", timeout=60, data=None):
     k = key()
     if not k:
         raise RelayError("IRAN_RELAY_RUN_KEY is not set - Iranian sites must go through the relay")
     ts = str(int(time.time()))
     sig = hmac.new(k.encode(), f"{ts}|{name}|{q}".encode(), hashlib.sha256).hexdigest()
     url = RELAY + "?" + urllib.parse.urlencode({"ts": ts, "job": name, "q": q, "sig": sig})
-    req = urllib.request.Request(url, headers={"User-Agent": "iran-relay-client"})
+    req = urllib.request.Request(url, data=data, headers={"User-Agent": "iran-relay-client",
+                                                          "Content-Type": "application/octet-stream"})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             body = r.read()
@@ -87,6 +89,39 @@ def fetch(url, timeout=60, max_bytes=None):
     if status >= 400 or status == 0:
         raise urllib.error.HTTPError(url, status or 502, d.get("err") or "relay fetch failed", headers, None)
     return status, headers, raw, trunc, len(raw)
+
+
+# Header names the relay forwards upstream (run.php keeps the same allow-list).
+RAW_HEADERS = ("accept", "accept-language", "content-type", "referer", "origin", "cookie",
+               "x-requested-with", "authorization", "user-agent")
+
+
+def raw(url, method="GET", body=b"", headers=None, timeout=150, chunk=2_000_000, max_bytes=80_000_000):
+    """Byte-exact HTTP request made from inside Iran (relay job 'raw', 1405-08-22).
+
+    Returns {"status", "ctype", "final", "body" (bytes), "headers" (set-cookie/location/...)}.
+    Unlike fetch(), binary bodies (PDF, images, JS bundles) survive intact and large files
+    arrive in chunks. A real browser routes every Iranian request through this, so
+    client-rendered Iranian pages render with an Iranian IP.
+    """
+    body = body or b""
+    hd = {k.lower(): v for k, v in (headers or {}).items() if k.lower() in RAW_HEADERS}
+    out, off, first = bytearray(), 0, None
+    while True:
+        q = json.dumps({"u": url, "m": method.upper(), "o": off, "n": chunk,
+                        "h": hashlib.sha256(body).hexdigest(), "hd": hd},
+                       ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+        d = job("raw", q, timeout, data=body if method.upper() == "POST" else None)
+        if d.get("error"):
+            raise RelayError(f"relay refused {url}: {d.get('error')}")
+        first = first or d
+        out += base64.b64decode(d.get("b64") or "")
+        off = len(out)
+        if d.get("done") or not d.get("len") or off >= max_bytes:
+            break
+    return {"status": int(first.get("code") or 0), "ctype": first.get("ctype") or "",
+            "final": first.get("final") or url, "headers": first.get("headers") or {},
+            "total": int(first.get("total") or 0), "body": bytes(out), "err": first.get("err") or ""}
 
 
 if __name__ == "__main__":
