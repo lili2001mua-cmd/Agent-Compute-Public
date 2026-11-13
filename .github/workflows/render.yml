@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       urls:
-        description: "Comma-separated URLs"
+        description: "Comma-separated URLs. Iranian hosts (.ir + named .com/.org) render in this browser with every request sent from inside Iran via relay.hohe1.ir; Iranian PDFs come back as text + file."
         required: true
       scroll:
         description: "Scroll-to-bottom passes for infinite lists"
@@ -32,7 +32,7 @@ jobs:
       - name: Install Playwright + Chromium
         run: |
           python -m pip install --quiet --upgrade pip
-          python -m pip install --quiet playwright
+          python -m pip install --quiet playwright pypdf   # pypdf: Iranian PDFs read through the relay (1405-08-22)
           python -m playwright install --with-deps chromium
       - name: Render
         env:
