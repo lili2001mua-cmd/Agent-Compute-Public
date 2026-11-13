@@ -173,9 +173,15 @@ def relay_route(route, request, ctx, a, stats, iran_relay):
     stats["relayed"] += 1
     stats.setdefault("log", []).append([m, u[:200], x["status"], (x["ctype"] or "")[:40], len(x["body"]),
                                         x["final"][:200] if x["final"] != u else ""])
-    if x["final"] and x["final"] != u and request.is_navigation_request():
-        # The relay followed a redirect; tell the browser so relative links resolve against the real page.
-        return route.fulfill(status=302, headers={"location": x["final"]}, body=b"")
+    body = x["body"]
+    if x["final"] and x["final"] != u and "html" in (x["ctype"] or "").lower():
+        # The relay already followed the redirect. Never hand the browser a 3xx: Chromium follows it itself,
+        # outside this route, i.e. from a foreign IP (seen 1405-08-22: 403 from azmoon.iau.ir and sanjesh.org).
+        # Serve the final page here and pin relative links to its real address with <base>.
+        tag = ('<base href="%s">' % x["final"].replace('"', "%22")).encode()
+        i = body.lower().find(b"<head")
+        j = body.find(b">", i) + 1 if i >= 0 else 0
+        body = body[:j] + tag + body[j:]
     hdrs = {"content-type": x["ctype"] or "application/octet-stream"}
     origin = request.headers.get("origin")
     if origin:                                                # the relay drops CORS headers; restore them
@@ -189,7 +195,11 @@ def relay_route(route, request, ctx, a, stats, iran_relay):
                 ctx.add_cookies([{"name": name.strip(), "value": rest.split(";")[0], "domain": host, "path": "/"}])
             except Exception:                                 # noqa: BLE001
                 pass
-    return route.fulfill(status=x["status"] or 502, headers=hdrs, body=x["body"])
+    st = x["status"] or 502
+    if 300 <= st < 400:
+        stats["relay_failed"] += 1                            # redirect loop the relay could not finish
+        return route.abort()
+    return route.fulfill(status=st, headers=hdrs, body=body)
 
 
 def pdf_doc(a, x):
