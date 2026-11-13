@@ -66,8 +66,23 @@ if ($op === 'hub' && $_SERVER['REQUEST_METHOD'] === 'GET') {
             ctl_json_write('hub.json', $c);
         }
     }
-    out(200, ['ok' => is_array($c['hub'] ?? null), 'at' => $c['fetched'] ?? null, 'stale' => (bool) ($c['stale'] ?? false),
-        'hub' => $c['hub'] ?? null, 'session_url' => $c['session_url'] ?? '']);
+    // ⛔ نشانیِ سشنِ فصل همان لحظهٔ شلیک (۱۴۰۵-۰۸-۲۲ · خواستِ کاربر: «اگر دستوری در حالِ ران است بتوانم محیطِ سشن را ببینم»):
+    //    routine.hohedoc.ir نشانیِ سشنِ آتش‌شده را همان ثانیه در var/sc-fire-state.json ِ همین هاست می‌نویسد. گره‌ای که هنوز
+    //    session_url ندارد نشانیِ آخرین شلیکِ کارِ خودش را می‌گیرد، پس اپ بی انتظار برای ثبتِ سشن روی گیت‌هاب بازش می‌کند.
+    $hub = $c['hub'] ?? null;
+    $fs = @json_decode((string) @file_get_contents(ctl_var('sc-fire-state.json')), true);
+    if (is_array($hub) && is_array($fs)) {
+        foreach ($hub['projects'] ?? [] as $pi => $p) {
+            foreach ($p['nodes'] ?? [] as $ni => $n) {
+                $t = (string) ($n['session'] ?? '');
+                if ($t === '' || (string) ($n['session_url'] ?? '') !== '') continue;
+                $u = (string) ($fs[$t]['session'] ?? '');
+                if (preg_match('#^https://claude\.ai/code/session_[A-Za-z0-9]+$#', $u)) $hub['projects'][$pi]['nodes'][$ni]['session_url'] = $u;
+            }
+        }
+    }
+    out(200, ['ok' => is_array($hub), 'at' => $c['fetched'] ?? null, 'stale' => (bool) ($c['stale'] ?? false),
+        'hub' => $hub, 'session_url' => $c['session_url'] ?? '']);
 }
 if ($op === 'trainer-board' && $_SERVER['REQUEST_METHOD'] === 'GET') {
     // computed every 5 minutes by the cron from the trainer's records on GitHub (app/board.php); never written by a session
