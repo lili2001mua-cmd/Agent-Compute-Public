@@ -31,7 +31,9 @@ RELAY = os.environ.get("IRAN_RELAY_URL", "https://relay.hohe1.ir/run.php")
 IRANIAN_COM = ("digikala.com", "torob.com", "aparat.com", "behtarino.com", "shahrint.com",
                "royasho.com", "digistyle.com", "basalam.com", "sheypoor.com", "filimo.com",
                # 1405-08-22: named Iranian .org sites (the .org suffix alone is not a signal)
-               "sanjesh.org", "azmoon.org", "iranbar.org")
+               "sanjesh.org", "azmoon.org", "iranbar.org",
+               # 1405-08-28: two Iranian finance sites (gold/coin/FX prices, Tehran stock exchange)
+               "tgju.org", "tsetmc.com")
 
 
 def is_iranian(url):
