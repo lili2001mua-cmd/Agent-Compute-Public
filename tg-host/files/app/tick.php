@@ -22,7 +22,7 @@ foreach (glob(__DIR__ . '/jobs/phase[0-9]*.php') ?: [] as $f) require_once $f; /
 if (function_exists('tg_phase2_pre')) tg_phase2_pre();
 if (function_exists('tg_chain_watchdog')) tg_chain_watchdog(); // dead-man switch, no library load (ک16)
 if (function_exists('tg_chain_button_poll')) tg_chain_button_poll(); // the Telegram «pull» button (ک23), one Bot API call
-if (function_exists('tg_host_beat')) tg_host_beat(); // phase 7: hourly heartbeat on main (host → repo writer test)
+if (function_exists('tg_host_beat')) tg_host_beat(); // phase 7: hourly heartbeat on ops-data, not main
 if (function_exists('tg_deploy_request_tick')) tg_deploy_request_tick(); // phase 9: apply a SHA the owner approved in the Claude session
 if (function_exists('tg_host_config_sync')) tg_host_config_sync(); // phase 8: cache the approved repo switch (off|dry|live, limit)
 if (function_exists('tg_host_plan_tick')) tg_host_plan_tick(); // phase 8 (B1): enqueue the night's read-only plan at 03:07–03:30 Tehran
