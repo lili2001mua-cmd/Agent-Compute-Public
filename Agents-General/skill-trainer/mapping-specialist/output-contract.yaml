@@ -40,15 +40,16 @@ items:
 
   - key: onscreen_text
     file: interpretation/onscreen-text.json
-    produced_by: video-interpreter              # گامِ ۲-ب — متنِ روی‌صفحه پس از گاردِ کیفیت
+    produced_by: video-interpreter              # گامِ ۲.۲ — لایهٔ نامزدِ OCR + خوانشِ بصری + تطبیق (onscreen_reconcile.py)
     report_section: "۲ (ستونِ روی‌صفحه) + ۳ (شناساییِ نامِ ابزارها)"
     required_for: final
-    render: "ستونِ روی‌صفحه؛ هر ردیف با برچسبِ منبع: خوانشِ بصری | OCR | ندارد"
+    render: "ستونِ روی‌صفحه؛ هر ردیف با برچسبِ منبع: خوانشِ بصری (تطبیق‌شده با OCR) | ندارد"
     truth_source: >-
-      منبعِ حقیقتِ متنِ روی‌صفحه **خوانشِ بصری** است، نه OCR. OCR فقط سرنخ است. وقتی
-      ocr_quality برابرِ «مخدوش» باشد، این آیتم از روی interpretation/subtitle-strips/
-      با خوانشِ بصری ساخته می‌شود. ⛔ نامِ محصول/ابزار هرگز از روی گفتارِ رونویسی‌شده حدس
-      زده نمی‌شود — فقط از متنِ روی‌صفحه یا WebSearchِ تأییدشده.
+      قفلِ onscreen-text-is-ocr-plus-visual-verdict (۱۴۰۵-۰۸-۲۸). OCR لایهٔ نامزد است و چشم داور؛
+      هیچ‌کدام به‌تنهایی کامل نیست. ردیفی که هنوز فقط نامزدِ OCR است (read_status برابرِ ocr-candidate)
+      این آیتم را ناقص نگه می‌دارد (interpretation_contract.py) و تا خوانندهٔ بصری با onscreen_reconcile.py
+      تطبیقش ندهد گامِ ۳ شروع نمی‌شود. ⛔ نامِ محصول/ابزار هرگز از روی گفتارِ رونویسی‌شده حدس
+      زده نمی‌شود — فقط از متنِ روی‌صفحهٔ تطبیق‌شده یا WebSearchِ تأییدشده.
 
   - key: fusion
     file: interpretation/fusion.json

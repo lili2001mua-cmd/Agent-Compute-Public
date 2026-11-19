@@ -39,6 +39,10 @@ FRAME_STEP_SECONDS = 2.0
 # (بستهٔ b4593: «Google AI Studio» شد «ع6اوصصتی وااباط»)، و لوگوی محو اصلاً داده‌ای برای خواندن
 # نداشت. سه دلیلِ بالا با تنظیم درست نمی‌شدند. بودجهٔ آزادشده صرفِ فریمِ بیشتر شد.
 # منبعِ یگانهٔ متنِ روی‌صفحه از این پس: خوانشِ بصریِ frames/ توسطِ سشنِ زنده.
+# ⛔ جانشین (تصمیمِ کاربر ۱۴۰۵-۰۸-۲۸ — قفل: `onscreen-text-is-ocr-plus-visual-verdict`): «فقط چشم» در عمل «فقط OCR ِ رانر»
+# شد، چون سشنِ گامِ ۳ به فریم نمی‌رسید. امروز OCR لایهٔ نامزد است (Sys.scripts/photo_ocr.py: سه گذرِ fas+eng/eng/fas ،
+# اطمینان، همپوشانی با گفتار) و خوانشِ بصری داورِ نهایی (Sys.scripts/onscreen_reconcile.py)؛ هیچ‌کدام به‌تنهایی کامل نیست.
+# این فایل همچنان OCR نمی‌کند — فقط فریمِ هر FRAME_STEP_SECONDS را می‌بُرد.
 
 WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "small")   # ورک‌فلو medium پاس می‌دهد؛ small فقط پیش‌فرضِ لوکال
 # ⛔ درسِ ۱۴۰۵-۰۵-۱۸ (باگِ لهجه‌کور): این متغیر روی "fa" pin شده بود و ورک‌فلو هم "fa" پاس می‌داد،
@@ -315,8 +319,8 @@ def enrich_key(key_dir):
     lines = [f"# رونوشت و فریم‌های بستهٔ {key}", ""]
     summary = {"key": key, "videos": [], "photos": len(photos),
                "whisper_model": WHISPER_MODEL, "frames_total": 0}
-    lines.append("> منبعِ یگانهٔ متنِ روی‌صفحه **خوانشِ بصریِ فریم‌هاست**"
-                 " (تصمیمِ کاربر ۱۴۰۵-۰۵-۲۱ — قفل: `onscreen-text-is-visual-only`).")
+    lines.append("> متنِ روی‌صفحه = لایهٔ نامزدِ `OCR` + **خوانشِ بصریِ فریم‌ها**؛ داورِ نهایی چشم است"
+                 " (تصمیمِ کاربر ۱۴۰۵-۰۸-۲۸ — قفل: `onscreen-text-is-ocr-plus-visual-verdict`).")
     lines.append("")
 
     if photos:
