@@ -18,13 +18,42 @@ function f_state(array $s): void {
     @rename($f . '.tmp', $f);
 }
 
+// Step-3 executor lock (owner's order 1405-08-28): the private repo's
+// Memory-Workflow/intake-pool/step3-executor.json names the active step-3 AI. The Claude path is locked
+// (kept, not deleted) while "active" is not "claude". Read-only, same token as r_done_on_main.
+// Returns 'claude' | 'grok' | ... | 'unknown' (unknown = could not read; the request is then kept for the next tick).
+function f_step3_executor(): string {
+    $tok = r_secret('GITHUB_READ_TOKEN');
+    if ($tok === '') return 'unknown';
+    $ch = curl_init('https://api.github.com/repos/' . R_PRIVATE_REPO . '/contents/Memory-Workflow/intake-pool/step3-executor.json?ref=main');
+    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 20, CURLOPT_USERAGENT => 'routine-host',
+        CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $tok, 'Accept: application/vnd.github.raw+json']]);
+    $b = curl_exec($ch);
+    $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    if ($code === 404) return 'claude';                    // no key file = the original single-executor setup
+    if ($code !== 200 || !is_string($b)) return 'unknown';
+    $j = json_decode($b, true);
+    $a = is_array($j) ? (string) ($j['active'] ?? '') : '';
+    return preg_match('/^[a-z][a-z0-9-]{0,30}$/', $a) ? $a : 'unknown';
+}
+
 function r_step3_fire(): void {
     $reqs = glob(f_control_var() . '/fire-req/*.json') ?: [];
     if (!$reqs) return;
     sort($reqs);
     $file = $reqs[0];
     $q = json_decode((string) @file_get_contents($file), true) ?: [];
+    $exe = f_step3_executor();
+    if ($exe === 'unknown') { r_log('step3-fire: executor key unreadable, request kept'); return; }
     @unlink($file);                                         // one try per press; the app shows the result
+    if ($exe !== 'claude') {                                // Claude path locked: never fire, never retry
+        $k0 = (string) ($q['key'] ?? '');
+        if (preg_match('/^b[0-9]{1,8}$/', $k0)) f_state(['key' => $k0, 'run' => '', 'at' => time(), 'state' => 'failed',
+            'error' => "blocked: claude step-3 path locked; active executor is $exe (Memory-Routine-Runbook/pool-step3-grok.md)"]);
+        r_log("step3-fire: locked, active executor $exe");
+        return;
+    }
     $key = (string) ($q['key'] ?? '');
     if (!preg_match('/^b[0-9]{1,8}$/', $key)) return;
     $d = new DateTime('now', new DateTimeZone('Asia/Tehran'));
