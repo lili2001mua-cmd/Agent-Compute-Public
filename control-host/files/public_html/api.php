@@ -1,7 +1,7 @@
 <?php
 // The only door of control.hohedoc.ir. Every call is signed by the phone (see app/lib.php ctl_auth).
 //   GET  api.php?op=status                       → cached live state of every workflow
-//   GET  api.php?op=ping                         → unsigned, {"ok":true,"secrets":bool} (no data)
+//   GET  api.php?op=ping                         → unsigned, booleans + vault state/age only (no data, no listing — v64)
 //   POST api.php?op=toggle-request  {workflow, action: enable|disable, reason}  → challenge
 //   POST api.php?op=toggle-confirm  {challenge}  → runs it: GitHub state + registry rows in one [skip ci] commit
 //   POST api.php?op=backup-request  {target: redlilium-db} → one DB dump to the Telegram backup channel (sites cron runs it)
@@ -12,6 +12,7 @@
 //   POST api.php?op=session-command {task, text} → writes the command into the bundle's live-session inbox on GitHub + drops a sc-req so routine.hohedoc.ir fires a session
 //        (task t-intake = the «بستهٔ تازه» button: dispatches the private repo's button-chain.yml instead — no Claude session)
 //   GET  api.php?op=hub                           → «پروژه‌های جدید»: hub.json ِ سشنِ مدیریت + نشانیِ سشنِ t-projects-hub (کش ۶۰ ثانیه)
+//   GET  api.php?op=sessions                      → «سشن‌ها»: read-only rows of the live-session ledgers (app/sessions.php, cron)
 //   GET  api.php?op=sizes                         → «حجمِ واقعی» of repos, hosts and Drive accounts (app/sizes.php, cron: 1 h / 6 h)
 //   POST api.php?op=cover          {key}         → image/jpeg: the bundle's cover frame (app/board.php board_cover_file), 404 when none
 // Two steps on purpose: the phone asks, shows the summary, the user confirms again (all workflows are critical).
@@ -25,7 +26,7 @@ function out(int $code, array $x): void { http_response_code($code); echo json_e
 $op = (string) ($_GET['op'] ?? '');
 $secrets = ctl_secrets_loaded();
 if ($op === 'ping') { if (($_GET['diag'] ?? '') === 'cover') { require_once __DIR__ . '/../app/board.php'; out(200, ['ok' => true, 'photo_cover' => board_photo_cover_diag(), 'photo_cover_cron' => board_read('photo-cover-diag.json', ['at' => null])]); }
-    out(200, ['ok' => true, 'secrets' => $secrets, 'device_keys' => defined('DEVICE_KEYS'), 'gh_token' => ctl_gh_token() !== null, 'vault' => ctl_json_read('vault.json', ['state' => 'tick never ran']), 'time' => time()]); }
+    out(200, ctl_ping_payload($secrets, defined('DEVICE_KEYS'), ctl_gh_token() !== null, ctl_json_read('vault.json', ['state' => 'tick never ran']), time())); }
 if (!$secrets) out(503, ['ok' => false, 'error' => 'secrets missing on host: ' . (defined('DEVICE_KEYS') ? 'GitHub token (vault)' : 'secrets.php')]);
 
 $body = (string) file_get_contents('php://input');
@@ -101,6 +102,13 @@ if ($op === 'backup-status' && $_SERVER['REQUEST_METHOD'] === 'GET') {
     out(200, ['ok' => true, 'pending' => $pending, 'last' => ctl_json_read('backup-state.json', null)]);
 }
 
+if ($op === 'sessions' && $_SERVER['REQUEST_METHOD'] === 'GET') {
+    // «سشن‌ها» (app v64): read-only rows of Memory-Workflow/live-sessions, built by the cron (app/sessions.php)
+    $d = ctl_var('sessions');
+    $p = @json_decode((string) @file_get_contents($d . '/sessions.json'), true);
+    $st = @json_decode((string) @file_get_contents($d . '/state.json'), true);
+    out(200, ['ok' => is_array($p), 'state' => $st, 'at' => $p['at'] ?? null, 'sessions' => $p['sessions'] ?? []]);
+}
 if ($op === 'sizes' && $_SERVER['REQUEST_METHOD'] === 'GET') {
     // measured by the cron (app/sizes.php); the phone never measures anything itself
     out(200, ['ok' => true, 'now' => time()] + ctl_json_read('sizes.json', ['error' => 'no sizes yet']));

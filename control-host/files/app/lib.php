@@ -60,6 +60,32 @@ function ctl_secrets_loaded(): bool {
     return defined('DEVICE_KEYS') && ctl_gh_token() !== null;
 }
 
+/**
+ * Body of the UNSIGNED api.php?op=ping (app v64): booleans + vault state and age only. The old ping also returned the
+ * home folder listing, the vault file names and open_basedir, against its own README («nothing else») — gone.
+ */
+function ctl_ping_payload(bool $secrets, bool $deviceKeys, bool $ghToken, array $vault, int $now): array {
+    return ['ok' => true, 'secrets' => $secrets, 'device_keys' => $deviceKeys, 'gh_token' => $ghToken,
+            'vault' => ['state' => (string) ($vault['state'] ?? 'unknown'), 'at' => isset($vault['at']) ? (int) $vault['at'] : null],
+            'time' => $now];
+}
+
+/**
+ * Body of the public public_html/status.php (app v64, same idea as ops-host/status.php): what is deployed and how old
+ * the last cron tick and vault sync are. Ages and booleans only — no path, no file name, no key, no token.
+ */
+function ctl_status_payload(?array $deployed, ?array $lastTick, ?array $vault, bool $secrets, int $now): array {
+    $tick = isset($lastTick['at']) ? (int) $lastTick['at'] : 0;
+    $vat = isset($vault['at']) ? (int) $vault['at'] : 0;
+    return ['ok' => true,
+            'deployed' => $deployed ? ['version' => (string) ($deployed['version'] ?? '?'), 'at' => (string) ($deployed['at'] ?? '')] : null,
+            'last_tick_age_s' => $tick ? max(0, $now - $tick) : null,
+            'vault_state' => $vault ? (string) ($vault['state'] ?? 'unknown') : null,
+            'vault_age_s' => $vat ? max(0, $now - $vat) : null,
+            'secrets' => $secrets,
+            'time' => $now];
+}
+
 function ctl_var(string $name): string {
     $dir = CTL_ROOT . '/var';
     if (!is_dir($dir)) mkdir($dir, 0700, true);

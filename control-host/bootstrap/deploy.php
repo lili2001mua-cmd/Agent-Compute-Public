@@ -3,7 +3,7 @@
 // Place at /home/<user>/domains/control.hohedoc.ir/deploy.php (next to secrets.php, outside public_html).
 // Cron (every 5 min): /usr/local/bin/php /home/<user>/domains/control.hohedoc.ir/deploy.php
 //
-// It reads ops-host/manifest.json from our own public repo, and for every listed file whose
+// It reads control-host/manifest.json from our own public repo, and for every listed file whose
 // sha256 differs from the local copy it downloads the file, checks the sha256, and writes it.
 // Only paths under app/ and public_html/ are accepted. Nothing is ever deleted except files the
 // manifest marks as removed. No secret is read or sent.

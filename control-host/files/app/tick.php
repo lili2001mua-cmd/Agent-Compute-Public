@@ -7,11 +7,10 @@ require_once __DIR__ . '/lib.php';
 if (PHP_SAPI !== 'cli') { http_response_code(404); exit; }
 $vault = ctl_vault_sync();
 $vf = ctl_vault_file(); $vd = dirname($vf);
+// v64: booleans only — the home folder listing, vault file names and open_basedir are no longer collected
 ctl_json_write('vault.json', ['state' => $vault, 'at' => time(),   // state only, never the token
-    'dir' => @is_dir($vd), 'file' => @is_file($vf), 'readable' => @is_readable($vf),
-    'home_listed' => array_values(array_filter((array) @scandir(dirname($vd)), fn($n) => $n !== '.' && $n !== '..' && !str_starts_with($n, '.'))),
-    'vault_listed' => @is_dir($vd) ? array_values(array_diff((array) @scandir($vd), ['.', '..'])) : null,
-    'open_basedir' => (string) ini_get('open_basedir')]);
+    'dir' => @is_dir($vd), 'file' => @is_file($vf), 'readable' => @is_readable($vf)]);
+ctl_json_write('last-tick.json', ['at' => time()]);   // age shown by public_html/status.php (v64)
 if (!ctl_secrets_loaded()) { ctl_json_write('status.json', ['at' => time(), 'error' => 'secrets missing (vault: ' . $vault . ')']); return; }
 
 $lock = fopen(ctl_var('tick.lock'), 'c');
@@ -71,5 +70,7 @@ if ($__bpoll > 0 && $__blk && flock($__blk, LOCK_EX | LOCK_NB)) {
 }
 require_once __DIR__ . '/projects.php';
 try { projects_tick(); } catch (Throwable $e) { ctl_log('projects tick: ' . $e->getMessage()); }   // «پروژه‌ها» of the app, live from the IDEA-ORCH docs (own lock; its error never stops the rest)
+require_once __DIR__ . '/sessions.php';
+try { sessions_tick(); } catch (Throwable $e) { ctl_log('sessions tick: ' . substr($e->getMessage(), 0, 200)); }   // «سشن‌ها» of the app (v64), read-only (own lock)
 require_once __DIR__ . '/sizes.php';
 try { sizes_tick(); } catch (Throwable $e) { ctl_log('sizes tick: ' . substr($e->getMessage(), 0, 200)); }   // «حجمِ واقعی» of repos, hosts and Drive (own lock, own periods: 1 h / 6 h)
