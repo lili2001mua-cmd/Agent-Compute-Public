@@ -105,3 +105,19 @@ to the private channel «Backup Database redlilium», deletes the local copy, an
 host's `var/backup-state.json` for the app. One request at a time; files over 49 MB are refused (Bot API limit).
 The device signature plus the phone's biometric prompt stand in for the queue's approval stamp: this action only
 reads the site and writes to the user's own private channel.
+
+## Direct sealed HTTPS door (`public_html/door.php` + `app/door.php`)
+
+Lets authorized holding AI employees (Gemini, Claude, Codex, Grok, ...) call `sync.php` actions (`ping`, `snapshot`,
+`manifest`, `query`, `run`, `deploy`, `delete`, `migrate`) directly over HTTPS without waiting for cron, without
+consuming GitHub Actions minutes, and without adding any new secret to this host.
+
+- Auth: the same `chain-bus/v1` envelope as `ops-host/files/app/bus.php` and `Agent-Project-Backup/Sys.scripts/lib/door_seal.py`,
+  keyed from `Agent-Project-Backup/Sys.registry/tg-host-read-key.secret` (fetched with this host's existing `GITHUB_TOKEN`,
+  cached `chmod 0600` in `var/door-key.json`). Request kind: `sites-door`; encrypted answer kind: `sites-door-res`.
+- Guards: replay protection (`var/door-seen.json`), brute-force lockout (20 failures / 10 min → 429), `dh_pull_refused`
+  secret/upload path filter, `deploy/` protection, non-empty `approval_quote` required for write actions (`deploy`, `delete`,
+  `migrate`), metadata-only audit log (`var/door.log`).
+- Readiness probe (public, booleans only): `GET https://sites.hohedoc.ir/door.php`.
+- Reference client for Gemini: `Gemini-Agent-Backup/gemini-workspace/host-bridge/stylist_host.py`.
+
