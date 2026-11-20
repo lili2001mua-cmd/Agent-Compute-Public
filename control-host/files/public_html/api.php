@@ -122,6 +122,17 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') out(405, ['ok' => false]);
 $in = json_decode($body, true);
 if (!is_array($in)) out(400, ['ok' => false, 'error' => 'bad json']);
 
+if ($op === 'chapter-report') {
+    // گزارشِ پیشرفتِ فصل (app v65): خواندنِ REPORT.md ِ فصل از کشِ کرون یا مستقیم از گیت‌هاب (امضادار، هم آلمان هم رلهٔ ایران)
+    require_once __DIR__ . '/../app/reports.php';
+    $code = strtoupper(trim((string) ($in['code'] ?? '')));
+    $path = trim((string) ($in['path'] ?? ''));
+    if (!report_code_ok($code)) out(400, ['ok' => false, 'error' => 'bad code']);
+    $rep = report_get($code, $path);
+    if ($rep === null) out(404, ['ok' => false, 'error' => 'no report']);
+    out(200, ['ok' => true, 'report' => $rep]);
+}
+
 if ($op === 'toggle-request') {
     $wf = (string) ($in['workflow'] ?? '');
     $action = (string) ($in['action'] ?? '');

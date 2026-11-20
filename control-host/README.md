@@ -9,6 +9,7 @@ Pull-deployed PHP package, same pattern as `ops-host/` (manifest with sha256, `d
 | `GET api.php?op=ping` | unsigned; booleans `secrets`, `device_keys`, `gh_token` + `vault {state, at}` + `time` — nothing else (v64: no folder listing, no vault file names, no `open_basedir`) |
 | `GET status.php` | unsigned, public health for the app's home (v64): `deployed {version, at}`, `last_tick_age_s`, `vault_state`, `vault_age_s`, `secrets` — ages and booleans only |
 | `GET api.php?op=sessions` | signed; read-only rows of `Memory-Workflow/live-sessions/<task>/session.json` (whitelisted fields; built by the cron in `app/sessions.php`) — never fires, relays or writes |
+| `POST api.php?op=chapter-report` | signed; `{code, path?}` ⇒ structured per-step report parsed from `Memory-Workflow/projects-hub/<project>/chapters/<CODE>/REPORT.md` (cron cache in `app/reports.php`, live fallback on valid `path`) — v65 |
 | `GET api.php?op=status` | signed; live state and latest run of every workflow of the private repo (cached by the cron tick every 5 min) |
 | `POST api.php?op=toggle-request` | signed; `{workflow, action, reason}` ⇒ a challenge (10 min) — retired workflows are refused |
 | `POST api.php?op=toggle-confirm` | signed; `{challenge}` ⇒ GitHub enable/disable **and** both registry rows (`workflow-state.yaml`, `workflow-execution-controls.json`) in one `[skip ci]` commit; if the commit fails the GitHub state is rolled back |

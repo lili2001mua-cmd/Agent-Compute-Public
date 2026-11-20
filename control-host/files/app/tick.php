@@ -72,5 +72,8 @@ require_once __DIR__ . '/projects.php';
 try { projects_tick(); } catch (Throwable $e) { ctl_log('projects tick: ' . $e->getMessage()); }   // «پروژه‌ها» of the app, live from the IDEA-ORCH docs (own lock; its error never stops the rest)
 require_once __DIR__ . '/sessions.php';
 try { sessions_tick(); } catch (Throwable $e) { ctl_log('sessions tick: ' . substr($e->getMessage(), 0, 200)); }   // «سشن‌ها» of the app (v64), read-only (own lock)
+require_once __DIR__ . '/reports.php';
+try { reports_tick(); } catch (Throwable $e) { ctl_log('reports tick: ' . substr($e->getMessage(), 0, 200)); }   // «گزارشِ پیشرفتِ فصل» (v65), read-only (own lock)
 require_once __DIR__ . '/sizes.php';
 try { sizes_tick(); } catch (Throwable $e) { ctl_log('sizes tick: ' . substr($e->getMessage(), 0, 200)); }   // «حجمِ واقعی» of repos, hosts and Drive (own lock, own periods: 1 h / 6 h)
+
