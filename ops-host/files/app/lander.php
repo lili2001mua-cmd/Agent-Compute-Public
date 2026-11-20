@@ -39,14 +39,28 @@ function land_parse_evidence(string $msg): ?array {
 //   commit(sha): ?array         ['parents' => [...], 'tree' => sha, 'message' => str]
 //   is_ancestor(a, b): bool     a is an ancestor of (or equal to) b
 //   ff(old, new): bool          move the target from old to new, fast-forward only, refuse otherwise
-//   reset(new): bool            shadow only: move shadow/main to new without ff (divergence repair, counted)
+//   reset(new): bool            shadow only: move shadow/main to new without ff (NEVER called in live mode)
 //   seen(key): bool, mark(key)  idempotence store
 //   result(session, row)        write the answer the session (or a chat with curl) reads
-function land_round(array $a, string $mode): array {
-    $sum = ['mode' => $mode, 'landed' => 0, 'rebase' => 0, 'invalid' => 0, 'already' => 0, 'external' => 0, 'diverged' => 0, 'stale' => 0, 'refs' => 0];
-    if ($mode !== 'shadow') return $sum + ['skipped' => "mode $mode"];
+// $allowlist (live mode only): list of allowed session prefixes/names; empty [] ⇒ no session lands in live mode.
+function land_round(array $a, string $mode, array $allowlist = []): array {
+    $sum = ['mode' => $mode, 'landed' => 0, 'rebase' => 0, 'invalid' => 0, 'already' => 0, 'external' => 0, 'diverged' => 0, 'stale' => 0, 'not_allowed' => 0, 'refs' => 0];
+    if (!in_array($mode, ['shadow', 'live'], true)) return $sum + ['skipped' => "mode $mode"];
     $tip = ($a['target'])();
-    if ($tip === null) { $up = ($a['upstream'])(); if ($up === null || !($a['reset'])($up)) return $sum + ['error' => 'no target']; $tip = $up; }
+    if ($tip === null) {
+        if ($mode === 'live') return $sum + ['error' => 'no target'];
+        $up = ($a['upstream'])();
+        if ($up === null || !($a['reset'])($up)) return $sum + ['error' => 'no target'];
+        $tip = $up;
+    }
+    $is_allowed = function (string $session) use ($mode, $allowlist): bool {
+        if ($mode !== 'live') return true;
+        if (!$allowlist) return false;
+        foreach ($allowlist as $p) {
+            if ($p === '*' || $session === $p || (str_ends_with($p, '*') && str_starts_with($session, substr($p, 0, -1)))) return true;
+        }
+        return false;
+    };
     $cands = [];
     foreach (($a['land_refs'])() as $ref => $sha) {
         $sum['refs']++;
@@ -62,6 +76,10 @@ function land_round(array $a, string $mode): array {
             ($a['result'])($session, ['state' => 'stale', 'evidence' => $sha]);
             ($a['mark'])("ok:$sha"); $sum['stale']++; continue;
         }
+        if (!$is_allowed($session)) {
+            $sum['not_allowed']++;
+            continue;
+        }
         $cc = ($a['commit'])($e['candidate']);
         if (!$cc || $cc['tree'] !== $e['tree']) {
             ($a['result'])($session, ['state' => 'invalid', 'why' => 'candidate tree differs from evidence', 'evidence' => $sha]);
@@ -70,7 +88,7 @@ function land_round(array $a, string $mode): array {
         $cands[] = ['session' => $session, 'ev' => $e, 'sha' => $sha];
     }
     usort($cands, fn($x, $y) => ($x['ev']['ts'] ?? 0) <=> ($y['ev']['ts'] ?? 0));
-    $up0 = ($a['upstream'])();
+    $up0 = $mode === 'shadow' ? ($a['upstream'])() : null;
     // CAS loop: land every candidate whose base is the current tip; repeat while something landed.
     do {
         $progress = false;
@@ -80,13 +98,16 @@ function land_round(array $a, string $mode): array {
                 ($a['result'])($c['session'], ['state' => 'already', 'candidate' => $e['candidate'], 'target' => $tip]);
                 ($a['mark'])("ok:{$c['sha']}"); unset($cands[$i]); $sum['already']++; continue;
             }
-            // Shadow only: writers outside the queue (bots, chat curl) moved main between two submissions. Follow main up
-            // to this candidate's base when the base is already on main, so the CAS sees what live main would show.
+            // Shadow only: writers outside the queue (bots, chat curl) moved main between two submissions.
             if ($mode === 'shadow' && $e['base'] !== $tip && $up0 !== null && ($a['is_ancestor'])($tip, $e['base']) && ($a['is_ancestor'])($e['base'], $up0)) {
                 if (($a['ff'])($tip, $e['base'])) { $tip = $e['base']; $sum['external']++; }
             }
             if ($e['base'] !== $tip || !($a['is_ancestor'])($tip, $e['candidate'])) continue;
-            if (!($a['ff'])($tip, $e['candidate'])) continue;
+            if (!($a['ff'])($tip, $e['candidate'])) {
+                // Live mode: a direct push moved main mid-round — refresh tip and leave candidate for rebase.
+                if ($mode === 'live') { $fresh = ($a['target'])(); if ($fresh !== null) $tip = $fresh; }
+                continue;
+            }
             $tip = $e['candidate'];
             ($a['result'])($c['session'], ['state' => 'landed', 'candidate' => $tip]);
             ($a['mark'])("ok:{$c['sha']}"); unset($cands[$i]); $sum['landed']++; $progress = true;
@@ -96,20 +117,23 @@ function land_round(array $a, string $mode): array {
         ($a['result'])($c['session'], ['state' => 'rebase', 'base' => $c['ev']['base'], 'target' => $tip, 'candidate' => $c['ev']['candidate']]);
         $sum['rebase']++;   // not marked: answered again next round until the session rebases or main catches up
     }
-    // Shadow: follow main for writers outside the queue.
-    $up = ($a['upstream'])();
-    if ($up !== null && $up !== $tip) {
-        if (($a['is_ancestor'])($tip, $up)) { if (($a['ff'])($tip, $up)) { $sum['external']++; $tip = $up; } }
-        elseif (!($a['is_ancestor'])($up, $tip)) { if (($a['reset'])($up)) { $sum['diverged']++; $tip = $up; } }
+    // Shadow only: follow main for writers outside the queue. NEVER runs in live mode (no reset on main).
+    if ($mode === 'shadow') {
+        $up = ($a['upstream'])();
+        if ($up !== null && $up !== $tip) {
+            if (($a['is_ancestor'])($tip, $up)) { if (($a['ff'])($tip, $up)) { $sum['external']++; $tip = $up; } }
+            elseif (!($a['is_ancestor'])($up, $tip)) { if (($a['reset'])($up)) { $sum['diverged']++; $tip = $up; } }
+        }
     }
     $sum['tip'] = $tip;
     return $sum;
 }
 
 // ---- host side: GitHub REST adapter + tick ------------------------------------------------------------------
-function land_rest_adapter(string $repo): array {
+function land_rest_adapter(string $repo, string $mode = 'shadow'): array {
     $base = "/repos/$repo";
-    $sh = '/git/ref/heads/' . LAND_SHADOW;
+    $targetRef = $mode === 'live' ? 'main' : LAND_SHADOW;
+    $sh = '/git/ref/heads/' . $targetRef;
     $seenFile = function_exists('ops_var') ? ops_var('land-seen.json') : sys_get_temp_dir() . '/land-seen.json';
     $seen = @json_decode((string) @file_get_contents($seenFile), true) ?: [];
     $resFile = function_exists('ops_var') ? ops_var('land-results.json') : sys_get_temp_dir() . '/land-results.json';
@@ -131,13 +155,15 @@ function land_rest_adapter(string $repo): array {
             [$c, $r] = ops_gh('GET', "$base/compare/$x...$y");
             return $c === 200 && in_array($r['status'] ?? '', ['ahead', 'identical'], true);
         },
-        'ff' => function ($old, $new) use ($base, $sh) {
+        'ff' => function ($old, $new) use ($base, $sh, $targetRef) {
             [$c, $r] = ops_gh('GET', $base . $sh);
             if ($c !== 200 || $r['object']['sha'] !== $old) return false;   // CAS
-            [$c] = ops_gh('PATCH', "$base/git/refs/heads/" . LAND_SHADOW, ['sha' => $new, 'force' => false]);
+            [$c] = ops_gh('PATCH', "$base/git/refs/heads/" . $targetRef, ['sha' => $new, 'force' => false]);
             return $c === 200;
         },
-        'reset' => function ($new) use ($base, $sh) {
+        'reset' => function ($new) use ($base, $sh, $mode) {
+            // ⛔ قفلِ ر۲: حالتِ live هرگز reset نمی‌زند.
+            if ($mode === 'live') return false;
             [$c] = ops_gh('GET', $base . $sh);
             if ($c === 404) { [$c] = ops_gh('POST', "$base/git/refs", ['ref' => 'refs/heads/' . LAND_SHADOW, 'sha' => $new]); return $c === 201; }
             [$c] = ops_gh('PATCH', "$base/git/refs/heads/" . LAND_SHADOW, ['sha' => $new, 'force' => true]);   // shadow ref only
@@ -154,22 +180,28 @@ function land_rest_adapter(string $repo): array {
     ];
 }
 
-function land_mode(string $repo): string {
+function land_config(string $repo): array {
     [$c, $src] = ops_gh('GET', "/repos/$repo/contents/Sys.registry/commit-path-flags.json?ref=main", null, 'application/vnd.github.raw');
-    if ($c !== 200) return 'off';
+    if ($c !== 200) return ['mode' => 'off', 'allowlist' => []];
     $j = json_decode($src, true);
     $m = $j['flags']['r7_land'] ?? 'off';
-    return in_array($m, ['off', 'shadow', 'live'], true) ? $m : 'off';
+    $mode = in_array($m, ['off', 'shadow', 'live'], true) ? $m : 'off';
+    $al = $j['flags']['r7_live_allowlist'] ?? [];
+    return ['mode' => $mode, 'allowlist' => is_array($al) ? array_values(array_filter($al, 'is_string')) : []];
+}
+
+function land_mode(string $repo): string {
+    return land_config($repo)['mode'];
 }
 
 function land_tick(): void {
     $repo = 'lili2001mua-cmd/Agent-Project-Backup';
-    $mode = land_mode($repo);
-    $state = ['at' => time(), 'mode' => $mode, 'sha256' => hash_file('sha256', __FILE__)];
-    if ($mode === 'live') { ops_log('lander: live mode is not enabled in this version'); $mode = 'off'; $state['refused'] = 'live'; }
+    $cfg = land_config($repo);
+    $mode = $cfg['mode'];
+    $state = ['at' => time(), 'mode' => $mode, 'allowlist' => $cfg['allowlist'], 'sha256' => hash_file('sha256', __FILE__)];
     if ($mode !== 'off') {
         $t0 = microtime(true);
-        $state['round'] = land_round(land_rest_adapter($repo), $mode);
+        $state['round'] = land_round(land_rest_adapter($repo, $mode), $mode, $cfg['allowlist']);
         $state['took_s'] = round(microtime(true) - $t0, 1);
     }
     file_put_contents(ops_var('lander.json'), json_encode($state, JSON_UNESCAPED_SLASHES));
