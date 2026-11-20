@@ -930,7 +930,7 @@ function tg_chain_drive_token(array $in, array $roles): array {
 /** Poll the bot once a minute; `/pull` (DM) or the pinned inline button (callback «pull») from the owner fires the routine. */
 function tg_chain_button_poll(): void {
     $s = tg_chain_secrets();
-    if (empty($s['TELEGRAM_BOT_TOKEN'])) return;   // the poll also carries the deploy-approval buttons (phase9), so it runs without the routine secrets
+    if (empty($s['TELEGRAM_BOT_TOKEN'])) return;   // deploy approval is in-session only (phase9); this poll handles the pull button
     $canFire = !empty($s['ROUTINE_FIRE_URL']) && !empty($s['ROUTINE_FIRE_TOKEN']);
     $owner = (int) ((tg_read_json(tg_var('chain-owner.json')) ?? [])['id'] ?? 0);
     if (!$owner) return;
