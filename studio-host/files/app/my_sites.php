@@ -63,8 +63,60 @@ function mys_decrypt($in, $out, array $k): array {
     return [$n, hash_final($h)];
 }
 
-// Queued (no web time limit): restore test of one My-Sites file. Downloads it, decrypts, and compares the plain
-// sha256 with the file's appProperties.sha256_plain. Nothing decrypted is kept.
+// Streaming MYS2 decryptor (ب۱ · ۱۴۰۵-۰۸-۲۹): zero temp file on disk (~2 MB RAM), so a 2.4 GB repo bundle
+// verifies cleanly on studio-host's ~3 GB disk.
+function mys_stream_new(array $k): array {
+    return ['sk' => $k['sk'], 'buf' => '', 'stage' => 0, 'wl' => 0, 'key' => '', 'size' => 0,
+            'i' => 0, 'n' => 0, 'h_enc' => hash_init('sha256'), 'h_plain' => hash_init('sha256')];
+}
+
+function mys_stream_feed(array &$s, string $chunk): void {
+    if ($chunk === '') return;
+    hash_update($s['h_enc'], $chunk);
+    $s['buf'] .= $chunk;
+    if ($s['stage'] === 0) {
+        if (strlen($s['buf']) < 6) return;
+        if (substr($s['buf'], 0, 4) !== MYS_MAGIC) throw new RuntimeException('not a MYS2 file');
+        $s['wl'] = unpack('n', substr($s['buf'], 4, 2))[1];
+        $s['buf'] = substr($s['buf'], 6);
+        $s['stage'] = 1;
+    }
+    if ($s['stage'] === 1) {
+        if (strlen($s['buf']) < $s['wl'] + 4) return;
+        $wrapped = substr($s['buf'], 0, $s['wl']);
+        if (!openssl_private_decrypt($wrapped, $key, $s['sk'], OPENSSL_PKCS1_OAEP_PADDING) || strlen($key) !== 32)
+            throw new RuntimeException('cannot unwrap the file key');
+        $size = unpack('N', substr($s['buf'], $s['wl'], 4))[1];
+        if ($size < 1024 || $size > 16 * 1024 * 1024) throw new RuntimeException('bad chunk size');
+        $s['key'] = $key; $s['size'] = $size;
+        $s['buf'] = substr($s['buf'], $s['wl'] + 4);
+        $s['stage'] = 2;
+    }
+    $frame = $s['size'] + 16;
+    // Keep at least 1 trailing byte so we know this frame is NOT the last chunk (aad = "\x00").
+    while (strlen($s['buf']) > $frame) {
+        $cur = substr($s['buf'], 0, $frame);
+        $s['buf'] = substr($s['buf'], $frame);
+        $pt = openssl_decrypt(substr($cur, 0, -16), 'aes-256-gcm', $s['key'], OPENSSL_RAW_DATA,
+                              "\0\0\0\0" . pack('J', $s['i']), substr($cur, -16), "\x00");
+        if ($pt === false) throw new RuntimeException("chunk {$s['i']} failed authentication");
+        hash_update($s['h_plain'], $pt); $s['n'] += strlen($pt); $s['i']++;
+    }
+}
+
+function mys_stream_finish(array &$s): array {
+    if ($s['stage'] !== 2) throw new RuntimeException('MYS2 stream truncated in header');
+    $cur = $s['buf']; $s['buf'] = '';
+    if (strlen($cur) < 16) throw new RuntimeException("chunk {$s['i']} truncated");
+    $pt = openssl_decrypt(substr($cur, 0, -16), 'aes-256-gcm', $s['key'], OPENSSL_RAW_DATA,
+                          "\0\0\0\0" . pack('J', $s['i']), substr($cur, -16), "\x01");
+    if ($pt === false) throw new RuntimeException("chunk {$s['i']} failed authentication");
+    hash_update($s['h_plain'], $pt); $s['n'] += strlen($pt);
+    return [$s['n'], hash_final($s['h_plain']), hash_final($s['h_enc'])];
+}
+
+// Queued (no web time limit): streaming restore test of one My-Sites file (zero disk temp file).
+// Downloads, decrypts on the fly, and compares plain & encrypted sha256 with appProperties. Nothing decrypted is kept.
 function run_mysites_restore(array $a): array {
     $id = (string) ($a['file_id'] ?? '');
     if (!preg_match('/^[A-Za-z0-9_-]{20,80}$/', $id)) throw new RuntimeException('bad file_id');
@@ -73,22 +125,27 @@ function run_mysites_restore(array $a): array {
     $meta = drive_call('GET', '/files/' . $id, ['fields' => 'id,name,size,appProperties,parents']);
     $ap = $meta['appProperties'] ?? [];
     if (($ap['key_id'] ?? '') !== $k['id']) throw new RuntimeException('file was encrypted with another key');
-    $tmp = studio_var('tmp-mys-' . bin2hex(random_bytes(4)));
-    $fh = fopen($tmp, 'w+b');
-    try {
-        $ch = curl_init(DRIVE_API . '/files/' . rawurlencode($id) . '?alt=media');
-        curl_setopt_array($ch, [CURLOPT_FILE => $fh, CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . drive_token()],
-            CURLOPT_FOLLOWLOCATION => true, CURLOPT_TIMEOUT => 1800, CURLOPT_USERAGENT => 'studio-host']);
-        curl_exec($ch);
-        $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-        if ($code !== 200) throw new RuntimeException("download HTTP $code");
-        rewind($fh);
-        $enc_sha = hash_file('sha256', $tmp);
-        [$n, $sha] = mys_decrypt($fh, null, $k);
-    } finally { fclose($fh); @unlink($tmp); }
+    $st = mys_stream_new($k);
+    $streamErr = null;
+    $ch = curl_init(DRIVE_API . '/files/' . rawurlencode($id) . '?alt=media');
+    curl_setopt_array($ch, [
+        CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . drive_token()],
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_TIMEOUT => 3600,
+        CURLOPT_USERAGENT => 'studio-host',
+        CURLOPT_WRITEFUNCTION => function ($ch, $data) use (&$st, &$streamErr) {
+            try { mys_stream_feed($st, $data); return strlen($data); }
+            catch (Throwable $e) { $streamErr = $e; return 0; }
+        },
+    ]);
+    curl_exec($ch);
+    $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    if ($streamErr) throw $streamErr;
+    if ($code !== 200) throw new RuntimeException("download HTTP $code");
+    [$n, $sha, $enc_sha] = mys_stream_finish($st);
     $ok = $sha === ($ap['sha256_plain'] ?? '') && $enc_sha === ($ap['sha256_enc'] ?? '');
-    $res = ['file_id' => $id, 'name' => $meta['name'] ?? '', 'ok' => $ok, 'plain_bytes' => $n,
+    $res = ['file_id' => $id, 'name' => $meta['name'] ?? '', 'ok' => $ok, 'plain_bytes' => $n, 'streaming' => true,
             'sha256_plain_match' => $sha === ($ap['sha256_plain'] ?? ''), 'sha256_enc_match' => $enc_sha === ($ap['sha256_enc'] ?? ''),
             'at' => gmdate('c')];
     file_put_contents(studio_var('mysites-restore.json'), json_encode($res, JSON_UNESCAPED_UNICODE));
