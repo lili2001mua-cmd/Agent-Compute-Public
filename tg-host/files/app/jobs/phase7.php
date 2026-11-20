@@ -43,15 +43,15 @@ function tg_repo_allowed(string $path): bool {
     return false;
 }
 
-/** Write one allowlisted file on main. Returns ['ok'=>bool, 'code'=>int, 'tries'=>n]. Re-reads on conflict, never forces. */
-function tg_repo_put(string $path, string $content, string $msg): array {
+/** Write one allowlisted file on the target branch (default: main). Returns ['ok'=>bool, 'code'=>int, 'tries'=>n]. Re-reads on conflict, never forces. */
+function tg_repo_put(string $path, string $content, string $msg, string $branch = 'main'): array {
     if (!tg_repo_allowed($path)) return ['ok' => false, 'code' => -1, 'error' => 'path not allowlisted'];
     $url = '/repos/' . TG_REPO . '/contents/' . implode('/', array_map('rawurlencode', explode('/', $path)));
     for ($i = 1; $i <= 3; $i++) {
-        [$c, $cur] = tg_gh('GET', $url . '?ref=main');
+        [$c, $cur] = tg_gh('GET', $url . '?ref=' . rawurlencode($branch));
         $sha = $c === 200 ? (string) ($cur['sha'] ?? '') : '';
         if ($c === 200 && base64_decode((string) ($cur['content'] ?? '')) === $content) return ['ok' => true, 'code' => 200, 'tries' => $i, 'unchanged' => true];
-        $body = ['message' => $msg . "\n\nWriter: tools-skill-tester · ci", 'content' => base64_encode($content), 'branch' => 'main'];
+        $body = ['message' => $msg . "\n\nWriter: tools-skill-tester · ci", 'content' => base64_encode($content), 'branch' => $branch];
         if ($sha !== '') $body['sha'] = $sha;
         [$p, ] = tg_gh('PUT', $url, $body);
         if ($p === 200 || $p === 201) return ['ok' => true, 'code' => $p, 'tries' => $i];
@@ -61,7 +61,7 @@ function tg_repo_put(string $path, string $content, string $msg): array {
     return ['ok' => false, 'code' => 409, 'tries' => 3];
 }
 
-/** Hourly heartbeat: proves the host can write (phase A test). Never throws. */
+/** Hourly heartbeat: proves the host can write (phase A test). Writes to ops-data so main is not bloated. Never throws. */
 function tg_host_beat(): void {
     if (PHP_SAPI !== 'cli') return;
     $f = tg_var('host-beat.json');
@@ -71,7 +71,7 @@ function tg_host_beat(): void {
     $doc = ['host' => 'tg', 'at_utc' => gmdate('c'), 'version' => (string) ($manifest['version'] ?? ''),
             'vault' => (tg_read_json(TG_BASE . '/var/vault.json') ?? [])['state'] ?? 'unknown'];
     $r = tg_repo_put('Memory-Workflow/nightly-chain-independence/host-beat/tg.json',
-        json_encode($doc, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n", 'tg-host: heartbeat');
+        json_encode($doc, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n", 'tg-host: heartbeat', 'ops-data');
     tg_write_json($f, ['at' => time(), 'ok' => $r['ok'], 'code' => $r['code'], 'tries' => $r['tries'] ?? 0]);
     tg_log('chain', 'host beat ' . ($r['ok'] ? 'ok' : 'failed') . ' code=' . $r['code']);
 }
