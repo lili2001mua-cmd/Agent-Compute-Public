@@ -46,10 +46,22 @@ function report_parse(string $code, string $path, string $md, ?int $at = null): 
         if ($num === null || $num < 1) continue;
         $title = preg_replace('/^گامِ?\s*[0-9۰-۹٠-٩]+\s*[—–\-:]\s*/u', '', $heading);
         $employee = '';
+        $model = '';
         $date = '';
-        if (preg_match('/<!--\s*employee:\s*([^·>]+?)\s*·\s*date:\s*([^>]+?)\s*-->/u', $rest, $m)) {
-            $employee = trim($m[1]);
-            $date = trim($m[2]);
+        $approved = '';
+        $state = '';
+        if (preg_match('/<!--\s*(employee:[^>]+?)\s*-->/u', $rest, $m)) {
+            foreach (preg_split('/\s*·\s*/u', $m[1]) as $part) {
+                $pos = strpos($part, ':');
+                if ($pos === false) continue;
+                $k = strtolower(trim(substr($part, 0, $pos)));
+                $v = trim(substr($part, $pos + 1));
+                if ($k === 'employee') $employee = $v;
+                elseif ($k === 'model') $model = $v;
+                elseif ($k === 'date') $date = $v;
+                elseif ($k === 'approved') $approved = $v;
+                elseif ($k === 'state') $state = $v;
+            }
             $rest = preg_replace('/<!--\s*employee:[^>]+-->\s*/u', '', $rest, 1);
         }
         $body = trim((string) $rest);
@@ -65,7 +77,10 @@ function report_parse(string $code, string $path, string $md, ?int $at = null): 
             'num' => $num,
             'title' => trim((string) $title),
             'employee' => $employee,
+            'model' => $model,
             'date' => $date,
+            'approved' => $approved,
+            'state' => $state,
             'body' => $body,
             'empty' => $empty,
         ];
