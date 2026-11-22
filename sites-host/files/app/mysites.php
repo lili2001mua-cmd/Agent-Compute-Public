@@ -370,3 +370,108 @@ function dh_mysites_incremental(): void {
     }
     if ($changed && $out) dh_state_set('mysites_inc', $out);
 }
+
+/* ---------- STY-02 (گامِ ۱۱۰): گزارشِ خودکارِ ماهانهٔ مانور و سلامتِ زنجیرهٔ بکاپ ---------- */
+function mys_monthly_drill_evaluate(array $indexFiles, int $liveMaxSeq, int $nowUtc): array {
+    $fulls = array_values(array_filter($indexFiles, fn($f) => ($f['kind'] ?? '') === 'db'));
+    $incs  = array_values(array_filter($indexFiles, fn($f) => ($f['kind'] ?? '') === 'db-inc'));
+    usort($fulls, fn($a, $b) => strcmp((string) ($a['taken_at'] ?? ''), (string) ($b['taken_at'] ?? '')));
+    usort($incs,  fn($a, $b) => ((int) ($a['seq_from'] ?? 0)) <=> ((int) ($b['seq_from'] ?? 0)));
+
+    $lastFull = $fulls ? $fulls[count($fulls) - 1] : null;
+    $lastInc  = $incs  ? $incs[count($incs) - 1]   : null;
+
+    $fullAgeH = $lastFull ? round(($nowUtc - (strtotime((string) ($lastFull['taken_at'] ?? '')) ?: 0)) / 3600, 1) : null;
+    $incAgeH  = $lastInc  ? round(($nowUtc - (strtotime((string) ($lastInc['taken_at'] ?? '')) ?: 0)) / 3600, 1)  : null;
+
+    $chainBreaks = 0;
+    $seqGaps     = 0;
+    $unverified  = 0;
+    $totalIncBytes = 0;
+    $totalIncRows  = 0;
+    for ($i = 0; $i < count($incs); $i++) {
+        $cur = $incs[$i];
+        $totalIncBytes += (int) ($cur['size'] ?? 0);
+        $totalIncRows  += (int) ($cur['row_count'] ?? 0);
+        if (empty($cur['md5_verified'])) $unverified++;
+        if ($i > 0) {
+            $prev = $incs[$i - 1];
+            if (($cur['prev_sha256'] ?? '') !== ($prev['sha256_enc'] ?? '')) $chainBreaks++;
+            if ((int) ($cur['seq_from'] ?? 0) !== ((int) ($prev['seq_to'] ?? 0) + 1)) $seqGaps++;
+        }
+    }
+
+    $lastIncSeq = $lastInc ? (int) ($lastInc['seq_to'] ?? 0) : 0;
+    $seqLag     = max(0, $liveMaxSeq - $lastIncSeq);
+
+    $alerts = [];
+    if (!$lastFull) $alerts[] = 'هیچ بکاپِ کاملی در INDEX.json ثبت نشده است';
+    elseif ($fullAgeH > 192) $alerts[] = "آخرین بکاپِ کامل کهنه است ({$fullAgeH} ساعت > ۸ روز)";
+    if (!$lastInc) $alerts[] = 'هیچ بستهٔ افزایشی در INDEX.json ثبت نشده است';
+    elseif ($incAgeH > 6) $alerts[] = "آخرین بستهٔ افزایشی کهنه است ({$incAgeH} ساعت > ۶ ساعت)";
+    if ($chainBreaks > 0) $alerts[] = "گسستِ زنجیرهٔ هش: {$chainBreaks} مورد";
+    if ($seqGaps > 0) $alerts[] = "شکافِ شمارهٔ ترتیبی (seq): {$seqGaps} مورد";
+    if ($unverified > 0) $alerts[] = "بستهٔ بدونِ تأییدِ MD5: {$unverified} مورد";
+
+    return [
+        'ok'              => count($alerts) === 0,
+        'verdict'         => count($alerts) === 0 ? 'سالم' : 'نیاز به بررسی',
+        'full_count'      => count($fulls),
+        'inc_count'       => count($incs),
+        'total_inc_rows'  => $totalIncRows,
+        'total_inc_bytes' => $totalIncBytes,
+        'last_full_age_h' => $fullAgeH,
+        'last_inc_age_h'  => $incAgeH,
+        'live_max_seq'    => $liveMaxSeq,
+        'last_inc_seq'    => $lastIncSeq,
+        'seq_lag'         => $seqLag,
+        'chain_breaks'    => $chainBreaks,
+        'seq_gaps'        => $seqGaps,
+        'unverified'      => $unverified,
+        'alerts'          => $alerts,
+    ];
+}
+
+function dh_mysites_monthly_drill(): void {
+    $now = time();
+    $teh = $now + 12600;
+    if ((int) gmdate('j', $teh) !== 1 || (int) gmdate('G', $teh) < 4) return;   // روزِ اولِ هر ماه پس از ۰۴:۰۰ تهران
+    $month = gmdate('Y-m', $teh);
+    $st = dh_state()['mysites_drill'] ?? [];
+    $out = [];
+    $changed = false;
+    foreach (MYS_DB_ENVS as $name => $envs) {
+        $site = dh_sites()[$name] ?? null;
+        if (!$site) continue;
+        foreach ($envs as $env) {
+            $k = "$name/$env";
+            $prev = $st[$k] ?? [];
+            if (($prev['month'] ?? '') === $month && !empty($prev['ok'])) { $out[$k] = $prev; continue; }
+            $changed = true;
+            try {
+                $got = mys_q("'" . MYS_SITE_FOLDERS[$name] . "' in parents and trashed=false and name='INDEX.json'", 'files(id)');
+                $idxFiles = [];
+                if ($got) {
+                    [$c, $raw] = mys_drive('GET', 'https://www.googleapis.com/drive/v3/files/' . $got[0]['id'] . '?alt=media');
+                    if ($c === 200 && is_array($j = json_decode($raw, true))) $idxFiles = $j['files'] ?? [];
+                }
+                $liveRows = mys_inc_query($site, $env, "SELECT COALESCE(MAX(seq), 0) AS max_seq FROM change_log");
+                $liveMax  = (int) ($liveRows[0]['max_seq'] ?? 0);
+                $ev = mys_monthly_drill_evaluate($idxFiles, $liveMax, $now);
+                $out[$k] = ['month' => $month, 'utc' => gmdate('c')] + $ev;
+
+                $md = "# گزارشِ خودکارِ ماهانهٔ مانورِ بکاپ — `$name/$env` ($month)\n\n"
+                    . "- **حکم:** {$ev['verdict']}\n"
+                    . "- **بکاپِ کامل:** {$ev['full_count']} نسخه (سنِ آخرین نسخه: {$ev['last_full_age_h']} ساعت)\n"
+                    . "- **بکاپِ افزایشیِ ۱۵دقیقه‌ای:** {$ev['inc_count']} بسته · {$ev['total_inc_rows']} سطر · " . round($ev['total_inc_bytes'] / 1024, 1) . " KB (سنِ آخرین بسته: {$ev['last_inc_age_h']} ساعت)\n"
+                    . "- **سلامتِ زنجیره:** گسستِ هش = `{$ev['chain_breaks']}` · شکافِ seq = `{$ev['seq_gaps']}` · بی‌تأییدِ MD5 = `{$ev['unverified']}` · عقب‌ماندگی = `{$ev['seq_lag']}` سطر\n"
+                    . ($ev['alerts'] ? "- **هشدارها:** " . implode(' · ', $ev['alerts']) . "\n" : "- **هشدار:** هیچ\n");
+                dh_gh_put($site['repo'], "deploy-results/backup-drill-$month.md", $md, "chore(STY-02): monthly backup drill report $month ($name/$env)");
+            } catch (Throwable $e) {
+                $out[$k] = ['month' => $month, 'ok' => false, 'utc' => gmdate('c'), 'error' => substr($e->getMessage(), 0, 200)];
+            }
+            dh_log("mysites-drill $k " . ($out[$k]['ok'] ? 'ok' : 'ALERT'));
+        }
+    }
+    if ($changed && $out) dh_state_set('mysites_drill', $out);
+}

@@ -46,4 +46,19 @@ if (mys_full_due($recentFull, $healthyInc, $nowSat, $satTeh) !== false) { fwrite
 if (mys_full_due($recentFull, $staleInc, $nowSat, $satTeh) !== true) { fwrite(STDERR, "weekly stale fallback\n"); exit(1); }
 if (mys_full_due($recentFull, ['ok' => false, 'utc' => gmdate('c', $nowSat - 60)], $nowSat, $satTeh) !== true) { fwrite(STDERR, "weekly fail fallback\n"); exit(1); }
 if (mys_full_due($recentFull, ['ok' => true, 'utc' => gmdate('c', $nowFri - 600)], $nowFri, $friTeh) !== true) { fwrite(STDERR, "weekly friday run\n"); exit(1); }
+// STY-02 (گام ۱۱۰): آزمونِ گزارشِ خودکارِ ماهانهٔ مانور (سالم + ۲ آزمونِ منفی برای گسستِ هش و شکافِ seq)
+$nowDrill = 1795300000;
+$goodIdx = [
+    ['kind' => 'db', 'taken_at' => gmdate('Y-m-d\TH:i:s\Z', $nowDrill - 86400), 'md5_verified' => true],
+    ['kind' => 'db-inc', 'seq_from' => 1, 'seq_to' => 10, 'row_count' => 10, 'size' => 1200, 'prev_sha256' => 'GENESIS', 'sha256_enc' => 'h1', 'taken_at' => gmdate('Y-m-d\TH:i:s\Z', $nowDrill - 1800), 'md5_verified' => true],
+    ['kind' => 'db-inc', 'seq_from' => 11, 'seq_to' => 20, 'row_count' => 10, 'size' => 1300, 'prev_sha256' => 'h1', 'sha256_enc' => 'h2', 'taken_at' => gmdate('Y-m-d\TH:i:s\Z', $nowDrill - 600), 'md5_verified' => true],
+];
+$evOk = mys_monthly_drill_evaluate($goodIdx, 20, $nowDrill);
+if (!$evOk['ok'] || $evOk['verdict'] !== 'سالم' || $evOk['chain_breaks'] !== 0 || $evOk['seq_gaps'] !== 0) { fwrite(STDERR, "drill good\n"); exit(1); }
+$badHashIdx = $goodIdx; $badHashIdx[2]['prev_sha256'] = 'WRONG';
+$evBadHash = mys_monthly_drill_evaluate($badHashIdx, 20, $nowDrill);
+if ($evBadHash['ok'] || $evBadHash['chain_breaks'] !== 1) { fwrite(STDERR, "drill bad hash\n"); exit(1); }
+$badGapIdx = $goodIdx; $badGapIdx[2]['seq_from'] = 15;
+$evBadGap = mys_monthly_drill_evaluate($badGapIdx, 20, $nowDrill);
+if ($evBadGap['ok'] || $evBadGap['seq_gaps'] !== 1) { fwrite(STDERR, "drill bad gap\n"); exit(1); }
 echo "ok\n";
