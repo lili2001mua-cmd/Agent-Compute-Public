@@ -200,13 +200,48 @@ const MYS_INC_PAGE = 500;          // اندازهٔ هر صفحهٔ کوئری 
 const MYS_INC_MAX_ROWS = 5000;     // سقفِ ردیف در هر بستهٔ ۱۵دقیقه‌ای
 const MYS_INC_SAFE_AGE_SEC = 5;    // حاشیهٔ ۵ ثانیه‌ایِ خواندنِ امن (بی‌شکاف)
 
-function mys_inc_build_ndjson(string $site, string $env, array $rows, string $prevSha, string $takenAt): array {
+function mys_logical_db(string $name, array $site, string $env): string {
+    $id = trim((string) ($site['logical_db'][$env] ?? ''));
+    return $id !== '' ? $id : "$name/$env";
+}
+
+function mys_assert_domain_endpoint(array $site, string $env): void {
+    $url = (string) ($site['envs'][$env] ?? '');
+    $host = trim((string) parse_url($url, PHP_URL_HOST), '[]');
+    if ($host === '') throw new RuntimeException("missing bridge endpoint for $env");
+    if (filter_var($host, FILTER_VALIDATE_IP) !== false && getenv('DH_ALLOW_IP_ENDPOINT') !== '1') {
+        throw new RuntimeException("incremental backup refuses raw IP endpoint ($host); use DNS domain");
+    }
+}
+
+function mys_inc_resume_chain(array $prev, array $indexFiles, string $env, string $dbId): array {
+    $lastSeq = (int) ($prev['last_seq'] ?? 0);
+    $prevSha = (string) ($prev['last_sha256'] ?? '');
+    if ($lastSeq > 0 && $prevSha !== '' && $prevSha !== 'GENESIS') {
+        return ['last_seq' => $lastSeq, 'last_sha256' => $prevSha, 'resumed_from_index' => false];
+    }
+    $best = null;
+    foreach ($indexFiles as $f) {
+        if (($f['kind'] ?? '') !== 'db-inc') continue;
+        $fDb = (string) ($f['db_id'] ?? '');
+        if ($fDb !== '' && $fDb !== $dbId) continue;
+        if ($fDb === '' && ($f['env'] ?? '') !== $env) continue;
+        if ($best === null || (int) ($f['seq_to'] ?? 0) > (int) ($best['seq_to'] ?? 0)) $best = $f;
+    }
+    if ($best && (int) ($best['seq_to'] ?? 0) > 0 && !empty($best['sha256_enc'])) {
+        return ['last_seq' => (int) $best['seq_to'], 'last_sha256' => (string) $best['sha256_enc'], 'resumed_from_index' => true];
+    }
+    return ['last_seq' => $lastSeq, 'last_sha256' => $prevSha !== '' ? $prevSha : 'GENESIS', 'resumed_from_index' => false];
+}
+
+function mys_inc_build_ndjson(string $site, string $env, array $rows, string $prevSha, string $takenAt, string $dbId = ''): array {
     $seqFrom = (int) $rows[0]['seq'];
     $seqTo   = (int) $rows[count($rows) - 1]['seq'];
     $meta = [
         '_meta'       => 'sty02-inc/v1',
         'site'        => $site,
         'env'         => $env,
+        'db_id'       => $dbId !== '' ? $dbId : "$site/$env",
         'seq_from'    => $seqFrom,
         'seq_to'      => $seqTo,
         'row_count'   => count($rows),
@@ -221,6 +256,7 @@ function mys_inc_build_ndjson(string $site, string $env, array $rows, string $pr
 }
 
 function mys_inc_query(array $site, string $env, string $sql): array {
+    mys_assert_domain_endpoint($site, $env);
     [$code, $j, $err] = dh_post($site, $env, ['action' => 'query', 'ref' => 'main', 'sql' => $sql, 'files' => []]);
     if ($code !== 200 || !is_array($j) || empty($j['ok'])) {
         throw new RuntimeException('inc query: ' . ($err ?: ($j['error'] ?? "HTTP $code")));
@@ -229,8 +265,19 @@ function mys_inc_query(array $site, string $env, string $sql): array {
 }
 
 function mys_backup_incremental(string $name, array $site, string $env, array $prev): array {
-    $afterSeq = (int) ($prev['last_seq'] ?? 0);
-    $prevSha  = (string) ($prev['last_sha256'] ?? 'GENESIS');
+    mys_assert_domain_endpoint($site, $env);
+    $dbId = mys_logical_db($name, $site, $env);
+    $idxFiles = [];
+    if ((int) ($prev['last_seq'] ?? 0) <= 0) {
+        $got = mys_q("'" . MYS_SITE_FOLDERS[$name] . "' in parents and trashed=false and name='INDEX.json'", 'files(id)');
+        if ($got) {
+            [$c, $raw] = mys_drive('GET', 'https://www.googleapis.com/drive/v3/files/' . $got[0]['id'] . '?alt=media');
+            if ($c === 200 && is_array($j = json_decode($raw, true))) $idxFiles = $j['files'] ?? [];
+        }
+    }
+    $chain    = mys_inc_resume_chain($prev, $idxFiles, $env, $dbId);
+    $afterSeq = $chain['last_seq'];
+    $prevSha  = $chain['last_sha256'];
 
     // سقفِ پیوستهٔ امن (contiguous safe watermark): اولین سطرِ جوان‌تر از ۵ ثانیه مرزِ توقف است
     $wmRows = mys_inc_query(
@@ -240,7 +287,7 @@ function mys_backup_incremental(string $name, array $site, string $env, array $p
     );
     $watermark = (int) ($wmRows[0]['wm'] ?? 0);
     if ($watermark <= $afterSeq) {
-        return ['env' => $env, 'last_seq' => $afterSeq, 'last_sha256' => $prevSha, 'rows' => 0, 'skipped' => 'no_changes'];
+        return ['env' => $env, 'db_id' => $dbId, 'last_seq' => $afterSeq, 'last_sha256' => $prevSha, 'rows' => 0, 'skipped' => 'no_changes'];
     }
 
     // دریافتِ صفحه‌بندی‌شدهٔ سطرهای پیوسته تا سقفِ MYS_INC_MAX_ROWS
@@ -261,12 +308,12 @@ function mys_backup_incremental(string $name, array $site, string $env, array $p
         if (count($page) < $lim) break;
     }
     if (!$rows) {
-        return ['env' => $env, 'last_seq' => $afterSeq, 'last_sha256' => $prevSha, 'rows' => 0, 'skipped' => 'no_rows'];
+        return ['env' => $env, 'db_id' => $dbId, 'last_seq' => $afterSeq, 'last_sha256' => $prevSha, 'rows' => 0, 'skipped' => 'no_rows'];
     }
 
     $pk = mys_pubkey();
     $taken = gmdate('Y-m-d\TH:i:s\Z');
-    $built = mys_inc_build_ndjson($name, $env, $rows, $prevSha, $taken);
+    $built = mys_inc_build_ndjson($name, $env, $rows, $prevSha, $taken, $dbId);
     $tok = bin2hex(random_bytes(12));
     $gzPath  = dh_var('dumps') . "/inc-$tok.ndjson.gz";
     $encPath = dh_var('dumps') . "/inc-$tok.mys";
@@ -286,6 +333,7 @@ function mys_backup_incremental(string $name, array $site, string $env, array $p
             'site'         => $name,
             'kind'         => 'db-inc',
             'env'          => $env,
+            'db_id'        => $dbId,
             'seq_from'     => (string) $built['seq_from'],
             'seq_to'       => (string) $built['seq_to'],
             'row_count'    => (string) $built['row_count'],
@@ -305,6 +353,7 @@ function mys_backup_incremental(string $name, array $site, string $env, array $p
             'id'           => $r['id'],
             'kind'         => 'db-inc',
             'env'          => $env,
+            'db_id'        => $dbId,
             'seq_from'     => $built['seq_from'],
             'seq_to'       => $built['seq_to'],
             'row_count'    => $built['row_count'],
@@ -324,6 +373,7 @@ function mys_backup_incremental(string $name, array $site, string $env, array $p
     // ⛔ هرسِ خودکارِ فایل‌های افزایشی ممنوع (قیدِ بی‌حذفِ کارفرما ۱۴۰۵/۰۸/۳۰)
     return [
         'env'         => $env,
+        'db_id'       => $dbId,
         'file_id'     => $r['id'],
         'name'        => $fname,
         'bytes'       => $size,

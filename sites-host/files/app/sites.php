@@ -19,6 +19,7 @@ return [
         'stamp' => 'STYLISTCRM_QUEUE_STAMP_KEY',
         'prod' => 'stylistcrm-prod',
         'editbus' => ['folder' => '12hbRVCC44pKMegkkxzc1hdTlVUvIiF60'],   // My-Sites/stylistcrm/editbus/ on BACKUP
+        'logical_db' => ['pwa' => 'redliliu_main'],                       // شناسهٔ منطقیِ دیتابیس (مستقل از آی‌پیِ هاست — STY-02 گامِ ۱۶۶)
         'envs' => [
             'pwa' => 'https://pwa.redlilium.ir/deploy/sync.php',
             'hub' => 'https://hub.redlilium.ir/deploy/sync.php',

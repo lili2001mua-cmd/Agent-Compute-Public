@@ -50,8 +50,8 @@ if (mys_full_due($recentFull, ['ok' => true, 'utc' => gmdate('c', $nowFri - 600)
 $nowDrill = 1795300000;
 $goodIdx = [
     ['kind' => 'db', 'taken_at' => gmdate('Y-m-d\TH:i:s\Z', $nowDrill - 86400), 'md5_verified' => true],
-    ['kind' => 'db-inc', 'seq_from' => 1, 'seq_to' => 10, 'row_count' => 10, 'size' => 1200, 'prev_sha256' => 'GENESIS', 'sha256_enc' => 'h1', 'taken_at' => gmdate('Y-m-d\TH:i:s\Z', $nowDrill - 1800), 'md5_verified' => true],
-    ['kind' => 'db-inc', 'seq_from' => 11, 'seq_to' => 20, 'row_count' => 10, 'size' => 1300, 'prev_sha256' => 'h1', 'sha256_enc' => 'h2', 'taken_at' => gmdate('Y-m-d\TH:i:s\Z', $nowDrill - 600), 'md5_verified' => true],
+    ['kind' => 'db-inc', 'env' => 'pwa', 'seq_from' => 1, 'seq_to' => 10, 'row_count' => 10, 'size' => 1200, 'prev_sha256' => 'GENESIS', 'sha256_enc' => 'h1', 'taken_at' => gmdate('Y-m-d\TH:i:s\Z', $nowDrill - 1800), 'md5_verified' => true],
+    ['kind' => 'db-inc', 'env' => 'pwa', 'seq_from' => 11, 'seq_to' => 20, 'row_count' => 10, 'size' => 1300, 'prev_sha256' => 'h1', 'sha256_enc' => 'h2', 'taken_at' => gmdate('Y-m-d\TH:i:s\Z', $nowDrill - 600), 'md5_verified' => true],
 ];
 $evOk = mys_monthly_drill_evaluate($goodIdx, 20, $nowDrill);
 if (!$evOk['ok'] || $evOk['verdict'] !== 'سالم' || $evOk['chain_breaks'] !== 0 || $evOk['seq_gaps'] !== 0) { fwrite(STDERR, "drill good\n"); exit(1); }
@@ -61,4 +61,22 @@ if ($evBadHash['ok'] || $evBadHash['chain_breaks'] !== 1) { fwrite(STDERR, "dril
 $badGapIdx = $goodIdx; $badGapIdx[2]['seq_from'] = 15;
 $evBadGap = mys_monthly_drill_evaluate($badGapIdx, 20, $nowDrill);
 if ($evBadGap['ok'] || $evBadGap['seq_gaps'] !== 1) { fwrite(STDERR, "drill bad gap\n"); exit(1); }
+// STY-02 (گام ۱۶۶): آزمونِ استقلالِ بکاپِ ۱۵دقیقه‌ای از آی‌پیِ هاست و پیوستگیِ زنجیره با شناسهٔ منطقیِ redliliu_main
+$siteCfg = ['logical_db' => ['pwa' => 'redliliu_main'], 'envs' => ['pwa' => 'https://pwa.redlilium.ir/deploy/sync.php']];
+if (mys_logical_db('stylistcrm', $siteCfg, 'pwa') !== 'redliliu_main') { fwrite(STDERR, "logical_db\n"); exit(1); }
+mys_assert_domain_endpoint($siteCfg, 'pwa');
+foreach (['https://185.10.20.30/deploy/sync.php', 'https://[2001:db8::1]/deploy/sync.php'] as $badUrl) {
+    $refused = false;
+    try { mys_assert_domain_endpoint(['envs' => ['pwa' => $badUrl]], 'pwa'); } catch (RuntimeException $e) { $refused = true; }
+    if (!$refused) { fwrite(STDERR, "raw ip not refused: $badUrl\n"); exit(1); }
+}
+$resumed = mys_inc_resume_chain([], $goodIdx, 'pwa', 'redliliu_main');
+if (!$resumed['resumed_from_index'] || $resumed['last_seq'] !== 20 || $resumed['last_sha256'] !== 'h2') { fwrite(STDERR, "resume chain\n"); exit(1); }
+$postMigRows = [['seq' => 21, 'tx_id' => 't3', 'table_name' => 'factor', 'pk_val' => '2', 'op' => 'I', 'company_id' => 6, 'before_json' => null, 'after_json' => '{"id":2}', 'created_at' => '2026-11-22 10:00:00.000000']];
+$postMig = mys_inc_build_ndjson('stylistcrm', 'pwa', $postMigRows, $resumed['last_sha256'], gmdate('Y-m-d\TH:i:s\Z', $nowDrill - 60), 'redliliu_main');
+$pmMeta = json_decode(explode("\n", $postMig['ndjson'])[0], true);
+if (($pmMeta['db_id'] ?? '') !== 'redliliu_main' || ($pmMeta['prev_sha256'] ?? '') !== 'h2') { fwrite(STDERR, "post-migration meta\n"); exit(1); }
+$afterMigIdx = array_merge($goodIdx, [['kind' => 'db-inc', 'env' => 'pwa', 'db_id' => 'redliliu_main', 'seq_from' => 21, 'seq_to' => 21, 'row_count' => 1, 'size' => 900, 'prev_sha256' => 'h2', 'sha256_enc' => 'h3', 'taken_at' => gmdate('Y-m-d\TH:i:s\Z', $nowDrill - 60), 'md5_verified' => true]]);
+$evAfterMig = mys_monthly_drill_evaluate($afterMigIdx, 21, $nowDrill);
+if (!$evAfterMig['ok'] || $evAfterMig['chain_breaks'] !== 0 || $evAfterMig['seq_gaps'] !== 0) { fwrite(STDERR, "drill after migration\n"); exit(1); }
 echo "ok\n";
