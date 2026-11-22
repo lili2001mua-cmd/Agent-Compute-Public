@@ -34,4 +34,16 @@ if ($decHash !== hash_file('sha256', "$tmp/inc.gz")) { fwrite(STDERR, "inc decry
 $lines = array_values(array_filter(explode("\n", (string) gzdecode((string) file_get_contents("$tmp/inc.dec.gz")))));
 $meta = json_decode($lines[0], true);
 if (count($lines) !== 3 || ($meta['_meta'] ?? '') !== 'sty02-inc/v1' || ($meta['prev_sha256'] ?? '') !== 'GENESIS') { fwrite(STDERR, "inc meta\n"); exit(1); }
+// STY-02 (گام ۱۰۹): آزمونِ زمان‌بندیِ هفتگیِ بکاپِ کامل + بازگشتِ خودکار به روزانه در صورتِ افتادنِ افزایشی
+$satTeh = strtotime('2026-11-21 04:00:00 UTC'); // شنبه (w=6)
+$friTeh = strtotime('2026-11-27 04:00:00 UTC'); // جمعه (w=5)
+$nowSat = $satTeh - 12600;
+$nowFri = $friTeh - 12600;
+$recentFull = ['day' => '2026-11-20', 'ok' => true, 'utc' => gmdate('c', $nowSat - 86400)];
+$healthyInc = ['ok' => true, 'utc' => gmdate('c', $nowSat - 600)];
+$staleInc   = ['ok' => true, 'utc' => gmdate('c', $nowSat - 30000)];
+if (mys_full_due($recentFull, $healthyInc, $nowSat, $satTeh) !== false) { fwrite(STDERR, "weekly midweek skip\n"); exit(1); }
+if (mys_full_due($recentFull, $staleInc, $nowSat, $satTeh) !== true) { fwrite(STDERR, "weekly stale fallback\n"); exit(1); }
+if (mys_full_due($recentFull, ['ok' => false, 'utc' => gmdate('c', $nowSat - 60)], $nowSat, $satTeh) !== true) { fwrite(STDERR, "weekly fail fallback\n"); exit(1); }
+if (mys_full_due($recentFull, ['ok' => true, 'utc' => gmdate('c', $nowFri - 600)], $nowFri, $friTeh) !== true) { fwrite(STDERR, "weekly friday run\n"); exit(1); }
 echo "ok\n";

@@ -149,11 +149,32 @@ function mys_backup_db(string $name, array $site, string $env): array {
     return ['env' => $env, 'file_id' => $r['id'], 'bytes' => $size, 'tables' => $d['tables'] ?? null, 'kept' => count($keep), 'pruned' => $pruned];
 }
 
+const MYS_FULL_MODE = 'weekly';        // STY-02 گامِ ۱۰۹: کاملِ هفتگی (جمعه پس از ۰۳:۰۰ تهران یا گذشتِ ۷ روز)؛ در صورتِ ناسالم‌بودنِ افزایشی خودکار به روزانه برمی‌گردد
+const MYS_INC_HEALTH_MAX_AGE = 21600;  // حداکثر ۶ ساعت از آخرین بکاپِ افزایشیِ موفق برای مجازبودنِ حالتِ هفتگی
+
+function mys_full_due(array $prevFull, array $prevInc, int $nowUtc, int $tehTs): bool {
+    $day = gmdate('Y-m-d', $tehTs);
+    if (($prevFull['day'] ?? '') === $day && !empty($prevFull['ok'])) return false;
+    if (MYS_FULL_MODE !== 'weekly') return true;
+
+    // قفلِ ایمنی: اگر بکاپِ افزایشیِ ۱۵دقیقه‌ای هنوز فعال یا سالم نباشد (بیش از ۶ ساعت از آخرین موفق)، خودکار روزانه می‌گیرد
+    $incOk = !empty($prevInc['ok']);
+    $incAge = $nowUtc - (strtotime((string) ($prevInc['utc'] ?? '')) ?: 0);
+    if (!$incOk || $incAge > MYS_INC_HEALTH_MAX_AGE) return true;
+
+    // در حالتِ سالمِ افزایشی: فقط جمعه‌ها (w == 5) یا اگر بیش از ۷ روز از آخرین کاملِ موفق گذشته باشد
+    $lastFullUtc = strtotime((string) ($prevFull['utc'] ?? '')) ?: 0;
+    if ($lastFullUtc <= 0 || ($nowUtc - $lastFullUtc) >= 7 * 86400) return true;
+    return (int) gmdate('w', $tehTs) === 5;
+}
+
 function dh_mysites_daily(): void {
-    $teh = time() + 12600;                                    // Asia/Tehran, UTC+3:30
-    if ((int) gmdate('G', $teh) < 3) return;                 // after 03:00 Tehran, once a day
+    $now = time();
+    $teh = $now + 12600;                                      // Asia/Tehran, UTC+3:30
+    if ((int) gmdate('G', $teh) < 3) return;                  // after 03:00 Tehran
     $day = gmdate('Y-m-d', $teh);
     $st = dh_state()['mysites'] ?? [];
+    $stInc = dh_state()['mysites_inc'] ?? [];
     $out = [];
     foreach (MYS_DB_ENVS as $name => $envs) {
         $site = dh_sites()[$name] ?? null;
@@ -161,9 +182,10 @@ function dh_mysites_daily(): void {
         foreach ($envs as $env) {
             $k = "$name/$env";
             $prev = $st[$k] ?? [];
-            if (($prev['day'] ?? '') === $day && !empty($prev['ok'])) { $out[$k] = $prev; continue; }
-            if (($prev['day'] ?? '') === $day && (($prev['tries'] ?? 0) >= 6 || time() - strtotime($prev['utc'] ?? '') < 1800)) { $out[$k] = $prev; continue; }   // a failed day retries every 30 min, up to 6 times
-            try { $out[$k] = ['day' => $day, 'ok' => true, 'utc' => gmdate('c')] + mys_backup_db($name, $site, $env); }
+            $prevInc = $stInc[$k] ?? [];
+            if (!mys_full_due($prev, $prevInc, $now, $teh)) { $out[$k] = $prev; continue; }
+            if (($prev['day'] ?? '') === $day && (($prev['tries'] ?? 0) >= 6 || $now - strtotime($prev['utc'] ?? '') < 1800)) { $out[$k] = $prev; continue; }   // a failed day retries every 30 min, up to 6 times
+            try { $out[$k] = ['day' => $day, 'ok' => true, 'utc' => gmdate('c'), 'mode' => MYS_FULL_MODE] + mys_backup_db($name, $site, $env); }
             catch (Throwable $e) { $out[$k] = ['day' => $day, 'ok' => false, 'utc' => gmdate('c'), 'tries' => (($prev['day'] ?? '') === $day ? ($prev['tries'] ?? 0) : 0) + 1,
                                                 'error' => substr($e->getMessage(), 0, 200)]; }
             dh_log("mysites $k " . ($out[$k]['ok'] ? 'ok' : 'FAIL ' . $out[$k]['error']));
