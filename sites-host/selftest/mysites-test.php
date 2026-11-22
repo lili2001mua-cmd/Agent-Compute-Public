@@ -18,4 +18,20 @@ $f = [];
 for ($d = 0; $d < 400; $d++) $f[] = ['id' => "x$d", 'appProperties' => ['taken_at' => gmdate('Y-m-d\TH:i:s\Z', 1790000000 - $d * 86400)]];
 $k = mys_keep($f);
 if (!isset($k['x0']) || count($k) < 12 || count($k) > 23 || isset($k['x399'])) { fwrite(STDERR, 'keep ' . count($k) . "\n"); exit(1); }
+// STY-02 (گام ۱۰۷): آزمونِ بستهٔ افزایشی (NDJSON + gzip + MYS2 encrypt + studio mys_decrypt)
+$incRows = [
+    ['seq' => 10, 'tx_id' => 't1', 'table_name' => 'factor', 'pk_val' => '1', 'op' => 'I', 'company_id' => 6, 'before_json' => null, 'after_json' => '{"id":1}', 'created_at' => '2026-11-21 10:00:00.000000'],
+    ['seq' => 11, 'tx_id' => 't2', 'table_name' => 'factor', 'pk_val' => '1', 'op' => 'U', 'company_id' => 6, 'before_json' => '{"id":1}', 'after_json' => '{"id":1,"status":2}', 'created_at' => '2026-11-21 10:01:00.000000'],
+];
+$built = mys_inc_build_ndjson('stylistcrm', 'pwa', $incRows, 'GENESIS', '2026-11-21T10:05:00Z');
+if ($built['seq_from'] !== 10 || $built['seq_to'] !== 11 || $built['row_count'] !== 2) { fwrite(STDERR, "inc build bounds\n"); exit(1); }
+file_put_contents("$tmp/inc.gz", gzencode($built['ndjson'], 6));
+mys_encrypt("$tmp/inc.gz", "$tmp/inc.mys", $pk);
+$decOut = fopen("$tmp/inc.dec.gz", 'wb');
+[, $decHash] = mys_decrypt(fopen("$tmp/inc.mys", 'rb'), $decOut, ['sk' => $sk]);
+fclose($decOut);
+if ($decHash !== hash_file('sha256', "$tmp/inc.gz")) { fwrite(STDERR, "inc decrypt hash\n"); exit(1); }
+$lines = array_values(array_filter(explode("\n", (string) gzdecode((string) file_get_contents("$tmp/inc.dec.gz")))));
+$meta = json_decode($lines[0], true);
+if (count($lines) !== 3 || ($meta['_meta'] ?? '') !== 'sty02-inc/v1' || ($meta['prev_sha256'] ?? '') !== 'GENESIS') { fwrite(STDERR, "inc meta\n"); exit(1); }
 echo "ok\n";

@@ -24,6 +24,7 @@ try {
     try { dh_phone_backup(); } catch (Throwable $e) { dh_state_set('phone_backup_error', substr($e->getMessage(), 0, 200)); }
     dh_run_editbus();
     try { dh_mysites_daily(); } catch (Throwable $e) { dh_state_set('mysites_error', substr($e->getMessage(), 0, 200)); }   // daily encrypted DB backup to My-Sites
+    try { dh_mysites_incremental(); } catch (Throwable $e) { dh_state_set('mysites_inc_error', substr($e->getMessage(), 0, 200)); }   // 15-min encrypted incremental backup from change_log (STY-02)
     try { dh_branch_tick(); } catch (Throwable $e) { dh_state_set('branch_ops_error', substr($e->getMessage(), 0, 200)); }   // each site records its own result; never stops the queue
     dh_run_jobs();      // each job records its own error; a broken queue must not stop the weekly digest
     dh_poll();

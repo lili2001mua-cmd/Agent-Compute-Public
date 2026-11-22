@@ -171,3 +171,180 @@ function dh_mysites_daily(): void {
     }
     if ($out) dh_state_set('mysites', $out);
 }
+
+/* ---------- STY-02 (گامِ ۱۰۷): بکاپِ افزایشیِ ۱۵دقیقه‌ای از change_log روی گوگل‌درایو ---------- */
+const MYS_INC_INTERVAL = 900;      // هر ۱۵ دقیقه یک بار
+const MYS_INC_PAGE = 500;          // اندازهٔ هر صفحهٔ کوئری روی sync.php
+const MYS_INC_MAX_ROWS = 5000;     // سقفِ ردیف در هر بستهٔ ۱۵دقیقه‌ای
+const MYS_INC_SAFE_AGE_SEC = 5;    // حاشیهٔ ۵ ثانیه‌ایِ خواندنِ امن (بی‌شکاف)
+
+function mys_inc_build_ndjson(string $site, string $env, array $rows, string $prevSha, string $takenAt): array {
+    $seqFrom = (int) $rows[0]['seq'];
+    $seqTo   = (int) $rows[count($rows) - 1]['seq'];
+    $meta = [
+        '_meta'       => 'sty02-inc/v1',
+        'site'        => $site,
+        'env'         => $env,
+        'seq_from'    => $seqFrom,
+        'seq_to'      => $seqTo,
+        'row_count'   => count($rows),
+        'prev_sha256' => $prevSha,
+        'taken_at'    => $takenAt,
+    ];
+    $buf = json_encode($meta, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . "\n";
+    foreach ($rows as $r) {
+        $buf .= json_encode($r, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . "\n";
+    }
+    return ['ndjson' => $buf, 'seq_from' => $seqFrom, 'seq_to' => $seqTo, 'row_count' => count($rows)];
+}
+
+function mys_inc_query(array $site, string $env, string $sql): array {
+    [$code, $j, $err] = dh_post($site, $env, ['action' => 'query', 'ref' => 'main', 'sql' => $sql, 'files' => []]);
+    if ($code !== 200 || !is_array($j) || empty($j['ok'])) {
+        throw new RuntimeException('inc query: ' . ($err ?: ($j['error'] ?? "HTTP $code")));
+    }
+    return $j['rows'] ?? [];
+}
+
+function mys_backup_incremental(string $name, array $site, string $env, array $prev): array {
+    $afterSeq = (int) ($prev['last_seq'] ?? 0);
+    $prevSha  = (string) ($prev['last_sha256'] ?? 'GENESIS');
+
+    // سقفِ پیوستهٔ امن (contiguous safe watermark): اولین سطرِ جوان‌تر از ۵ ثانیه مرزِ توقف است
+    $wmRows = mys_inc_query(
+        $site,
+        $env,
+        "SELECT COALESCE((SELECT MIN(seq) - 1 FROM change_log WHERE seq > $afterSeq AND created_at > (NOW(6) - INTERVAL " . MYS_INC_SAFE_AGE_SEC . " SECOND)), (SELECT COALESCE(MAX(seq), 0) FROM change_log)) AS wm"
+    );
+    $watermark = (int) ($wmRows[0]['wm'] ?? 0);
+    if ($watermark <= $afterSeq) {
+        return ['env' => $env, 'last_seq' => $afterSeq, 'last_sha256' => $prevSha, 'rows' => 0, 'skipped' => 'no_changes'];
+    }
+
+    // دریافتِ صفحه‌بندی‌شدهٔ سطرهای پیوسته تا سقفِ MYS_INC_MAX_ROWS
+    $rows = [];
+    $cur = $afterSeq;
+    while (count($rows) < MYS_INC_MAX_ROWS && $cur < $watermark) {
+        $lim = min(MYS_INC_PAGE, MYS_INC_MAX_ROWS - count($rows));
+        $page = mys_inc_query(
+            $site,
+            $env,
+            "SELECT seq, tx_id, table_name, pk_val, op, company_id, before_json, after_json, created_at FROM change_log WHERE seq > $cur AND seq <= $watermark ORDER BY seq ASC LIMIT $lim"
+        );
+        if (!$page) break;
+        foreach ($page as $r) {
+            $rows[] = $r;
+            $cur = (int) $r['seq'];
+        }
+        if (count($page) < $lim) break;
+    }
+    if (!$rows) {
+        return ['env' => $env, 'last_seq' => $afterSeq, 'last_sha256' => $prevSha, 'rows' => 0, 'skipped' => 'no_rows'];
+    }
+
+    $pk = mys_pubkey();
+    $taken = gmdate('Y-m-d\TH:i:s\Z');
+    $built = mys_inc_build_ndjson($name, $env, $rows, $prevSha, $taken);
+    $tok = bin2hex(random_bytes(12));
+    $gzPath  = dh_var('dumps') . "/inc-$tok.ndjson.gz";
+    $encPath = dh_var('dumps') . "/inc-$tok.mys";
+    try {
+        $gz = gzencode($built['ndjson'], 6);
+        if ($gz === false) throw new RuntimeException('inc gzencode failed');
+        file_put_contents($gzPath, $gz, LOCK_EX);
+        $plainSha = hash_file('sha256', $gzPath);
+        mys_encrypt($gzPath, $encPath, $pk['pk']);
+        $encSha = hash_file('sha256', $encPath);
+        $md5    = md5_file($encPath);
+        $size   = filesize($encPath);
+
+        $folder = mys_folder(mys_folder(MYS_SITE_FOLDERS[$name], 'db-inc', "$name/db-inc"), $env, "$name/db-inc/$env");
+        $fname  = sprintf('%s-%s-inc-%s-s%d-%d.ndjson.gz.enc', $name, $env, gmdate('Ymd-His'), $built['seq_from'], $built['seq_to']);
+        $ap = [
+            'site'         => $name,
+            'kind'         => 'db-inc',
+            'env'          => $env,
+            'seq_from'     => (string) $built['seq_from'],
+            'seq_to'       => (string) $built['seq_to'],
+            'row_count'    => (string) $built['row_count'],
+            'prev_sha256'  => $prevSha,
+            'taken_at'     => $taken,
+            'sha256_plain' => $plainSha,
+            'sha256_enc'   => $encSha,
+            'key_id'       => $pk['id'],
+            'owner'        => 'drive-steward',
+        ];
+        $r = mys_upload($encPath, $fname, $folder, $ap);
+        if ((int) ($r['size'] ?? -1) !== $size || ($r['md5Checksum'] ?? '') !== $md5) {
+            throw new RuntimeException('Drive inc copy differs (size/md5)');
+        }
+        mys_index_append(MYS_SITE_FOLDERS[$name], [
+            'name'         => $fname,
+            'id'           => $r['id'],
+            'kind'         => 'db-inc',
+            'env'          => $env,
+            'seq_from'     => $built['seq_from'],
+            'seq_to'       => $built['seq_to'],
+            'row_count'    => $built['row_count'],
+            'prev_sha256'  => $prevSha,
+            'size'         => $size,
+            'sha256_plain' => $plainSha,
+            'sha256_enc'   => $encSha,
+            'key_id'       => $pk['id'],
+            'taken_at'     => $taken,
+            'md5_verified' => true,
+        ]);
+    } finally {
+        @unlink($gzPath);
+        @unlink($encPath);
+    }
+
+    // ⛔ هرسِ خودکارِ فایل‌های افزایشی ممنوع (قیدِ بی‌حذفِ کارفرما ۱۴۰۵/۰۸/۳۰)
+    return [
+        'env'         => $env,
+        'file_id'     => $r['id'],
+        'name'        => $fname,
+        'bytes'       => $size,
+        'rows'        => $built['row_count'],
+        'seq_from'    => $built['seq_from'],
+        'seq_to'      => $built['seq_to'],
+        'last_seq'    => $built['seq_to'],
+        'last_sha256' => $encSha,
+        'more_behind' => $built['seq_to'] < $watermark,
+    ];
+}
+
+function dh_mysites_incremental(): void {
+    $st = dh_state()['mysites_inc'] ?? [];
+    $out = [];
+    $changed = false;
+    foreach (MYS_DB_ENVS as $name => $envs) {
+        $site = dh_sites()[$name] ?? null;
+        if (!$site) continue;
+        foreach ($envs as $env) {
+            $k = "$name/$env";
+            $prev = $st[$k] ?? [];
+            $lastRun = strtotime((string) ($prev['utc'] ?? '')) ?: 0;
+            $interval = !empty($prev['more_behind']) ? 60 : MYS_INC_INTERVAL;   // در عقب‌ماندگیِ بالای ۵۰۰۰ سطر، هر دقیقه ادامه می‌دهد
+            if ($lastRun > 0 && (time() - $lastRun) < $interval) {
+                $out[$k] = $prev;
+                continue;
+            }
+            $changed = true;
+            try {
+                $res = mys_backup_incremental($name, $site, $env, $prev);
+                $out[$k] = ['ok' => true, 'utc' => gmdate('c')] + $res;
+            } catch (Throwable $e) {
+                $out[$k] = [
+                    'ok'          => false,
+                    'utc'         => gmdate('c'),
+                    'last_seq'    => (int) ($prev['last_seq'] ?? 0),
+                    'last_sha256' => (string) ($prev['last_sha256'] ?? 'GENESIS'),
+                    'error'       => substr($e->getMessage(), 0, 200),
+                ];
+            }
+            dh_log("mysites-inc $k " . ($out[$k]['ok'] ? 'ok rows=' . ($out[$k]['rows'] ?? 0) : 'FAIL ' . $out[$k]['error']));
+        }
+    }
+    if ($changed && $out) dh_state_set('mysites_inc', $out);
+}
