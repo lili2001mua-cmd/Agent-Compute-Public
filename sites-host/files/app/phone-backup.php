@@ -100,3 +100,64 @@ function dh_phone_backup(): void {
         pb_state($base + ['state' => 'failed', 'at' => time(), 'error' => substr($e->getMessage(), 0, 200)]);
     }
 }
+
+/** ISO week key in Asia/Tehran timezone, e.g. 2026-W48. */
+function pb_tehran_week(int $t): array {
+    $d = new DateTime('@' . $t);
+    $d->setTimezone(new DateTimeZone('Asia/Tehran'));
+    return [
+        'week' => $d->format('o-\\WW'),
+        'dow'  => (int) $d->format('N'),           // 5 = Friday
+        'hm'   => (int) $d->format('Hi'),          // e.g. 330 = 03:30 Tehran
+    ];
+}
+
+/** Decide whether the weekly automatic Telegram DB backup should run at $now. */
+function pb_weekly_due(int $now, array $st): bool {
+    $w = pb_tehran_week($now);
+    if ($w['dow'] !== 5 || $w['hm'] < 330) return false;
+    if (($st['week'] ?? '') === $w['week'] && ($st['state'] ?? '') === 'ok') return false;
+    $lastTry = (int) ($st['tried_at'] ?? 0);
+    if (($st['week'] ?? '') === $w['week'] && $lastTry > 0 && ($now - $lastTry) < 3600) return false;
+    return true;
+}
+
+/** Automatic weekly DB backup to «Backup Database redlilium» (Friday >= 03:30 Tehran · pure host cron, zero AI). */
+function dh_weekly_tg_backup(): void {
+    $stateFile = dh_var('weekly-tg-backup.json');
+    $st = is_file($stateFile) ? (json_decode((string) @file_get_contents($stateFile), true) ?: []) : [];
+    $now = time();
+    if (!pb_weekly_due($now, $st)) return;
+
+    $wk = pb_tehran_week($now)['week'];
+    $base = ['week' => $wk, 'target' => 'redlilium-db', 'tried_at' => $now];
+    $save = function (array $row) use ($stateFile): void {
+        @file_put_contents($stateFile . '.tmp', json_encode($row, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), LOCK_EX);
+        @chmod($stateFile . '.tmp', 0600);
+        @rename($stateFile . '.tmp', $stateFile);
+        dh_state_set('weekly_tg_backup', $row);
+    };
+
+    try {
+        $r = dh_dbdump(dh_sites()['stylistcrm'], 'pwa', 'weekly-' . $wk);
+        if (empty($r['ok'])) { $save($base + ['state' => 'failed', 'at' => time(), 'error' => 'dump: ' . ($r['error'] ?? '?')]); return; }
+        parse_str((string) parse_url((string) $r['download'], PHP_URL_QUERY), $q);
+        $tok = preg_replace('/[^a-f0-9]/', '', (string) ($q['t'] ?? ''));
+        $gz = dh_var('dumps') . '/' . $tok . '.gz';
+        $bytes = (int) @filesize($gz);
+        if ($bytes > PB_MAX_BYTES) {
+            $save($base + ['state' => 'failed', 'at' => time(), 'bytes' => $bytes, 'error' => 'larger than the 50 MB Telegram limit']);
+        } else {
+            $name = 'redlilium-db-weekly-' . str_replace([' ', ':'], ['_', ''], pb_tehran(time())) . '.sql.gz';
+            $cap = "بکاپِ هفتگیِ خودکارِ دیتابیسِ ردلیلیوم\n" . pb_tehran(time()) . " تهران · " . pb_size($bytes) . " · " . (int) $r['tables'] . " جدول\nاز کرونِ هاستِ آلمان (بی هوشِ مصنوعی)";
+            [$ok, $msg] = pb_send($gz, $name, $cap);
+            $save($base + ($ok ? ['state' => 'ok', 'at' => time(), 'bytes' => $bytes, 'tables' => (int) $r['tables'], 'name' => $name, 'message_id' => $msg]
+                               : ['state' => 'failed', 'at' => time(), 'bytes' => $bytes, 'error' => (string) $msg]));
+        }
+        @unlink($gz); @unlink(dh_var('dumps') . '/' . $tok . '.json');
+        dh_log("weekly-tg-backup $wk " . ($bytes ?: 0) . ' bytes');
+    } catch (Throwable $e) {
+        $save($base + ['state' => 'failed', 'at' => time(), 'error' => substr($e->getMessage(), 0, 200)]);
+    }
+}
+

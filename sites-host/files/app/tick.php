@@ -22,6 +22,7 @@ try {
     if ($ping === '' || time() - strtotime($ping) > 1800) dh_ping();
     dh_dumps_cleanup();
     try { dh_phone_backup(); } catch (Throwable $e) { dh_state_set('phone_backup_error', substr($e->getMessage(), 0, 200)); }
+    try { dh_weekly_tg_backup(); } catch (Throwable $e) { dh_state_set('weekly_tg_backup_error', substr($e->getMessage(), 0, 200)); }   // weekly automatic DB backup to Telegram (BKP-01, zero AI)
     dh_run_editbus();
     try { dh_mysites_daily(); } catch (Throwable $e) { dh_state_set('mysites_error', substr($e->getMessage(), 0, 200)); }   // daily encrypted DB backup to My-Sites
     try { dh_mysites_incremental(); } catch (Throwable $e) { dh_state_set('mysites_inc_error', substr($e->getMessage(), 0, 200)); }   // 15-min encrypted incremental backup from change_log (STY-02)
