@@ -38,12 +38,15 @@ return [
             'help' => 'https://help.stylistcrm.ir/public/deploy/sync.php',
         ],
     ],
-    // The team's site directory. Its bridge is not wired here yet, so only its branch operations run on this host.
+    // The team's site directory. Bridge URL wired for sites.hohedoc.ir (zero GitHub secrets);
+    // stays 'not configured' in dh_ping() until STYLISTDIRECTORY_DEPLOY_SECRET is placed in secrets.php.
     'stylistdirectory' => [
         'repo' => 'stylistdirectory',
         'queue' => '',
         'results' => '',
         'secret' => 'STYLISTDIRECTORY_DEPLOY_SECRET',
-        'envs' => [],
+        'envs' => [
+            'final' => 'https://stylistdirectory.ir/deploy/sync.php',
+        ],
     ],
 ];
