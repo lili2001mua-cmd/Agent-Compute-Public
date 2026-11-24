@@ -6,6 +6,7 @@
 // The Claude session builds, signs and renders (Java, weasyprint, ffmpeg); this host only puts the bytes on Drive.
 // Queued jobs are picked up by app/tick.php (cron, every minute, no web time limit).
 require_once __DIR__ . '/lib.php';
+require_once __DIR__ . '/js_extract.php';
 
 // ---------------------------------------------------------------- installable apps → Drive
 // Replaces app-release-publish.yml and workout-apk-to-drive.yml (private Actions). The Claude session builds and signs
@@ -313,7 +314,8 @@ function relay_publish(string $joined, array $a, string $md5): array {
 const RELAY_TASKS_URL = 'https://relay.hohe1.ir/intake/tasks.php';
 const RELAY_OUT_BASE = 'https://relay.hohe1.ir/tasks-out/';
 const IRANIAN_COM = ['digikala.com', 'torob.com', 'aparat.com', 'behtarino.com', 'shahrint.com', 'royasho.com',
-    'digistyle.com', 'basalam.com', 'sheypoor.com', 'filimo.com'];   // same list as the relay's run.php
+    'digistyle.com', 'basalam.com', 'sheypoor.com', 'filimo.com',
+    'sanjesh.org', 'azmoon.org', 'iranbar.org', 'tgju.org', 'tsetmc.com'];   // same list as the relay's run.php
 
 function relay_host_ok(string $host): bool {
     $host = strtolower($host);
@@ -361,8 +363,13 @@ function run_relay_fetch(array $a): array {
     }
 }
 
+function run_relay_extract(array $a): array {
+    $r = run_relay_fetch($a);
+    return js_extract_page($r);
+}
+
 // ---------------------------------------------------------------- queue (cron-driven, no web time limit)
-const QUEUED = ['relay_fetch', 'app_fetch'];            // only relay_fetch is queued straight from the door (GitHub-pass or key)
+const QUEUED = ['relay_fetch', 'relay_extract', 'app_fetch'];  // queued straight from the door (GitHub-pass or key)
 const INTERNAL = ['app_send', 'doc_send'];  // only enqueued by the host itself
 
 function queue_dir(): string { $d = apps_var('queue'); if (!is_dir($d)) mkdir($d, 0700, true); return $d; }

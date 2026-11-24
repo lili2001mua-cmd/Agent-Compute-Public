@@ -20,15 +20,10 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - name: Search via iran-relay
-        env:
-          REQUEST: ${{ inputs.request }}
-          IRAN_RELAY_RUN_KEY: ${{ secrets.IRAN_RELAY_RUN_KEY }}
+      - name: Retired (moved to Germany host apps.hohedoc.ir)
         run: |
-          set -u
-          mkdir -p out
-          # A failed search is a result worth keeping, not a broken job.
-          python3 Sys.scripts/digikala_relay.py 2>&1 | tee out/log.txt || true
+          echo "Retired (1405-09-03): Iranian site access moved to Germany host apps.hohedoc.ir (door_cli.py apps relay-extract / relay-fetch) with zero GitHub Secrets."
+          exit 1
       - name: Summary
         run: |
           python3 - <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"

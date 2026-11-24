@@ -60,7 +60,10 @@ class RelayError(RuntimeError):
 def job(name, q="", timeout=60, data=None):
     k = key()
     if not k:
-        raise RelayError("IRAN_RELAY_RUN_KEY is not set - Iranian sites must go through the relay")
+        raise RelayError(
+            "Iranian sites no longer run from Agent-Compute-Public (zero GitHub Secrets policy, 1405-09-03). "
+            "Use Germany host apps.hohedoc.ir -> door_cli.py apps relay-extract <url> (or relay-fetch)."
+        )
     ts = str(int(time.time()))
     sig = hmac.new(k.encode(), f"{ts}|{name}|{q}".encode(), hashlib.sha256).hexdigest()
     url = RELAY + "?" + urllib.parse.urlencode({"ts": ts, "job": name, "q": q, "sig": sig})
