@@ -152,6 +152,15 @@ if ($op === 'chapter-report') {
     if ($rep === null) out(404, ['ok' => false, 'error' => 'no report']);
     out(200, ['ok' => true, 'report' => $rep]);
 }
+if ($op === 'bundle-report') {
+    // گزارشِ تحلیلِ بسته (app v69): خواندنِ Memory-Workflow/intake-pool/reports/<key>.md مستقیم از گیت‌هاب با کشِ ۵دقیقه‌ای
+    require_once __DIR__ . '/../app/reports.php';
+    $key = strtolower(trim((string) ($in['key'] ?? '')));
+    if (!bundle_report_key_ok($key)) out(400, ['ok' => false, 'error' => 'bad key']);
+    $rep = bundle_report_get($key, !empty($in['force']));
+    if ($rep === null) out(404, ['ok' => false, 'error' => 'no bundle report']);
+    out(200, ['ok' => true, 'report' => $rep]);
+}
 if ($op === 'ai-account-save') {
     require_once __DIR__ . '/../app/ai-routing.php';
     $res = ai_handle_account_save($in);

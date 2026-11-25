@@ -175,3 +175,89 @@ function reports_from_local(string $root): array {
     ksort($out);
     return $out;
 }
+
+// ── Bundle analysis reports (app v69): Memory-Workflow/intake-pool/reports/<key>.md ───────────────────
+const BUNDLE_REPORTS_DIR = 'Memory-Workflow/intake-pool/reports';
+const BUNDLE_REPORT_KEY_RE = '/^b[0-9]{1,8}$/';
+
+function bundle_report_key_ok(string $k): bool {
+    return (bool) preg_match(BUNDLE_REPORT_KEY_RE, $k);
+}
+
+/** Parse one bundle report markdown (frontmatter + ## sections). Pure function, testable without network. */
+function bundle_report_parse(string $key, string $path, string $md, ?int $at = null): array {
+    $md = str_replace(["\r\n", "\r"], "\n", $md);
+    $meta = [];
+    $bodyMd = $md;
+    if (preg_match('/\A---\n(.*?)\n---\n?/s', $md, $fm)) {
+        foreach (explode("\n", $fm[1]) as $line) {
+            $pos = strpos($line, ':');
+            if ($pos === false) continue;
+            $k = strtolower(trim(substr($line, 0, $pos)));
+            $v = trim(substr($line, $pos + 1));
+            $v = trim($v, "\"'");
+            if ($k !== '' && $v !== '') $meta[$k] = $v;
+        }
+        $bodyMd = substr($md, strlen($fm[0]));
+    }
+
+    $parts = preg_split('/^##\s+/m', $bodyMd);
+    $sections = [];
+    $intro = trim((string) ($parts[0] ?? ''));
+    if ($intro !== '' && count($parts) === 1) {
+        $sections[] = ['title' => 'گزارشِ تحلیل', 'body' => $intro];
+    }
+    for ($i = 1; $i < count($parts); $i++) {
+        $chunk = $parts[$i];
+        $nl = strpos($chunk, "\n");
+        $title = trim($nl === false ? $chunk : substr($chunk, 0, $nl));
+        $rest = trim($nl === false ? '' : substr($chunk, $nl + 1));
+        if ($title === '' && $rest === '') continue;
+        // Strip raw markdown table divider lines (|---|---|) for cleaner mobile reading
+        $lines = array_values(array_filter(
+            array_map('rtrim', explode("\n", $rest)),
+            fn($l) => !preg_match('/^\s*\|[\s:\-|]+\|\s*$/', $l)
+        ));
+        $sections[] = [
+            'title' => $title,
+            'body' => trim(implode("\n", $lines)),
+        ];
+    }
+
+    return [
+        'key' => $key,
+        'path' => $path,
+        'github_url' => 'https://github.com/' . CTL_REPO . '/blob/' . CTL_BRANCH . '/' . $path,
+        'topic' => (string) ($meta['topic'] ?? ''),
+        'status' => (string) ($meta['status'] ?? ''),
+        'date' => (string) ($meta['date'] ?? ''),
+        'origin' => (string) ($meta['origin'] ?? ''),
+        'employee' => (string) ($meta['employee'] ?? ''),
+        'model' => (string) ($meta['model'] ?? ''),
+        'session_url' => (string) ($meta['session_url'] ?? ''),
+        'at' => $at ?? time(),
+        'sections' => $sections,
+    ];
+}
+
+/** Fetch one bundle report from GitHub with a 5-minute on-host cache (var/reports/bundle-<key>.json). */
+function bundle_report_get(string $key, bool $force = false): ?array {
+    if (!bundle_report_key_ok($key)) return null;
+    $cacheName = 'bundle-' . $key . '.json';
+    if (!$force) {
+        $cached = rep_read($cacheName, null);
+        if (is_array($cached) && (($cached['at'] ?? 0) > time() - 300) && isset($cached['sections'])) {
+            return $cached;
+        }
+    }
+    $path = BUNDLE_REPORTS_DIR . '/' . $key . '.md';
+    $raw = function_exists('gh_file') ? gh_file($path) : null;
+    if ($raw === null) {
+        $cached = rep_read($cacheName, null);
+        return is_array($cached) && isset($cached['sections']) ? $cached : null;
+    }
+    $doc = bundle_report_parse($key, $path, $raw, time());
+    rep_write($cacheName, $doc);
+    return $doc;
+}
+
