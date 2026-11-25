@@ -117,6 +117,10 @@ if ($op === 'sizes' && $_SERVER['REQUEST_METHOD'] === 'GET') {
 if ($op === 'status' && $_SERVER['REQUEST_METHOD'] === 'GET') {
     out(200, ['ok' => true] + ctl_json_read('status.json', ['error' => 'no status yet']));
 }
+if ($op === 'anchor-status' && $_SERVER['REQUEST_METHOD'] === 'GET') {
+    require_once __DIR__ . '/../app/primary_anchor.php';
+    out(200, anchor_status((string) ($_SERVER['HTTP_X_HC_DEVICE'] ?? '')));
+}
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') out(405, ['ok' => false]);
 $in = json_decode($body, true);
@@ -271,6 +275,22 @@ if ($op === 'toggle-confirm') {
     $r = ctl_toggle($c['workflow'], $c['action'], $c['reason']);
     ctl_log('toggle ' . $c['action'] . ' ' . $c['workflow'] . ' => ' . json_encode($r));
     out($r['ok'] ? 200 : 502, $r);
+}
+
+if ($op === 'anchor-register') {
+    require_once __DIR__ . '/../app/primary_anchor.php';
+    [$code, $res] = anchor_register((string) ($_SERVER['HTTP_X_HC_DEVICE'] ?? ''), $in);
+    out($code, $res);
+}
+if ($op === 'anchor-transfer-request') {
+    require_once __DIR__ . '/../app/primary_anchor.php';
+    [$code, $res] = anchor_transfer_request((string) ($_SERVER['HTTP_X_HC_DEVICE'] ?? ''), $in);
+    out($code, $res);
+}
+if ($op === 'anchor-transfer-confirm') {
+    require_once __DIR__ . '/../app/primary_anchor.php';
+    [$code, $res] = anchor_transfer_confirm((string) ($_SERVER['HTTP_X_HC_DEVICE'] ?? ''), $in);
+    out($code, $res);
 }
 
 out(404, ['ok' => false, 'error' => 'unknown op']);
