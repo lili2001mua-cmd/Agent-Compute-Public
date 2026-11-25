@@ -107,6 +107,16 @@ function da_queue_job(array $req, string $id, string $actor): array {
         if ($envType !== 'pwa' && $envType !== 'hub') return [400, ['ok' => false, 'error' => 'env_type must be pwa or hub']];
         if (!da_db_suffix_ok($dbSuffix)) return [400, ['ok' => false, 'error' => 'invalid db_suffix']];
         $clean = ['subdomain' => $sub, 'env_type' => $envType, 'db_suffix' => $dbSuffix];
+    } elseif ($op === 'sync_repo_to_de') {
+        $sub = strtolower(trim((string) ($params['subdomain'] ?? '')));
+        $envType = (string) ($params['env_type'] ?? '');
+        if (!da_sub_ok($sub)) return [400, ['ok' => false, 'error' => 'invalid subdomain']];
+        if ($envType !== 'pwa' && $envType !== 'hub') return [400, ['ok' => false, 'error' => 'env_type must be pwa or hub']];
+        $clean = ['subdomain' => $sub, 'env_type' => $envType];
+    } elseif ($op === 'clone_db_to_de') {
+        $dbSuffix = strtolower(trim((string) ($params['db_suffix'] ?? '')));
+        if (!da_db_suffix_ok($dbSuffix)) return [400, ['ok' => false, 'error' => 'invalid db_suffix']];
+        $clean = ['db_suffix' => $dbSuffix];
     }
 
     $job = [
