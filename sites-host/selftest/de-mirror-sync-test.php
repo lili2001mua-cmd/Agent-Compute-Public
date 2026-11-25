@@ -96,5 +96,22 @@ $deRows[0]['cnt'] = 99;
 $c2 = de_mirror_compare_parity($irRows, $deRows);
 ok($c2['all_match'] === false && $c2['tables']['factor']['cnt_diff'] === 1, 'parity detects 1-row drift');
 
+// 10. STY-05 Step 121: 24h SLA rolling window & lag breach/recovery alert state machine
+$t0 = 1795620000;
+$sla = de_mirror_update_sla_24h([['ts' => $t0 - 90000, 'lag' => 500, 'ok' => 0], ['ts' => $t0 - 60, 'lag' => 10, 'ok' => 1]], $t0, 0, true);
+ok($sla['summary']['ticks_24h'] === 2 && $sla['summary']['breaches_24h'] === 0 && $sla['summary']['sla_pass_pct'] === 100.0, '24h SLA prunes >24h old entries');
+
+$a1 = de_mirror_eval_alert([], false, 180, 12, 33000, 33012, $t0);
+ok($a1['send'] === null && $a1['state']['consecutive_breaches'] === 1, 'single transient breach does not spam alert');
+
+$a2 = de_mirror_eval_alert($a1['state'], false, 240, 25, 33000, 33025, $t0 + 60);
+ok($a2['send'] === 'breach' && $a2['state']['alert_active'] === true && str_contains($a2['message'], '33000'), '2nd consecutive breach fires alert with last_applied_seq');
+
+$a3 = de_mirror_eval_alert($a2['state'], false, 300, 30, 33000, 33030, $t0 + 120);
+ok($a3['send'] === null && $a3['state']['alert_active'] === true, '30m cooldown suppresses duplicate alert');
+
+$a4 = de_mirror_eval_alert($a3['state'], true, 0, 0, 33035, 33035, $t0 + 180);
+ok($a4['send'] === 'recovered' && $a4['state']['alert_active'] === false, 'recovery fires notice and clears alert_active');
+
 echo "\nTOTAL: $pass passed, $fail failed\n";
 exit($fail > 0 ? 1 : 0);

@@ -374,6 +374,29 @@ function de_mirror_sync_tick(): void {
         $paritySummary = ['at' => $parityDoc['at'], 'all_match' => $parityDoc['all_match']];
     }
 
+    $nowTs = time();
+    $slaPath = dh_var('de-mirror-sla-24h.json');
+    $prevHist = @json_decode((string) @file_get_contents($slaPath), true);
+    $slaRes = de_mirror_update_sla_24h(is_array($prevHist) ? $prevHist : [], $nowTs, $lagInfo['lag_seconds'], (bool) $lagInfo['sla_ok']);
+    @file_put_contents($slaPath, json_encode($slaRes['history'], JSON_UNESCAPED_SLASHES), LOCK_EX);
+    @chmod($slaPath, 0600);
+
+    $alertEval = de_mirror_eval_alert(
+        is_array($prev['alert'] ?? null) ? $prev['alert'] : [],
+        (bool) $lagInfo['sla_ok'],
+        $lagInfo['lag_seconds'],
+        (int) $lagInfo['seq_gap'],
+        $deMaxSeq,
+        $iranMaxSeq,
+        $nowTs
+    );
+    if ($alertEval['send'] !== null) {
+        $tgRes = de_mirror_send_tg_alert($alertEval['message']);
+        $alertEval['state']['last_tg_ok'] = $tgRes[0];
+        $alertEval['state']['last_tg_info'] = $tgRes[1];
+        dh_log("de_mirror alert={$alertEval['send']} tg_ok=" . ($tgRes[0] ? '1' : '0'));
+    }
+
     $totalApplied = (int) ($prev['total_applied'] ?? 0) + $applied;
     $state = [
         'ready'           => true,
@@ -386,6 +409,8 @@ function de_mirror_sync_tick(): void {
         'lag_seconds'     => $lagInfo['lag_seconds'],
         'sla_target_sec'  => DE_MIRROR_SLA_LAG_SEC,
         'sla_ok'          => $lagInfo['sla_ok'],
+        'sla_24h'         => $slaRes['summary'],
+        'alert'           => $alertEval['state'],
         'last_batch'      => ['applied' => $applied, 'upserts' => $upserts, 'deletes' => $deletes, 'skipped' => $skipped],
         'total_applied'   => $totalApplied,
         'ddl_notices'     => array_slice($ddlNotices, -20),
@@ -402,6 +427,8 @@ function de_mirror_sync_tick(): void {
         'seq_gap'      => $lagInfo['seq_gap'],
         'lag_seconds'  => $lagInfo['lag_seconds'],
         'sla_ok'       => $lagInfo['sla_ok'],
+        'sla_pass_24h' => $slaRes['summary']['sla_pass_pct'],
+        'alert_active' => $alertEval['state']['alert_active'],
         'total_applied'=> $totalApplied,
         'parity_match' => $paritySummary['all_match'] ?? null,
     ]);
@@ -409,3 +436,105 @@ function de_mirror_sync_tick(): void {
         dh_log("de_mirror applied=$applied de_seq=$deMaxSeq iran_seq=$iranMaxSeq gap={$lagInfo['seq_gap']} lag={$lagInfo['lag_seconds']}s");
     }
 }
+
+// ---------------------------------------------------------------- STY-05 Step 121: 24h SLA rolling window & lag breach/recovery alerting
+const DE_MIRROR_ALERT_CONSECUTIVE = 2;     // ۲ دقیقهٔ متوالیِ عقب‌ماندگیِ بالای ۲ دقیقه پیش از هشدار
+const DE_MIRROR_ALERT_COOLDOWN    = 1800;  // ۳۰ دقیقه فاصله بین هشدارهای تکراری
+
+function de_mirror_update_sla_24h(array $history, int $nowTs, ?int $lagSec, bool $slaOk): array {
+    $cutoff = $nowTs - 86400;
+    $kept = [];
+    foreach ($history as $item) {
+        if (is_array($item) && (int) ($item['ts'] ?? 0) >= $cutoff) {
+            $kept[] = $item;
+        }
+    }
+    $kept[] = ['ts' => $nowTs, 'lag' => $lagSec, 'ok' => $slaOk ? 1 : 0];
+    if (count($kept) > 1500) $kept = array_slice($kept, -1500);
+
+    $ticks = count($kept);
+    $breaches = 0;
+    $maxLag = 0;
+    foreach ($kept as $item) {
+        if (empty($item['ok'])) $breaches++;
+        $l = (int) ($item['lag'] ?? 0);
+        if ($l > $maxLag) $maxLag = $l;
+    }
+    $pct = $ticks > 0 ? round(100.0 * ($ticks - $breaches) / $ticks, 2) : 100.0;
+    return [
+        'history' => $kept,
+        'summary' => [
+            'ticks_24h'    => $ticks,
+            'breaches_24h' => $breaches,
+            'max_lag_24h'  => $maxLag,
+            'sla_pass_pct' => $pct,
+        ],
+    ];
+}
+
+function de_mirror_eval_alert(array $prev, bool $slaOk, ?int $lagSec, int $seqGap, int $deMaxSeq, int $iranMaxSeq, int $nowTs): array {
+    $consec   = (int) ($prev['consecutive_breaches'] ?? 0);
+    $active   = !empty($prev['alert_active']);
+    $lastSent = (int) ($prev['last_alert_ts'] ?? 0);
+    $lastRec  = (int) ($prev['last_recovery_ts'] ?? 0);
+
+    $send = null;
+    $msg  = '';
+
+    if (!$slaOk) {
+        $consec++;
+        if ($consec >= DE_MIRROR_ALERT_CONSECUTIVE && (!$active || ($nowTs - $lastSent) >= DE_MIRROR_ALERT_COOLDOWN)) {
+            $send     = 'breach';
+            $active   = true;
+            $lastSent = $nowTs;
+            $lagTxt   = $lagSec === null ? 'نامشخص' : ($lagSec . ' ثانیه');
+            $msg      = "⚠️ هشدارِ عقب‌ماندگیِ همگام‌سازیِ دیتابیس (استایلیست)\n"
+                      . "• تأخیر: {$lagTxt} (سقفِ مجاز: " . DE_MIRROR_SLA_LAG_SEC . " ثانیه)\n"
+                      . "• آخرین شمارهٔ اعمال‌شده: {$deMaxSeq} از {$iranMaxSeq} (اختلاف: {$seqGap} ردیف)\n"
+                      . "• تکرارِ متوالی: {$consec} دقیقه";
+        }
+    } else {
+        $consec = 0;
+        if ($active) {
+            $send    = 'recovered';
+            $active  = false;
+            $lastRec = $nowTs;
+            $msg     = "✅ بازیابیِ همگام‌سازیِ دیتابیس (استایلیست)\n"
+                     . "• تأخیر به حدِ مجاز برگشت (اختلاف: {$seqGap} ردیف · شمارهٔ فعلی: {$deMaxSeq}).";
+        }
+    }
+
+    return [
+        'send'    => $send,
+        'message' => $msg,
+        'state'   => [
+            'alert_active'         => $active,
+            'consecutive_breaches' => $consec,
+            'last_alert_ts'        => $lastSent,
+            'last_recovery_ts'     => $lastRec,
+        ],
+    ];
+}
+
+function de_mirror_send_tg_alert(string $text): array {
+    if (!function_exists('pb_bot_token') || !defined('PB_CHAT_ID') || !defined('PB_TG_API')) {
+        return [false, 'telegram_helper_unavailable'];
+    }
+    $token = pb_bot_token();
+    if ($token === '') return [false, 'bot_token_missing'];
+    $ch = curl_init(PB_TG_API . '/bot' . $token . '/sendMessage');
+    curl_setopt_array($ch, [
+        CURLOPT_POST           => true,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT        => 20,
+        CURLOPT_POSTFIELDS     => ['chat_id' => PB_CHAT_ID, 'text' => $text],
+    ]);
+    $raw  = curl_exec($ch);
+    $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $err  = curl_error($ch);
+    curl_close($ch);
+    $j = is_string($raw) ? json_decode($raw, true) : null;
+    if ($code === 200 && !empty($j['ok'])) return [true, (int) ($j['result']['message_id'] ?? 0)];
+    return [false, $err ?: ('tg_http_' . $code)];
+}
+
