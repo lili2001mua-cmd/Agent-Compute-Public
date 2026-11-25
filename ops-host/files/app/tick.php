@@ -85,6 +85,10 @@ land_tick();
 require_once __DIR__ . '/guard_clock.php';
 ops_guard_clock_tick();
 
+// Germany-host vault manifest & HBV1 encrypted capsule builder (app/vault_capsule.php, BKP-04-02 / Step 181).
+require_once __DIR__ . '/vault_capsule.php';
+ops_vault_capsule_tick();
+
 // chain-bus relay (app/bus.php, 1405-08-13): the long tick polls the private repo's chain-bus branch for ~285 s so a
 // Claude session with GitHub-only network still reaches every holding host. Last in the tick, behind its own lock.
 require_once __DIR__ . '/bus.php';

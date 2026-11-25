@@ -27,5 +27,12 @@ echo json_encode([
     'bus' => (function () { $x = @json_decode((string) @file_get_contents(ops_var('bus-state.json')), true) ?: null; if (is_array($x)) { unset($x['etag'], $x['res_seen']); if (isset($x['polled_at'])) $x['poll_age_s'] = time() - $x['polled_at']; } return $x; })(),
     'debt' => (function () { $x = @json_decode((string) @file_get_contents(ops_var('debt.json')), true); if (is_array($x)) { $x['alerted'] = count($x['alerted'] ?? []); } return $x; })(),   // ر۹: counts only
     'lander' => @json_decode((string) @file_get_contents(ops_var('lander.json')), true),   // ر۷: mode, sha256 of app/lander.php, last round
+    'guard_clock' => @json_decode((string) @file_get_contents(ops_var('guard-clock.json')), true),
+    'vault_capsule' => (function () {
+        $m = @json_decode((string) @file_get_contents(ops_var('vault-capsule/manifest.json')), true);
+        if (!is_array($m)) return null;
+        return ['ready' => (bool) ($m['capsule_ready'] ?? false), 'files_count' => (int) ($m['files_count'] ?? 0),
+                'bytes' => (int) ($m['capsule_bytes'] ?? 0), 'updated_utc' => $m['updated_utc'] ?? null, 'reason' => $m['reason'] ?? null];
+    })(),
     'routines' => $rows,
 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
