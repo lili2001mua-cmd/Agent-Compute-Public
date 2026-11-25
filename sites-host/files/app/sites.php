@@ -38,4 +38,14 @@ return [
             'final' => 'https://stylistdirectory.ir/deploy/sync.php',
         ],
     ],
+    // Main site of liliumesorkh.ir (root domain, isolated from relay.liliumesorkh.ir).
+    'liliumesorkh' => [
+        'repo' => '',
+        'queue' => '',
+        'results' => '',
+        'secret' => 'LILIUMESORKH_DEPLOY_SECRET',
+        'envs' => [
+            'main' => 'https://liliumesorkh.ir/deploy/sync.php',
+        ],
+    ],
 ];
