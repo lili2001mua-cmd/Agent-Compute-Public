@@ -11,6 +11,8 @@ const DA_VALID_OPS = [
     'request_ssl'           => 1,
     'create_db'             => 1,
     'bootstrap_stylist_env' => 1,
+    'sync_repo_to_de'       => 1,
+    'clone_db_to_de'        => 1,
 ];
 
 function da_vault_dir(): ?string {
@@ -383,6 +385,174 @@ function da_execute_job(array $job, array $cfg): array {
             'sync_ready' => true,
             'db_config'  => $dbWritten,
         ];
+    }
+
+    if ($op === 'sync_repo_to_de') {
+        @set_time_limit(0);
+        @ini_set('memory_limit', '512M');
+        $sub = (string) $p['subdomain'];
+        $envType = (string) $p['env_type'];
+        $fqdn = $sub . '.' . $domain;
+        $docroot = da_domains_dir() . '/' . $fqdn . '/public_html';
+        if (!is_dir($docroot)) {
+            return ['ok' => false, 'op' => $op, 'fqdn' => $fqdn, 'error' => 'subdomain_docroot_not_found'];
+        }
+        $tok = trim((string) (dh_secrets()['GITHUB_TOKEN'] ?? ''));
+        if ($tok === '') return ['ok' => false, 'op' => $op, 'error' => 'GITHUB_TOKEN_missing'];
+
+        $zipFile = dh_var('tmp-stylist-' . $envType . '.zip');
+        try {
+            $fh = fopen($zipFile, 'wb');
+            $ch = curl_init('https://api.github.com/repos/lili2001mua-cmd/stylistcrm/zipball/main');
+            curl_setopt_array($ch, [
+                CURLOPT_FILE           => $fh,
+                CURLOPT_FOLLOWLOCATION => true,
+                CURLOPT_MAXREDIRS      => 5,
+                CURLOPT_TIMEOUT        => 300,
+                CURLOPT_HTTPHEADER     => [
+                    'Authorization: Bearer ' . $tok,
+                    'Accept: application/vnd.github+json',
+                    'X-GitHub-Api-Version: 2022-11-28',
+                    'User-Agent: sites-hohedoc-sync',
+                ],
+            ]);
+            curl_exec($ch);
+            $http = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $cerr = curl_error($ch);
+            curl_close($ch);
+            fclose($fh);
+            if ($http !== 200 || !is_file($zipFile) || filesize($zipFile) < 10000) {
+                return ['ok' => false, 'op' => $op, 'error' => "zipball_download_failed http=$http $cerr"];
+            }
+            $za = new ZipArchive();
+            if ($za->open($zipFile) !== true) {
+                return ['ok' => false, 'op' => $op, 'error' => 'zip_open_failed'];
+            }
+            $needle = '/' . $envType . '/public_html/';
+            $written = 0;
+            $bytes = 0;
+            for ($i = 0; $i < $za->numFiles; $i++) {
+                $entry = $za->getNameIndex($i);
+                if (!is_string($entry) || str_ends_with($entry, '/')) continue;
+                $pos = strpos($entry, $needle);
+                if ($pos === false) continue;
+                $rel = substr($entry, $pos + strlen($needle));
+                if ($rel === '' || strpos($rel, '..') !== false) continue;
+                if ($rel === 'deploy' || str_starts_with($rel, 'deploy/')) continue;
+                if ($rel === 'config/database.local.php') continue;
+                $dest = $docroot . '/' . $rel;
+                $dir = dirname($dest);
+                if (!is_dir($dir)) @mkdir($dir, 0755, true);
+                $data = $za->getFromIndex($i);
+                if ($data === false) continue;
+                file_put_contents($dest, $data, LOCK_EX);
+                $written++;
+                $bytes += strlen($data);
+            }
+            $za->close();
+            return [
+                'ok'            => $written > 100,
+                'op'            => $op,
+                'fqdn'          => $fqdn,
+                'env_type'      => $envType,
+                'files_written' => $written,
+                'bytes_written' => $bytes,
+            ];
+        } finally {
+            @unlink($zipFile);
+        }
+    }
+
+    if ($op === 'clone_db_to_de') {
+        @set_time_limit(0);
+        @ini_set('memory_limit', '512M');
+        $dbSuffix = (string) $p['db_suffix'];
+        $vd = da_vault_dir();
+        $dbFile = $vd ? ($vd . '/db-' . $dbSuffix . '.php') : '';
+        if ($dbFile === '' || !is_file($dbFile)) {
+            return ['ok' => false, 'op' => $op, 'error' => 'db_vault_file_missing'];
+        }
+        $dbCfg = @include $dbFile;
+        if (!is_array($dbCfg) || empty($dbCfg['database']) || empty($dbCfg['password'])) {
+            return ['ok' => false, 'op' => $op, 'error' => 'db_vault_file_invalid'];
+        }
+        $sites = dh_sites();
+        $d = dh_dbdump($sites['stylistcrm'], 'pwa', 'clone_de');
+        if (empty($d['ok']) || !preg_match('/[?&]t=([a-f0-9]{40})$/', (string) ($d['download'] ?? ''), $m)) {
+            return ['ok' => false, 'op' => $op, 'error' => 'primary_dbdump_failed: ' . ($d['error'] ?? 'unknown')];
+        }
+        $tok = $m[1];
+        $gzPath = dh_var('dumps') . "/$tok.gz";
+        $metaPath = dh_var('dumps') . "/$tok.meta.json";
+        try {
+            $pdo = new PDO(
+                'mysql:host=' . ($dbCfg['host'] ?? 'localhost') . ';dbname=' . $dbCfg['database'] . ';charset=utf8mb4',
+                $dbCfg['username'], $dbCfg['password'],
+                [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
+            );
+            $pdo->exec("SET FOREIGN_KEY_CHECKS=0; SET UNIQUE_CHECKS=0; SET SQL_MODE='NO_AUTO_VALUE_ON_ZERO';");
+            $gz = gzopen($gzPath, 'rb');
+            if (!$gz) throw new RuntimeException('gzopen_failed');
+            $stmtBuf = '';
+            $inStr = false;
+            $esc = false;
+            $stmts = 0;
+            while (!gzeof($gz)) {
+                $line = gzgets($gz, 1048576);
+                if ($line === false) break;
+                if (!$inStr) {
+                    $trim = ltrim($line);
+                    if ($trim === '' || str_starts_with($trim, '--') || str_starts_with($trim, '/*')) continue;
+                }
+                $len = strlen($line);
+                for ($i = 0; $i < $len; $i++) {
+                    $ch = $line[$i];
+                    if ($inStr) {
+                        if ($esc) { $esc = false; }
+                        elseif ($ch === '\\') { $esc = true; }
+                        elseif ($ch === "'") { $inStr = false; }
+                    } else {
+                        if ($ch === "'") { $inStr = true; }
+                        elseif ($ch === ';') {
+                            $stmtBuf .= substr($line, 0, $i);
+                            $sql = trim($stmtBuf);
+                            if ($sql !== '') {
+                                $pdo->exec($sql);
+                                $stmts++;
+                            }
+                            $stmtBuf = '';
+                            $line = substr($line, $i + 1);
+                            $len = strlen($line);
+                            $i = -1;
+                            continue;
+                        }
+                    }
+                }
+                $stmtBuf .= $line;
+            }
+            gzclose($gz);
+            $rem = trim($stmtBuf);
+            if ($rem !== '') { $pdo->exec($rem); $stmts++; }
+            $pdo->exec("SET FOREIGN_KEY_CHECKS=1; SET UNIQUE_CHECKS=1;");
+
+            $tables = (int) $pdo->query("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()")->fetchColumn();
+            $factorRows = (int) $pdo->query("SELECT COUNT(*) FROM `factor`")->fetchColumn();
+            $userRows = (int) $pdo->query("SELECT COUNT(*) FROM `user`")->fetchColumn();
+            $clMax = (int) $pdo->query("SELECT COALESCE(MAX(seq), 0) FROM `change_log`")->fetchColumn();
+            return [
+                'ok'                => $tables >= 60,
+                'op'                => $op,
+                'db_name'           => (string) $dbCfg['database'],
+                'statements'        => $stmts,
+                'tables'            => $tables,
+                'factor_rows'       => $factorRows,
+                'user_rows'         => $userRows,
+                'change_log_max_seq'=> $clMax,
+            ];
+        } finally {
+            @unlink($gzPath);
+            @unlink($metaPath);
+        }
     }
 
     return ['ok' => false, 'op' => $op, 'error' => 'unknown_op'];
