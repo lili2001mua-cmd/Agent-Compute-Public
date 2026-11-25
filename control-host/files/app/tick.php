@@ -76,4 +76,6 @@ require_once __DIR__ . '/reports.php';
 try { reports_tick(); } catch (Throwable $e) { ctl_log('reports tick: ' . substr($e->getMessage(), 0, 200)); }   // «گزارشِ پیشرفتِ فصل» (v65), read-only (own lock)
 require_once __DIR__ . '/sizes.php';
 try { sizes_tick(); } catch (Throwable $e) { ctl_log('sizes tick: ' . substr($e->getMessage(), 0, 200)); }   // «حجمِ واقعی» of repos, hosts and Drive (own lock, own periods: 1 h / 6 h)
+require_once __DIR__ . '/backup_stream.php';
+try { backup_catalog_tick(); } catch (Throwable $e) { ctl_log('backup catalog tick: ' . substr($e->getMessage(), 0, 200)); }   // 4-source backup manifest (BKP-05 Step 184)
 

@@ -121,6 +121,11 @@ if ($op === 'anchor-status' && $_SERVER['REQUEST_METHOD'] === 'GET') {
     require_once __DIR__ . '/../app/primary_anchor.php';
     out(200, anchor_status((string) ($_SERVER['HTTP_X_HC_DEVICE'] ?? '')));
 }
+if ($op === 'backup-manifest' && $_SERVER['REQUEST_METHOD'] === 'GET') {
+    require_once __DIR__ . '/../app/backup_stream.php';
+    [$code, $res] = backup_manifest_for_device((string) ($_SERVER['HTTP_X_HC_DEVICE'] ?? ''), isset($_GET['source']) ? (string) $_GET['source'] : null);
+    out($code, $res);
+}
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') out(405, ['ok' => false]);
 $in = json_decode($body, true);
@@ -290,6 +295,11 @@ if ($op === 'anchor-transfer-request') {
 if ($op === 'anchor-transfer-confirm') {
     require_once __DIR__ . '/../app/primary_anchor.php';
     [$code, $res] = anchor_transfer_confirm((string) ($_SERVER['HTTP_X_HC_DEVICE'] ?? ''), $in);
+    out($code, $res);
+}
+if ($op === 'backup-chunk') {
+    require_once __DIR__ . '/../app/backup_stream.php';
+    [$code, $res] = backup_chunk_for_device((string) ($_SERVER['HTTP_X_HC_DEVICE'] ?? ''), $in);
     out($code, $res);
 }
 
