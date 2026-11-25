@@ -95,6 +95,62 @@ $disabled = $sanitized; $disabled['enabled'] = false;
 check(rt_ai_resolve_process('trainer.nightly', ['processes' => $procs], ['accounts' => [$disabled]]) === null, 'rt_ai_resolve_process skips disabled account');
 check(rt_ai_is_rate_limited(429) === true && rt_ai_is_rate_limited(500) === false, 'rt_ai_is_rate_limited flags 429 strictly');
 
+// 7. Legacy Claude key bridge (routine-host acct-a -> control-host ai-vault acct-claude-main, zero secrets in git)
+check(function_exists('rt_ai_legacy_claude_key'), 'rt_ai_legacy_claude_key exists');
+check(function_exists('rt_ai_sync_legacy_claude_keys'), 'rt_ai_sync_legacy_claude_keys exists');
+check(function_exists('ai_merge_vault_hints'), 'ai_merge_vault_hints exists');
+
+if (function_exists('rt_ai_legacy_claude_key') && function_exists('rt_ai_sync_legacy_claude_keys') && function_exists('ai_merge_vault_hints')) {
+    $legacyMap = [
+        'acct-a' => [
+            'agent-project-backup' => [
+                'alias' => 'acct-a',
+                'scope' => 'agent-project-backup',
+                'url' => 'https://api.anthropic.com/v1/routines/rt_legacy_777/fire',
+                'token' => 'sk-ant-legacy-token-4455',
+                'beta' => 'experimental-cc-routine',
+            ],
+        ],
+    ];
+    $picked = rt_ai_legacy_claude_key($legacyMap);
+    check(is_array($picked) && ($picked['token'] ?? '') === 'sk-ant-legacy-token-4455', 'rt_ai_legacy_claude_key picks acct-a/agent-project-backup');
+
+    $syncRes = rt_ai_sync_legacy_claude_keys($tmp, $masterKey, $legacyMap);
+    check(($syncRes['synced'] ?? false) === true, 'rt_ai_sync_legacy_claude_keys imports legacy key into vault');
+    $bridged = ai_vault_get($vaultDir, $masterKey, 'acct-claude-main');
+    check(is_array($bridged) && ($bridged['token'] ?? '') === 'sk-ant-legacy-token-4455', 'bridged vault decrypts legacy token');
+    check(($bridged['url'] ?? '') === 'https://api.anthropic.com/v1/routines/rt_legacy_777/fire', 'bridged vault decrypts legacy routine URL');
+
+    $hintsFile = $tmp . '/ai-vault-hints.json';
+    check(is_file($hintsFile), 'ai-vault-hints.json created');
+    $hintsRaw = (string) file_get_contents($hintsFile);
+    check(strpos($hintsRaw, 'sk-ant-legacy-token') === false && strpos($hintsRaw, 'rt_legacy_777') === false, 'hints file contains ZERO secrets or routine URLs');
+
+    // Merge hints into a GitHub catalog row where secret_present is false
+    $catRow = $sanitized;
+    $catRow['secret_present'] = false;
+    $catRow['secret_hint'] = '';
+    $merged = ai_merge_vault_hints([$catRow], $tmp);
+    check(($merged[0]['secret_present'] ?? false) === true && ($merged[0]['secret_hint'] ?? '') === '…4455', 'ai_merge_vault_hints marks acct-claude-main present with hint');
+
+    // Non-overwrite guarantee: user edits acct-claude-main in app -> next cron tick MUST NOT overwrite it
+    ai_vault_put($vaultDir, $masterKey, 'acct-claude-main', [
+        'token' => 'sk-ant-user-new-9999',
+        'url' => 'https://api.anthropic.com/v1/routines/rt_user_new/fire',
+        'beta' => 'experimental-cc-routine',
+    ]);
+    $syncAgain = rt_ai_sync_legacy_claude_keys($tmp, $masterKey, $legacyMap);
+    check(($syncAgain['synced'] ?? true) === false, 'rt_ai_sync_legacy_claude_keys does not overwrite existing vault entry');
+    $after = ai_vault_get($vaultDir, $masterKey, 'acct-claude-main');
+    check(($after['token'] ?? '') === 'sk-ant-user-new-9999', 'user-edited token preserved after re-sync');
+
+    // Cleanup bridged files
+    ai_vault_delete($vaultDir, 'acct-claude-main');
+    $mergedAfterDel = ai_merge_vault_hints([$catRow], $tmp);
+    check(($mergedAfterDel[0]['secret_present'] ?? true) === false, 'ai_merge_vault_hints stays false when vault file deleted');
+    @unlink($hintsFile);
+}
+
 // Cleanup
 @rmdir($vaultDir); @rmdir($tmp);
 
