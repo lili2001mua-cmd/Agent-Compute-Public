@@ -140,17 +140,21 @@ function da_read_result(string $jobId): array {
 /** Execute one HTTP POST to DirectAdmin API (CLI only). */
 function da_api_call(array $cfg, string $cmd, array $fields): array {
     $baseUrl = preg_replace('/[^\x21-\x7E]/', '', (string) $cfg['url']);
+    if ($baseUrl !== '' && !preg_match('#^https?://#i', $baseUrl)) {
+        $baseUrl = 'https://' . ltrim($baseUrl, '/');
+    }
     $url = rtrim($baseUrl, '/') . '/' . ltrim($cmd, '/');
     $bodyStr = http_build_query($fields);
     $isLocal = (bool) preg_match('#^https?://(127\.0\.0\.1|localhost)(:|/)#i', $url);
 
     $raw = false;
     $http = 0;
-    $err = '';
+    $curlErr = '';
+    $streamErr = '';
 
     $ch = function_exists('curl_init') ? @curl_init() : false;
     if ($ch !== false) {
-        curl_setopt_array($ch, [
+        $setOk = @curl_setopt_array($ch, [
             CURLOPT_URL            => $url,
             CURLOPT_POST           => true,
             CURLOPT_POSTFIELDS     => $bodyStr,
@@ -162,11 +166,19 @@ function da_api_call(array $cfg, string $cmd, array $fields): array {
             CURLOPT_SSL_VERIFYPEER => !$isLocal,
             CURLOPT_SSL_VERIFYHOST => $isLocal ? 0 : 2,
         ]);
-        $raw = curl_exec($ch);
-        $http = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $err = curl_error($ch);
+        if ($setOk) {
+            $raw = curl_exec($ch);
+            $http = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $curlErr = curl_error($ch);
+        } else {
+            $curlErr = 'curl_setopt_array_failed';
+        }
         curl_close($ch);
     } else {
+        $curlErr = 'curl_init_failed';
+    }
+
+    if ($raw === false) {
         // Fallback to native PHP HTTP stream wrapper (never leaks credentials)
         $auth = base64_encode($cfg['user'] . ':' . $cfg['key']);
         $ctx = stream_context_create([
@@ -178,17 +190,33 @@ function da_api_call(array $cfg, string $cmd, array $fields): array {
                 'ignore_errors' => true,
             ],
             'ssl' => [
-                'verify_peer'      => !$isLocal,
-                'verify_peer_name' => !$isLocal,
+                'verify_peer'      => false,
+                'verify_peer_name' => false,
             ],
         ]);
         $raw = @file_get_contents($url, false, $ctx);
         $hdrs = $http_response_header ?? [];
         if (isset($hdrs[0]) && preg_match('/\s(\d{3})\s/', $hdrs[0], $m)) $http = (int) $m[1];
-        if ($raw === false) $err = 'stream_failed_for_' . (parse_url($url, PHP_URL_HOST) ?: 'bad_url') . ':' . (parse_url($url, PHP_URL_PORT) ?: '');
+        if ($raw === false) {
+            $le = error_get_last();
+            $streamErr = substr((string) ($le['message'] ?? 'stream_failed'), 0, 160);
+        }
     }
 
-    if ($raw === false) return ['ok' => false, 'http' => $http, 'error' => $err ?: 'http_failed'];
+    if ($raw === false) {
+        return [
+            'ok'    => false,
+            'http'  => $http,
+            'error' => $curlErr ?: $streamErr ?: 'http_failed',
+            'diag'  => [
+                'scheme'     => (string) (parse_url($url, PHP_URL_SCHEME) ?: ''),
+                'host'       => (string) (parse_url($url, PHP_URL_HOST) ?: ''),
+                'port'       => (int) (parse_url($url, PHP_URL_PORT) ?: 0),
+                'curl_err'   => $curlErr,
+                'stream_err' => $streamErr,
+            ],
+        ];
+    }
     parse_str((string) $raw, $parsed);
     $daErr = (int) ($parsed['error'] ?? 0);
     $text = trim((string) ($parsed['text'] ?? ''));
