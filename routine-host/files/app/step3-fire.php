@@ -34,6 +34,18 @@ function r_step3_fire(): void {
     $jobs = r_jobs()['jobs'] ?? [];
     $job = null; foreach ($jobs as $j) if (($j['id'] ?? '') === 'step3-bundle') $job = $j;
     if (!$job) { f_state($base + ['state' => 'failed', 'error' => 'step3-bundle missing from jobs.json']); return; }
+    if (is_file(__DIR__ . '/ai-dispatch.php')) {
+        require_once __DIR__ . '/ai-dispatch.php';
+        $aiRes = rt_ai_fire_process('trainer.step3_mapping', 'step3-bundle', $runId, ['key' => $key]);
+        if ($aiRes !== null) {
+            if (($aiRes['state'] ?? '') === 'fired') {
+                f_state($base + ['state' => 'fired', 'session' => (string) ($aiRes['session'] ?? ''), 'via' => (string) ($aiRes['via'] ?? '')]);
+            } else {
+                f_state($base + ['state' => 'failed', 'error' => (string) ($aiRes['why'] ?? 'dispatch failed')]);
+            }
+            return;
+        }
+    }
     $keys = r_keys()['keys'];
     $health = r_read_json('keys-health.json');
     $scope = $job['account_class'];

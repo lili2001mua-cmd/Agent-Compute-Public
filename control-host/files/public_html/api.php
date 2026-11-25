@@ -126,6 +126,17 @@ if ($op === 'backup-manifest' && $_SERVER['REQUEST_METHOD'] === 'GET') {
     [$code, $res] = backup_manifest_for_device((string) ($_SERVER['HTTP_X_HC_DEVICE'] ?? ''), isset($_GET['source']) ? (string) $_GET['source'] : null);
     out($code, $res);
 }
+if ($op === 'ai-accounts-list' && $_SERVER['REQUEST_METHOD'] === 'GET') {
+    require_once __DIR__ . '/../app/ai-routing.php';
+    $cat = ai_load_catalog();
+    out(200, ['ok' => true, 'accounts' => $cat['accounts'] ?? [], 'updated_utc' => $cat['updated_utc'] ?? null]);
+}
+if ($op === 'process-executors-get' && $_SERVER['REQUEST_METHOD'] === 'GET') {
+    require_once __DIR__ . '/../app/ai-routing.php';
+    $exec = ai_load_executors();
+    $cat = ai_load_catalog();
+    out(200, ['ok' => true, 'processes' => $exec['processes'] ?? (object) [], 'accounts' => $cat['accounts'] ?? [], 'updated_utc' => $exec['updated_utc'] ?? null]);
+}
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') out(405, ['ok' => false]);
 $in = json_decode($body, true);
@@ -140,6 +151,26 @@ if ($op === 'chapter-report') {
     $rep = report_get($code, $path);
     if ($rep === null) out(404, ['ok' => false, 'error' => 'no report']);
     out(200, ['ok' => true, 'report' => $rep]);
+}
+if ($op === 'ai-account-save') {
+    require_once __DIR__ . '/../app/ai-routing.php';
+    $res = ai_handle_account_save($in);
+    out($res['code'], $res['body']);
+}
+if ($op === 'ai-account-delete') {
+    require_once __DIR__ . '/../app/ai-routing.php';
+    $res = ai_handle_account_delete($in);
+    out($res['code'], $res['body']);
+}
+if ($op === 'ai-account-test') {
+    require_once __DIR__ . '/../app/ai-routing.php';
+    $res = ai_handle_account_test($in);
+    out($res['code'], $res['body']);
+}
+if ($op === 'process-executors-set') {
+    require_once __DIR__ . '/../app/ai-routing.php';
+    $res = ai_handle_executors_set($in);
+    out($res['code'], $res['body']);
 }
 
 if ($op === 'toggle-request') {

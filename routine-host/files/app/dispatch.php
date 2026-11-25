@@ -176,7 +176,12 @@ function r_clock_tick(): void {
             $runs[$runId] = ['job' => $job['id'], 'slot' => $slot, 'state' => 'pack'];
             continue;
         }
-        $res = r_dispatch($job, $runId, $keys, $health);
+        $res = null;
+        if (($job['id'] ?? '') === 'nightly-pool' && is_file(__DIR__ . '/ai-dispatch.php')) {
+            require_once __DIR__ . '/ai-dispatch.php';
+            $res = rt_ai_fire_process('trainer.nightly', $job['id'], $runId, ['runbook' => $job['runbook'] ?? '']);
+        }
+        if ($res === null) $res = r_dispatch($job, $runId, $keys, $health);
         if ($res['state'] === 'halt') {
             r_write_json('halt.json', ['halted' => true, 'at' => $now, 'why' => $res['why']]);
             r_notify("⛔ هاستِ روتین همهٔ شلیک‌ها را متوقف کرد: {$res['why']}. تا وقتی halt.json پاک نشود فقط بستهٔ دستی می‌سازد.");

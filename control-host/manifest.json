@@ -1,6 +1,8 @@
 {
-  "version": "20261125170855",
+  "version": "20261125183159",
   "files": {
+    "app/ai-routing.php": "ae42eace17882dd6f0940bc55ec60dad82bdc99df508f2724389f5aecf69fd7a",
+    "app/ai-vault.php": "ad23fc2a820af1b3510218d132f820ddb6146f37bdc2c2b431120fabec28ac79",
     "app/backup_stream.php": "edc3020ff9c1a5f46b5cb1a5b71d1c240e74f18a84612bd85e55f1cb74f6aa8f",
     "app/board.php": "97785c5d9b3ca2e8565ef5c7c7658e2112243f7f4eb7528225eb43d56068e4c4",
     "app/button.php": "81d6fdb676a2474d51b96ca8584456b7b50a0d651ea88804c388cc74ddf89083",
@@ -13,7 +15,7 @@
     "app/sizes.php": "608fa52b89ff4edcc58ed10f69dc33e4c2e60d9d74d2e8ef320090100af48a0a",
     "app/tick.php": "8bb2812997fa7df0799b8bb3392c7e93a9b0c1ecce6ac738005dbc38eb2a64c0",
     "app/toggle.php": "dfcdb8a12a8a67041a22b9ab4f6da08a145adf6e40ce5f9f04e57441b4cf9983",
-    "public_html/api.php": "208750d566c57876fa1543a9ed2767bc560e423c20c30bd585ab725304371b13",
+    "public_html/api.php": "6af3e2f106096884195674ddd7d4e12b8c63386e86484a43bc5842b8307be972",
     "public_html/index.php": "4fa8f7581553f6668fd73ae1a0f6baa8c208ad0ba03dc9ec6c230653649cfc85",
     "public_html/runner.php": "5820a1eadcc3377a9137128b2d871aec01892c30962ca894e03276ef0cc21717",
     "public_html/status.php": "d84273b4bc592ef993f236b4e3a7e269efe35cc3d01fc671fd09c804ea4b4c37"
