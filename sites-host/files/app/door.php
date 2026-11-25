@@ -101,13 +101,19 @@ function door_log(string $line): void {
 
 /** Validate repo-relative path for deploy/delete/snapshot: no traversal, no deploy/, no secret/upload paths. */
 function door_path_ok(string $env, string $rp): bool {
-    if (!preg_match('#^([a-z]+)/public_html/([A-Za-z0-9_./\-]+)$#', $rp, $m)) return false;
-    $baseEnv = preg_replace('/-de$/', '', $env);
-    if ($m[1] !== $baseEnv) return false;
-    foreach (explode('/', $m[2]) as $seg) {
+    if ($env === 'final' && preg_match('#^host/([A-Za-z0-9_./\-]+)$#', $rp, $m)) {
+        $rel = $m[1];
+    } elseif (preg_match('#^([a-z]+)/public_html/([A-Za-z0-9_./\-]+)$#', $rp, $m)) {
+        $baseEnv = preg_replace('/-de$/', '', $env);
+        if ($m[1] !== $baseEnv && !($env === 'main' && $m[1] === 'liliumesorkh')) return false;
+        $rel = $m[2];
+    } else {
+        return false;
+    }
+    foreach (explode('/', $rel) as $seg) {
         if ($seg === '' || $seg === '.' || $seg === '..') return false;
     }
-    if ($m[2] === 'deploy' || strpos($m[2], 'deploy/') === 0) return false;
+    if ($rel === 'deploy' || strpos($rel, 'deploy/') === 0) return false;
     if (dh_pull_refused($rp)) return false;
     return true;
 }
