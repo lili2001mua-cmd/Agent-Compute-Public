@@ -331,7 +331,7 @@ function da_execute_job(array $job, array $cfg): array {
             }
         }
 
-        // 2. Write deploy/sync.php and deploy/.secret (using existing STYLISTCRM_DEPLOY_SECRET)
+        // 2. Write deploy/sync.php and deploy/config.php (using existing STYLISTCRM_DEPLOY_SECRET)
         $deploySecret = trim((string) (dh_secrets()['STYLISTCRM_DEPLOY_SECRET'] ?? ''));
         if ($deploySecret === '') {
             return ['ok' => false, 'op' => $op, 'error' => 'STYLISTCRM_DEPLOY_SECRET_missing'];
@@ -340,11 +340,12 @@ function da_execute_job(array $job, array $cfg): array {
         @mkdir($deployDir, 0755, true);
         file_put_contents($deployDir . '/sync.php', $syncRaw, LOCK_EX);
         @chmod($deployDir . '/sync.php', 0644);
-        file_put_contents($deployDir . '/.secret', $deploySecret . "\n", LOCK_EX);
-        @chmod($deployDir . '/.secret', 0600);
-        file_put_contents($deployDir . '/.htaccess', "<Files \".secret\">\nRequire all denied\n</Files>\n", LOCK_EX);
+        $cfgPhp = "<?php\nif (!defined('LILIUM_SYNC')) { http_response_code(403); exit; }\nreturn ['secret' => " . var_export($deploySecret, true) . "];\n";
+        file_put_contents($deployDir . '/config.php', $cfgPhp, LOCK_EX);
+        @chmod($deployDir . '/config.php', 0600);
+        file_put_contents($deployDir . '/.htaccess', "<FilesMatch \"^(config\\.php|\\.secret|log\\.txt)$\">\nRequire all denied\n</FilesMatch>\n", LOCK_EX);
 
-        // 3. Write config/database.local.php directly from holding-vault/db-<suffix>.php (chmod 0600)
+        // 3. Write config/database.php (from stylistcrm) + config/database.local.php from holding-vault/db-<suffix>.php (chmod 0600)
         $vd = da_vault_dir();
         $dbFile = $vd ? ($vd . '/db-' . $dbSuffix . '.php') : '';
         $dbWritten = false;
@@ -353,6 +354,14 @@ function da_execute_job(array $job, array $cfg): array {
             if (is_array($dbCfg) && !empty($dbCfg['database']) && !empty($dbCfg['password'])) {
                 $cfgDir = $docroot . '/config';
                 @mkdir($cfgDir, 0755, true);
+                if (!is_string($syncSrc) || $syncSrc === '') {
+                    [$dcode, $dbPhpRaw] = dh_gh('stylistcrm', 'GET', '/contents/' . dh_enc_path($envType . '/public_html/config/database.php') . '?ref=main',
+                        null, 'application/vnd.github.raw');
+                    if ($dcode === 200 && is_string($dbPhpRaw) && strpos($dbPhpRaw, '<?php') !== false) {
+                        file_put_contents($cfgDir . '/database.php', $dbPhpRaw, LOCK_EX);
+                        @chmod($cfgDir . '/database.php', 0644);
+                    }
+                }
                 $localPhp = "<?php\n// Auto-written by sites-host da_provision.php from holding-vault — chmod 0600\nreturn " . var_export([
                     'host'     => (string) ($dbCfg['host'] ?? 'localhost'),
                     'database' => (string) $dbCfg['database'],
