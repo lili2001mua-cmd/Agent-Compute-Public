@@ -269,13 +269,41 @@ function dh_run(string $name, array $site, array $q, string $commit): array {
             }
             [$code, $j, $err] = dh_post($site, $g['env'], $payload);
             $ok = $code === 200 && !empty($j['ok']);
-            foreach ((is_array($j['results'] ?? null) ? $j['results'] : []) as $row) {
+            $primaryRows = is_array($j['results'] ?? null) ? $j['results'] : [];
+            foreach ($primaryRows as $row) {
                 $row['env'] = $g['env'];
                 if ($g['action'] === 'deploy') $results[] = $row; else $deleted[] = $row;
             }
             $parts[] = ['action' => $g['action'], 'env' => $g['env'], 'files' => $g['files'], 'ok' => $ok, 'http' => $code]
                        + ($err ? ['error' => substr($err, 0, 120)] : []);
             dh_log("$name/" . $q['id'] . ' ' . $g['action'] . ' ' . $g['env'] . ' -> HTTP ' . $code);
+
+            // STY-05 گامِ ۱۱۸: استقرارِ دوگانه روی هدف‌های آینه (تعریف‌شده در sites.php['mirrors']) + مقابلهٔ هشِ SHA-256
+            if ($ok && ($g['action'] === 'deploy' || $g['action'] === 'delete')) {
+                foreach (dh_mirror_envs($site, $g['env']) as $mEnv) {
+                    [$mc, $mj, $me] = dh_post($site, $mEnv, $payload);
+                    $mok = $mc === 200 && !empty($mj['ok']);
+                    $mirrorRows = is_array($mj['results'] ?? null) ? $mj['results'] : [];
+                    $hashCheck = ($g['action'] === 'deploy')
+                        ? dh_verify_deploy_hashes($primaryRows, $mirrorRows)
+                        : ['all_match' => $mok, 'checked' => count($g['files']), 'mismatches' => []];
+                    foreach ($mirrorRows as $mrow) {
+                        $mrow['env'] = $mEnv;
+                        $mrow['mirror_of'] = $g['env'];
+                        if ($g['action'] === 'deploy') $results[] = $mrow; else $deleted[] = $mrow;
+                    }
+                    $parts[] = [
+                        'action'     => $g['action'],
+                        'env'        => $mEnv,
+                        'mirror_of'  => $g['env'],
+                        'files'      => $g['files'],
+                        'ok'         => $mok && !empty($hashCheck['all_match']),
+                        'http'       => $mc,
+                        'hash_check' => $hashCheck,
+                    ] + ($me ? ['error' => substr($me, 0, 120)] : []);
+                    dh_log("$name/" . $q['id'] . ' ' . $g['action'] . " mirror $mEnv -> HTTP $mc match=" . (!empty($hashCheck['all_match']) ? '1' : '0'));
+                }
+            }
         }
     }
     $out = ['ok' => (bool) array_product(array_map(fn($p) => $p['ok'] ? 1 : 0, $parts)), 'channel' => 'sites-host',

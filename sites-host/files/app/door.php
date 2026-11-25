@@ -22,7 +22,7 @@ const DOOR_VALID_ACTIONS = [
     'ping' => 1, 'snapshot' => 1, 'manifest' => 1, 'query' => 1, 'run' => 1,
     'deploy' => 1, 'delete' => 1, 'migrate' => 1,
     'da_status' => 1, 'da_job' => 1, 'da_result' => 1,
-    'de_sync_status' => 1,
+    'de_sync_status' => 1, 'mirror_hash_parity' => 1,
 ];
 const DOOR_WRITE_ACTIONS = ['deploy' => 1, 'delete' => 1, 'migrate' => 1, 'da_job' => 1];
 
@@ -193,6 +193,17 @@ function door_dispatch(array $req, string $id): array {
         return [200, ['ok' => $code === 200 && !empty($j['ok']), 'http' => $code, 'bridge' => $j] + ($err ? ['error' => $err] : [])];
     }
 
+    if ($action === 'mirror_hash_parity') {
+        try {
+            $res = dh_mirror_hash_parity($site, $env);
+            door_log("$id actor=$actor $siteName/$env mirror_hash_parity ok=" . (!empty($res['ok']) ? '1' : '0') . ' match=' . (!empty($res['all_match']) ? '1' : '0'));
+            return [200, $res];
+        } catch (Throwable $e) {
+            door_log("$id actor=$actor $siteName/$env mirror_hash_parity err");
+            return [500, ['ok' => false, 'error' => substr($e->getMessage(), 0, 200)]];
+        }
+    }
+
     if ($action === 'deploy') {
         $files = is_array($req['files'] ?? null) ? array_values($req['files']) : [];
         if (!$files || count($files) > 200) return [400, ['ok' => false, 'error' => 'files must be 1..200 items']];
@@ -210,8 +221,19 @@ function door_dispatch(array $req, string $id): array {
             $clean[] = ['repo' => $rp, 'b64' => $b64, 'sha256' => $sha];
         }
         [$code, $j, $err] = dh_post($site, $env, ['action' => 'deploy', 'ref' => 'main', 'files' => $clean]);
-        door_log("$id actor=$actor $siteName/$env deploy n=" . count($clean) . " http=$code ok=" . (!empty($j['ok']) ? '1' : '0'));
-        return [200, ['ok' => $code === 200 && !empty($j['ok']), 'http' => $code, 'bridge' => $j] + ($err ? ['error' => $err] : [])];
+        $ok = $code === 200 && !empty($j['ok']);
+        $mirrorOut = [];
+        if ($ok && ($req['mirror_sync'] ?? true) !== false) {
+            $primaryRows = is_array($j['results'] ?? null) ? $j['results'] : [];
+            foreach (dh_mirror_envs($site, $env) as $mEnv) {
+                [$mc, $mj, $me] = dh_post($site, $mEnv, ['action' => 'deploy', 'ref' => 'main', 'files' => $clean]);
+                $mok = $mc === 200 && !empty($mj['ok']);
+                $hc = dh_verify_deploy_hashes($primaryRows, is_array($mj['results'] ?? null) ? $mj['results'] : []);
+                $mirrorOut[$mEnv] = ['ok' => $mok && $hc['all_match'], 'http' => $mc, 'hash_check' => $hc] + ($me ? ['error' => $me] : []);
+            }
+        }
+        door_log("$id actor=$actor $siteName/$env deploy n=" . count($clean) . " http=$code ok=" . ($ok ? '1' : '0'));
+        return [200, ['ok' => $ok, 'http' => $code, 'bridge' => $j] + ($mirrorOut ? ['mirrors' => $mirrorOut] : []) + ($err ? ['error' => $err] : [])];
     }
 
     if ($action === 'delete') {
@@ -223,8 +245,16 @@ function door_dispatch(array $req, string $id): array {
             }
         }
         [$code, $j, $err] = dh_post($site, $env, ['action' => 'delete', 'ref' => 'main', 'files' => $files]);
-        door_log("$id actor=$actor $siteName/$env delete n=" . count($files) . " http=$code ok=" . (!empty($j['ok']) ? '1' : '0'));
-        return [200, ['ok' => $code === 200 && !empty($j['ok']), 'http' => $code, 'bridge' => $j] + ($err ? ['error' => $err] : [])];
+        $ok = $code === 200 && !empty($j['ok']);
+        $mirrorOut = [];
+        if ($ok && ($req['mirror_sync'] ?? true) !== false) {
+            foreach (dh_mirror_envs($site, $env) as $mEnv) {
+                [$mc, $mj, $me] = dh_post($site, $mEnv, ['action' => 'delete', 'ref' => 'main', 'files' => $files]);
+                $mirrorOut[$mEnv] = ['ok' => $mc === 200 && !empty($mj['ok']), 'http' => $mc] + ($me ? ['error' => $me] : []);
+            }
+        }
+        door_log("$id actor=$actor $siteName/$env delete n=" . count($files) . " http=$code ok=" . ($ok ? '1' : '0'));
+        return [200, ['ok' => $ok, 'http' => $code, 'bridge' => $j] + ($mirrorOut ? ['mirrors' => $mirrorOut] : []) + ($err ? ['error' => $err] : [])];
     }
 
     if ($action === 'migrate') {

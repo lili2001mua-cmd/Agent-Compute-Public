@@ -249,3 +249,150 @@ function dh_parity(string $name, array $site, string $env, string $id): array {
     dh_put_file($site, $file, implode("\n", $lines) . "\n", "parity: $env (sites-host: $id)");
     return ['action' => 'parity', 'env' => $env, 'ok' => $n === 0, 'differences' => $n, 'file' => $file];
 }
+
+// ---------------------------------------------------------------- STY-05 Step 118: declarative dual-target helpers & hash parity
+function dh_mirror_envs(array $site, string $env): array {
+    $mirrors = $site['mirrors'][$env] ?? [];
+    if (!is_array($mirrors)) return [];
+    $out = [];
+    foreach ($mirrors as $m) {
+        $m = (string) $m;
+        if ($m !== '' && $m !== $env && isset($site['envs'][$m])) {
+            $out[] = $m;
+        }
+    }
+    return $out;
+}
+
+/** Compare SHA-256 of every deployed file between primary and mirror sync.php results. */
+function dh_verify_deploy_hashes(array $primaryRows, array $mirrorRows): array {
+    $pMap = [];
+    foreach ($primaryRows as $r) {
+        $f = (string) ($r['file'] ?? $r['repo'] ?? '');
+        if ($f !== '') $pMap[$f] = ['ok' => !empty($r['ok']), 'sha256' => strtolower((string) ($r['sha256'] ?? ''))];
+    }
+    $mMap = [];
+    foreach ($mirrorRows as $r) {
+        $f = (string) ($r['file'] ?? $r['repo'] ?? '');
+        if ($f !== '') $mMap[$f] = ['ok' => !empty($r['ok']), 'sha256' => strtolower((string) ($r['sha256'] ?? ''))];
+    }
+    $mismatches = [];
+    foreach ($pMap as $f => $pv) {
+        $mv = $mMap[$f] ?? null;
+        if (!$mv || !$mv['ok'] || $pv['sha256'] === '' || $pv['sha256'] !== $mv['sha256']) {
+            $mismatches[] = [
+                'file'        => $f,
+                'primary_sha' => $pv['sha256'],
+                'mirror_sha'  => $mv['sha256'] ?? null,
+                'mirror_ok'   => $mv['ok'] ?? false,
+            ];
+        }
+    }
+    return [
+        'all_match'  => count($mismatches) === 0 && count($pMap) > 0,
+        'checked'    => count($pMap),
+        'mismatches' => $mismatches,
+    ];
+}
+
+/** Expected host-local paths excluded from cross-host file hash parity (secrets, uploads, runtime caches). */
+function dh_mirror_ignore_path(string $relPath): bool {
+    if ($relPath === 'deploy/config.php' || $relPath === 'deploy/config.local.php' || $relPath === 'deploy/.secret') return true;
+    if ($relPath === 'config/database.local.php' || $relPath === 'config/database.php') return true;
+    if (preg_match('#^(uploads|shared|releases|storage|cache|tmp)/#', $relPath)) return true;
+    if (preg_match('#(^|/)\.env(\.|$)#', $relPath)) return true;
+    if (preg_match('#\.(bak|log|tmp)$#i', $relPath)) return true;
+    return false;
+}
+
+/** Pure comparison of primary vs mirror file->sha256 maps (unit-testable). */
+function dh_compare_file_manifests(array $primaryFiles, array $mirrorFiles): array {
+    $onlyPrimary = [];
+    $onlyMirror  = [];
+    $mismatches  = [];
+    $matched     = 0;
+    $ignored     = 0;
+
+    $all = array_unique(array_merge(array_keys($primaryFiles), array_keys($mirrorFiles)));
+    sort($all, SORT_STRING);
+    foreach ($all as $p) {
+        $p = (string) $p;
+        if (dh_mirror_ignore_path($p)) { $ignored++; continue; }
+        $hasP = array_key_exists($p, $primaryFiles);
+        $hasM = array_key_exists($p, $mirrorFiles);
+        if ($hasP && !$hasM) {
+            $onlyPrimary[] = $p;
+        } elseif (!$hasP && $hasM) {
+            $onlyMirror[] = $p;
+        } elseif (strtolower((string) $primaryFiles[$p]) !== strtolower((string) $mirrorFiles[$p])) {
+            $mismatches[] = ['path' => $p, 'primary_sha' => $primaryFiles[$p], 'mirror_sha' => $mirrorFiles[$p]];
+        } else {
+            $matched++;
+        }
+    }
+    return [
+        'all_match'       => !$onlyPrimary && !$onlyMirror && !$mismatches && $matched > 0,
+        'matched'         => $matched,
+        'ignored'         => $ignored,
+        'only_in_primary' => array_slice($onlyPrimary, 0, 50),
+        'only_in_mirror'  => array_slice($onlyMirror, 0, 50),
+        'hash_mismatch'   => array_slice($mismatches, 0, 50),
+        'counts'          => [
+            'only_in_primary' => count($onlyPrimary),
+            'only_in_mirror'  => count($onlyMirror),
+            'hash_mismatch'   => count($mismatches),
+        ],
+    ];
+}
+
+/** Fetch full manifest map (relative path -> sha256) from one env via sync.php. */
+function dh_fetch_manifest_map(array $site, string $env): array {
+    $files = [];
+    $start = 0;
+    while (true) {
+        [$code, $j, $err] = dh_post($site, $env, ['action' => 'manifest', 'ref' => 'main', 'start' => $start, 'limit' => 400, 'files' => []]);
+        if ($code !== 200 || empty($j['ok'])) {
+            throw new RuntimeException("manifest $env failed: " . ($err ?: ($j['error'] ?? "HTTP $code")));
+        }
+        foreach ((array) ($j['lines'] ?? []) as $l) {
+            $parts = explode('  ', (string) $l, 2);
+            if (count($parts) !== 2) continue;
+            $h = trim($parts[0]);
+            $p = ltrim(trim($parts[1]), './');
+            $q = explode('/public_html/', $p, 2);
+            $rel = count($q) === 2 ? $q[1] : $p;
+            $files[$rel] = $h;
+        }
+        if (!empty($j['done']) || (int) ($j['count'] ?? 0) === 0) break;
+        $next = (int) ($j['next'] ?? $start);
+        if ($next <= $start) break;
+        $start = $next;
+    }
+    return $files;
+}
+
+/** Live read-only SHA-256 file parity audit between primary env and its declarative mirror(s). */
+function dh_mirror_hash_parity(array $site, string $env): array {
+    $mirrors = dh_mirror_envs($site, $env);
+    if (!$mirrors) {
+        return ['ok' => false, 'env' => $env, 'error' => 'no_mirror_configured'];
+    }
+    $primaryMap = dh_fetch_manifest_map($site, $env);
+    $results = [];
+    $allOk = true;
+    foreach ($mirrors as $mEnv) {
+        $mirrorMap = dh_fetch_manifest_map($site, $mEnv);
+        $cmp = dh_compare_file_manifests($primaryMap, $mirrorMap);
+        if (!$cmp['all_match']) $allOk = false;
+        $results[$mEnv] = [
+            'primary_env'   => $env,
+            'mirror_env'    => $mEnv,
+            'primary_host'  => (string) parse_url(dh_endpoint($site, $env), PHP_URL_HOST),
+            'mirror_host'   => (string) parse_url(dh_endpoint($site, $mEnv), PHP_URL_HOST),
+            'primary_total' => count($primaryMap),
+            'mirror_total'  => count($mirrorMap),
+        ] + $cmp;
+    }
+    return ['ok' => true, 'all_match' => $allOk, 'env' => $env, 'at' => gmdate('c'), 'mirrors' => $results];
+}
+
