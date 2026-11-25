@@ -24,6 +24,8 @@ return [
             'pwa' => 'https://pwa.redlilium.ir/deploy/sync.php',
             'hub' => 'https://hub.redlilium.ir/deploy/sync.php',
             'help' => 'https://help.redlilium.ir/public/deploy/sync.php',
+            'pwa-de' => 'https://pwa-de.hohedoc.ir/deploy/sync.php',
+            'hub-de' => 'https://hub-de.hohedoc.ir/deploy/sync.php',
         ],
     ],
     // Production copy of the same app; only read by parity (no queue of its own, never deployed to from here).

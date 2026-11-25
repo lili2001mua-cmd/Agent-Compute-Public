@@ -13,6 +13,7 @@ require __DIR__ . '/branches.php';
 require __DIR__ . '/phone-backup.php';
 require __DIR__ . '/mysites.php';
 require __DIR__ . '/iran_host_manifest.php';
+require_once __DIR__ . '/da_provision.php';
 set_time_limit(0);
 file_put_contents(dh_var('last-tick.txt'), (string) time());
 $lock = fopen(dh_var('tick.lock'), 'c');
@@ -22,6 +23,7 @@ try {
     $ping = dh_state()['ping']['at'] ?? '';
     if ($ping === '' || time() - strtotime($ping) > 1800) dh_ping();
     dh_dumps_cleanup();
+    try { da_provision_tick(); } catch (Throwable $e) { dh_state_set('da_provision_error', substr($e->getMessage(), 0, 200)); }
     try { dh_phone_backup(); } catch (Throwable $e) { dh_state_set('phone_backup_error', substr($e->getMessage(), 0, 200)); }
     try { dh_weekly_tg_backup(); } catch (Throwable $e) { dh_state_set('weekly_tg_backup_error', substr($e->getMessage(), 0, 200)); }   // weekly automatic DB backup to Telegram (BKP-01, zero AI)
     try { dh_iran_host_manifest_tick(); } catch (Throwable $e) { dh_state_set('iran_manifest_error', substr($e->getMessage(), 0, 200)); }   // incremental Iran-host manifest (BKP-04-03 / Step 182)

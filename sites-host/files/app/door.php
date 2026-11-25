@@ -9,6 +9,7 @@
 // answer sealed back with kind "sites-door-res" and the same request id.
 require_once __DIR__ . '/lib.php';
 require_once __DIR__ . '/ops.php';
+require_once __DIR__ . '/da_provision.php';
 
 const DOOR_KEY_REPO = 'Agent-Project-Backup';
 const DOOR_KEY_PATH = 'Sys.registry/tg-host-read-key.secret';
@@ -19,8 +20,9 @@ const DOOR_RUN_MAX  = 512 * 1024;        // 512 KiB cap for direct HTTP GET (`ru
 const DOOR_VALID_ACTIONS = [
     'ping' => 1, 'snapshot' => 1, 'manifest' => 1, 'query' => 1, 'run' => 1,
     'deploy' => 1, 'delete' => 1, 'migrate' => 1,
+    'da_status' => 1, 'da_job' => 1, 'da_result' => 1,
 ];
-const DOOR_WRITE_ACTIONS = ['deploy' => 1, 'delete' => 1, 'migrate' => 1];
+const DOOR_WRITE_ACTIONS = ['deploy' => 1, 'delete' => 1, 'migrate' => 1, 'da_job' => 1];
 
 function door_be64(int $n): string {
     return pack('J', $n);
@@ -98,7 +100,8 @@ function door_log(string $line): void {
 /** Validate repo-relative path for deploy/delete/snapshot: no traversal, no deploy/, no secret/upload paths. */
 function door_path_ok(string $env, string $rp): bool {
     if (!preg_match('#^([a-z]+)/public_html/([A-Za-z0-9_./\-]+)$#', $rp, $m)) return false;
-    if ($m[1] !== $env) return false;
+    $baseEnv = preg_replace('/-de$/', '', $env);
+    if ($m[1] !== $baseEnv) return false;
     foreach (explode('/', $m[2]) as $seg) {
         if ($seg === '' || $seg === '.' || $seg === '..') return false;
     }
@@ -114,14 +117,6 @@ function door_dispatch(array $req, string $id): array {
     $action = (string) ($req['action'] ?? '');
     $actor = preg_replace('/[^a-zA-Z0-9._-]/', '', (string) ($req['actor'] ?? 'unknown')) ?: 'unknown';
 
-    $sites = dh_sites();
-    if (!isset($sites[$siteName]) || ($sites[$siteName]['queue'] ?? '') === '') {
-        return [400, ['ok' => false, 'error' => 'site not allowed']];
-    }
-    $site = $sites[$siteName];
-    if (!isset($site['envs'][$env])) {
-        return [400, ['ok' => false, 'error' => 'env not allowed']];
-    }
     if (!isset(DOOR_VALID_ACTIONS[$action])) {
         return [400, ['ok' => false, 'error' => 'action not allowed']];
     }
@@ -130,6 +125,31 @@ function door_dispatch(array $req, string $id): array {
         if ($quote === '') {
             return [400, ['ok' => false, 'error' => 'approval_quote required for write actions']];
         }
+    }
+
+    if ($action === 'da_status') {
+        door_log("$id actor=$actor da_status");
+        return [200, da_status_snapshot()];
+    }
+    if ($action === 'da_job') {
+        [$c, $r] = da_queue_job($req, $id, $actor);
+        door_log("$id actor=$actor da_job op=" . ((string) ($req['op'] ?? '')) . " code=$c");
+        return [$c, $r];
+    }
+    if ($action === 'da_result') {
+        $jobId = (string) ($req['job_id'] ?? '');
+        [$c, $r] = da_read_result($jobId);
+        door_log("$id actor=$actor da_result job=$jobId code=$c");
+        return [$c, $r];
+    }
+
+    $sites = dh_sites();
+    if (!isset($sites[$siteName]) || ($sites[$siteName]['queue'] ?? '') === '') {
+        return [400, ['ok' => false, 'error' => 'site not allowed']];
+    }
+    $site = $sites[$siteName];
+    if (!isset($site['envs'][$env])) {
+        return [400, ['ok' => false, 'error' => 'env not allowed']];
     }
 
     if ($action === 'ping') {
