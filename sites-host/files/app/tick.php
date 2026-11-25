@@ -12,6 +12,7 @@ require __DIR__ . '/editbus.php';
 require __DIR__ . '/branches.php';
 require __DIR__ . '/phone-backup.php';
 require __DIR__ . '/mysites.php';
+require __DIR__ . '/iran_host_manifest.php';
 set_time_limit(0);
 file_put_contents(dh_var('last-tick.txt'), (string) time());
 $lock = fopen(dh_var('tick.lock'), 'c');
@@ -23,6 +24,7 @@ try {
     dh_dumps_cleanup();
     try { dh_phone_backup(); } catch (Throwable $e) { dh_state_set('phone_backup_error', substr($e->getMessage(), 0, 200)); }
     try { dh_weekly_tg_backup(); } catch (Throwable $e) { dh_state_set('weekly_tg_backup_error', substr($e->getMessage(), 0, 200)); }   // weekly automatic DB backup to Telegram (BKP-01, zero AI)
+    try { dh_iran_host_manifest_tick(); } catch (Throwable $e) { dh_state_set('iran_manifest_error', substr($e->getMessage(), 0, 200)); }   // incremental Iran-host manifest (BKP-04-03 / Step 182)
     dh_run_editbus();
     try { dh_mysites_daily(); } catch (Throwable $e) { dh_state_set('mysites_error', substr($e->getMessage(), 0, 200)); }   // daily encrypted DB backup to My-Sites
     try { dh_mysites_incremental(); } catch (Throwable $e) { dh_state_set('mysites_inc_error', substr($e->getMessage(), 0, 200)); }   // 15-min encrypted incremental backup from change_log (STY-02)
