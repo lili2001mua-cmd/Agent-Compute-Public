@@ -151,6 +151,11 @@ if (function_exists('rt_ai_legacy_claude_key') && function_exists('rt_ai_sync_le
     @unlink($hintsFile);
 }
 
+// 8. Regression test: ai_vault_master_key() must not throw PHP 8 fatal error on DEVICE_KEYS constant
+if (!defined('DEVICE_KEYS')) define('DEVICE_KEYS', ['phone1' => 'test-device-secret-key-0123456789']);
+$derivedMk = ai_vault_master_key();
+check(is_string($derivedMk) && strlen($derivedMk) === 32, 'ai_vault_master_key derives 32-byte key from DEVICE_KEYS constant without PHP 8 fatal error');
+
 // Cleanup
 @rmdir($vaultDir); @rmdir($tmp);
 

@@ -17,7 +17,8 @@ function ai_vault_master_key(): ?string {
     if (defined('AI_VAULT_KEY') && is_string(AI_VAULT_KEY) && AI_VAULT_KEY !== '') {
         $seed = AI_VAULT_KEY;
     } elseif (defined('DEVICE_KEYS') && is_array(DEVICE_KEYS) && !empty(DEVICE_KEYS)) {
-        $first = reset(DEVICE_KEYS);
+        $dk = DEVICE_KEYS;
+        $first = reset($dk);
         if (is_string($first) && $first !== '') $seed = $first;
     }
     return $seed !== '' ? hash('sha256', 'mcp-ai-vault-v1:' . $seed, true) : null;
