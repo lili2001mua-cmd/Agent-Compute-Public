@@ -43,6 +43,7 @@ return [
         'repo' => '',
         'queue' => '',
         'results' => '',
+        'door_enabled' => true,
         'secret' => 'LILIUMESORKH_DEPLOY_SECRET',
         'envs' => [
             'main' => 'https://liliumesorkh.ir/deploy/sync.php',

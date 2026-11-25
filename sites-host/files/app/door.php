@@ -150,7 +150,7 @@ function door_dispatch(array $req, string $id): array {
     }
 
     $sites = dh_sites();
-    if (!isset($sites[$siteName]) || ($sites[$siteName]['queue'] ?? '') === '') {
+    if (!isset($sites[$siteName]) || (($sites[$siteName]['queue'] ?? '') === '' && empty($sites[$siteName]['door_enabled']))) {
         return [400, ['ok' => false, 'error' => 'site not allowed']];
     }
     $site = $sites[$siteName];
