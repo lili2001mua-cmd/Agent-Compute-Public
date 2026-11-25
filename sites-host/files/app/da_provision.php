@@ -139,25 +139,56 @@ function da_read_result(string $jobId): array {
 
 /** Execute one HTTP POST to DirectAdmin API (CLI only). */
 function da_api_call(array $cfg, string $cmd, array $fields): array {
-    $url = $cfg['url'] . '/' . ltrim($cmd, '/');
-    $ch = curl_init($url);
+    $baseUrl = preg_replace('/[^\x21-\x7E]/', '', (string) $cfg['url']);
+    $url = rtrim($baseUrl, '/') . '/' . ltrim($cmd, '/');
+    $bodyStr = http_build_query($fields);
     $isLocal = (bool) preg_match('#^https?://(127\.0\.0\.1|localhost)(:|/)#i', $url);
-    curl_setopt_array($ch, [
-        CURLOPT_POST           => true,
-        CURLOPT_POSTFIELDS     => http_build_query($fields),
-        CURLOPT_USERPWD        => $cfg['user'] . ':' . $cfg['key'],
-        CURLOPT_HTTPAUTH       => CURLAUTH_BASIC,
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT        => 60,
-        CURLOPT_CONNECTTIMEOUT => 15,
-        CURLOPT_SSL_VERIFYPEER => !$isLocal,
-        CURLOPT_SSL_VERIFYHOST => $isLocal ? 0 : 2,
-    ]);
-    $raw = curl_exec($ch);
-    $http = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    $err = curl_error($ch);
-    curl_close($ch);
-    if ($raw === false) return ['ok' => false, 'http' => $http, 'error' => $err ?: 'curl_failed'];
+
+    $raw = false;
+    $http = 0;
+    $err = '';
+
+    $ch = function_exists('curl_init') ? @curl_init() : false;
+    if ($ch !== false) {
+        curl_setopt_array($ch, [
+            CURLOPT_URL            => $url,
+            CURLOPT_POST           => true,
+            CURLOPT_POSTFIELDS     => $bodyStr,
+            CURLOPT_USERPWD        => $cfg['user'] . ':' . $cfg['key'],
+            CURLOPT_HTTPAUTH       => CURLAUTH_BASIC,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 60,
+            CURLOPT_CONNECTTIMEOUT => 15,
+            CURLOPT_SSL_VERIFYPEER => !$isLocal,
+            CURLOPT_SSL_VERIFYHOST => $isLocal ? 0 : 2,
+        ]);
+        $raw = curl_exec($ch);
+        $http = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $err = curl_error($ch);
+        curl_close($ch);
+    } else {
+        // Fallback to native PHP HTTP stream wrapper (never leaks credentials)
+        $auth = base64_encode($cfg['user'] . ':' . $cfg['key']);
+        $ctx = stream_context_create([
+            'http' => [
+                'method'        => 'POST',
+                'header'        => "Content-Type: application/x-www-form-urlencoded\r\nAuthorization: Basic $auth\r\n",
+                'content'       => $bodyStr,
+                'timeout'       => 60,
+                'ignore_errors' => true,
+            ],
+            'ssl' => [
+                'verify_peer'      => !$isLocal,
+                'verify_peer_name' => !$isLocal,
+            ],
+        ]);
+        $raw = @file_get_contents($url, false, $ctx);
+        $hdrs = $http_response_header ?? [];
+        if (isset($hdrs[0]) && preg_match('/\s(\d{3})\s/', $hdrs[0], $m)) $http = (int) $m[1];
+        if ($raw === false) $err = 'stream_failed_for_' . (parse_url($url, PHP_URL_HOST) ?: 'bad_url') . ':' . (parse_url($url, PHP_URL_PORT) ?: '');
+    }
+
+    if ($raw === false) return ['ok' => false, 'http' => $http, 'error' => $err ?: 'http_failed'];
     parse_str((string) $raw, $parsed);
     $daErr = (int) ($parsed['error'] ?? 0);
     $text = trim((string) ($parsed['text'] ?? ''));
