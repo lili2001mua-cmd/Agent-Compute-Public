@@ -37,6 +37,7 @@ return [
         'repo' => 'stylistdirectory',
         'queue' => '',
         'results' => '',
+        'door_enabled' => true,
         'secret' => 'STYLISTDIRECTORY_DEPLOY_SECRET',
         'envs' => [
             'final' => 'https://stylistdirectory.ir/deploy/sync.php',
