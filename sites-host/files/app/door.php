@@ -11,6 +11,7 @@ require_once __DIR__ . '/lib.php';
 require_once __DIR__ . '/ops.php';
 require_once __DIR__ . '/da_provision.php';
 require_once __DIR__ . '/de_mirror_sync.php';
+require_once __DIR__ . '/db_parity_audit.php';
 
 const DOOR_KEY_REPO = 'Agent-Project-Backup';
 const DOOR_KEY_PATH = 'Sys.registry/tg-host-read-key.secret';
@@ -22,7 +23,7 @@ const DOOR_VALID_ACTIONS = [
     'ping' => 1, 'snapshot' => 1, 'manifest' => 1, 'query' => 1, 'run' => 1,
     'deploy' => 1, 'delete' => 1, 'migrate' => 1,
     'da_status' => 1, 'da_job' => 1, 'da_result' => 1,
-    'de_sync_status' => 1, 'mirror_hash_parity' => 1,
+    'de_sync_status' => 1, 'mirror_hash_parity' => 1, 'db_parity_status' => 1,
 ];
 const DOOR_WRITE_ACTIONS = ['deploy' => 1, 'delete' => 1, 'migrate' => 1, 'da_job' => 1];
 
@@ -153,6 +154,10 @@ function door_dispatch(array $req, string $id): array {
     if ($action === 'de_sync_status') {
         door_log("$id actor=$actor de_sync_status");
         return [200, de_mirror_status_snapshot()];
+    }
+    if ($action === 'db_parity_status') {
+        door_log("$id actor=$actor db_parity_status");
+        return [200, db_parity_status_snapshot()];
     }
 
     $sites = dh_sites();

@@ -15,6 +15,7 @@ require __DIR__ . '/mysites.php';
 require __DIR__ . '/iran_host_manifest.php';
 require_once __DIR__ . '/da_provision.php';
 require_once __DIR__ . '/de_mirror_sync.php';
+require_once __DIR__ . '/db_parity_audit.php';
 set_time_limit(0);
 file_put_contents(dh_var('last-tick.txt'), (string) time());
 $lock = fopen(dh_var('tick.lock'), 'c');
@@ -26,6 +27,7 @@ try {
     dh_dumps_cleanup();
     try { da_provision_tick(); } catch (Throwable $e) { dh_state_set('da_provision_error', substr($e->getMessage(), 0, 200)); }
     try { de_mirror_sync_tick(); } catch (Throwable $e) { dh_state_set('de_mirror_error', substr($e->getMessage(), 0, 200)); }
+    try { db_parity_audit_tick(); } catch (Throwable $e) { dh_state_set('db_parity_error', substr($e->getMessage(), 0, 200)); }
     try { dh_phone_backup(); } catch (Throwable $e) { dh_state_set('phone_backup_error', substr($e->getMessage(), 0, 200)); }
     try { dh_weekly_tg_backup(); } catch (Throwable $e) { dh_state_set('weekly_tg_backup_error', substr($e->getMessage(), 0, 200)); }   // weekly automatic DB backup to Telegram (BKP-01, zero AI)
     try { dh_iran_host_manifest_tick(); } catch (Throwable $e) { dh_state_set('iran_manifest_error', substr($e->getMessage(), 0, 200)); }   // incremental Iran-host manifest (BKP-04-03 / Step 182)
