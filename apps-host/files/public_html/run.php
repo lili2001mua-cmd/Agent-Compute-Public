@@ -11,7 +11,7 @@ if (!apps_key_ok()) { http_response_code(404); exit; }
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') { http_response_code(405); exit; }
 
 $job = preg_replace('/[^a-z_]/', '', (string) ($_POST['job'] ?? ''));
-$inline = ['app_upload', 'doc_part', 'doc_commit', 'result'];
+$inline = ['app_upload', 'doc_part', 'doc_commit', 'result', 'relay_ping'];
 $args = $_POST;
 unset($args['job']);
 try {

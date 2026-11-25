@@ -203,6 +203,15 @@ function relay_call(array $payload): array {
     return $j;
 }
 
+function job_relay_ping(array $a): array {
+    $url = apps_secret('RELAY_URL') ?: 'https://relay.hohe1.ir/deploy/sync.php';
+    $hasSecret = apps_secret('RELAY_SECRET') !== '';
+    if (!$hasSecret) {
+        return ['url' => $url, 'has_secret' => false, 'ping' => ['ok' => false, 'error' => 'RELAY_SECRET missing']];
+    }
+    return ['url' => $url, 'has_secret' => true, 'ping' => relay_call(['action' => 'ping'])];
+}
+
 function relay_send_file(string $path, string $repo): string {
     $size = filesize($path); $sha = hash_file('sha256', $path);
     $fh = fopen($path, 'rb'); $off = 0; $tries = 0;
