@@ -84,7 +84,7 @@ function run_app_send(array $a): array {
 // alone was 64.4MB, above the door's single-request limit. doc_part holds a part, doc_commit queues doc_send, and the
 // cron joins the parts, checks the whole md5 and uploads. Destination folders are an allow-list, never a free path.
 // 1405-08-11 (user decision): workout programs no longer live on Drive. Their home is the Iran relay
-// https://relay.hohe1.ir/workout/ — folder value "relay:workout". The cron joins the parts, checks md5, then sends the
+// https://relay.liliumesorkh.ir/workout/ — folder value "relay:workout". The cron joins the parts, checks md5, then sends the
 // file to the relay's deploy/sync.php (v8 action "chunk", HMAC with RELAY_SECRET from secrets-extra.php) and merges
 // workout/index.json + index.html there. Drive is not touched on this path.
 const DOC_FOLDERS = [];                      // no Drive destination is open any more
@@ -186,11 +186,11 @@ function run_doc_send(array $a): array {
     }
 }
 
-// ---------------------------------------------------------------- Iran relay (relay.hohe1.ir)
+// ---------------------------------------------------------------- Iran relay (relay.liliumesorkh.ir)
 function relay_call(array $payload): array {
     $secret = apps_secret('RELAY_SECRET');
     if ($secret === '') throw new RuntimeException('RELAY_SECRET missing in secrets-extra.php');
-    $url = apps_secret('RELAY_URL') ?: 'https://relay.hohe1.ir/deploy/sync.php';
+    $url = apps_secret('RELAY_URL') ?: 'https://relay.liliumesorkh.ir/deploy/sync.php';
     $payload['ts'] = time();
     $body = json_encode($payload, JSON_UNESCAPED_SLASHES);
     $ch = curl_init($url);
@@ -204,7 +204,7 @@ function relay_call(array $payload): array {
 }
 
 function job_relay_ping(array $a): array {
-    $url = apps_secret('RELAY_URL') ?: 'https://relay.hohe1.ir/deploy/sync.php';
+    $url = apps_secret('RELAY_URL') ?: 'https://relay.liliumesorkh.ir/deploy/sync.php';
     $hasSecret = apps_secret('RELAY_SECRET') !== '';
     if (!$hasSecret) {
         return ['url' => $url, 'has_secret' => false, 'ping' => ['ok' => false, 'error' => 'RELAY_SECRET missing']];
@@ -274,7 +274,7 @@ function relay_index_add(string $dest, array $row): void {
 // Secret-free path (user choice 1405-08-11, option 2): the file waits in the outbox here, public_html/outbox.php lists and
 // serves it, and the relay's public_html/intake/pull.php (no secret, fixed source URL) pulls, checks sha256, files it under
 // workout/ and merges index.json/index.html itself. We only poke pull.php and read back what it says it filed.
-const RELAY_PULL_URL = 'https://relay.hohe1.ir/intake/pull.php';
+const RELAY_PULL_URL = 'https://relay.liliumesorkh.ir/intake/pull.php';
 
 function outbox_dir(): string { $d = apps_var('outbox'); if (!is_dir($d)) mkdir($d, 0700, true); return $d; }
 function outbox_list(): array { return json_decode((string) @file_get_contents(outbox_dir() . '/list.json'), true) ?: []; }
@@ -308,9 +308,9 @@ function relay_publish(string $joined, array $a, string $md5): array {
         outbox_save(array_filter(outbox_list(), fn($x) => ($x['sha256'] ?? '') !== $sha));
         @unlink(outbox_dir() . "/$sha");
     }
-    $url = 'https://relay.hohe1.ir/' . $dest . '/' . $href;
+    $url = 'https://relay.liliumesorkh.ir/' . $dest . '/' . $href;
     return ['name' => $name, 'label' => $a['label'] ?? '', 'size' => (string) $bytes, 'webViewLink' => $url, 'url' => $url,
-        'md5' => $md5, 'sha256' => $sha, 'verified' => true, 'folder_link' => 'https://relay.hohe1.ir/' . $dest . '/',
+        'md5' => $md5, 'sha256' => $sha, 'verified' => true, 'folder_link' => 'https://relay.liliumesorkh.ir/' . $dest . '/',
         'home' => 'relay'];
 }
 
@@ -318,10 +318,10 @@ function relay_publish(string $joined, array $a, string $md5): array {
 // Orchestra github-native-doors, section D. The session reaches this door with its GitHub pass; the relay is not reachable
 // from the session and holds no shared secret with this host. So: the task waits here (public_html/relay-tasks.php lists
 // it), the relay's intake/tasks.php pulls it, fetches the page itself (its own allow-list + daily cap per domain), and
-// writes the answer on ITS OWN disk at tasks-out/<out>.json; we read it back from relay.hohe1.ir. Integrity comes from
-// that last step: only the relay can write to relay.hohe1.ir. Nothing here is secret — the pages are public Iranian sites.
-const RELAY_TASKS_URL = 'https://relay.hohe1.ir/intake/tasks.php';
-const RELAY_OUT_BASE = 'https://relay.hohe1.ir/tasks-out/';
+// writes the answer on ITS OWN disk at tasks-out/<out>.json; we read it back from relay.liliumesorkh.ir. Integrity comes from
+// that last step: only the relay can write to relay.liliumesorkh.ir. Nothing here is secret — the pages are public Iranian sites.
+const RELAY_TASKS_URL = 'https://relay.liliumesorkh.ir/intake/tasks.php';
+const RELAY_OUT_BASE = 'https://relay.liliumesorkh.ir/tasks-out/';
 const IRANIAN_COM = ['digikala.com', 'torob.com', 'aparat.com', 'behtarino.com', 'shahrint.com', 'royasho.com',
     'digistyle.com', 'basalam.com', 'sheypoor.com', 'filimo.com',
     'sanjesh.org', 'azmoon.org', 'iranbar.org', 'tgju.org', 'tsetmc.com'];   // same list as the relay's run.php

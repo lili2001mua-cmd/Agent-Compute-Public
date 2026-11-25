@@ -4,7 +4,7 @@
 //   repos  — GitHub's own `size` of each repository (KB on GitHub's disk), via the vault token · every 60 min
 //   drive  — about.storageQuota of every Drive account the studio holds (var/drive-accounts/*.json) · every 60 min
 //   hosts  — Germany: bytes on disk of this server account (du, else a PHP walk), per domain too · every 6 h
-//            Iran:    relay.hohe1.ir/run.php?job=disk (cached there for 6 h, number only) · every 6 h
+//            Iran:    relay.liliumesorkh.ir/run.php?job=disk (cached there for 6 h, number only) · every 6 h
 // Each part keeps its own «measured at»; a failed part keeps its last good value and carries the error next to it.
 require_once __DIR__ . '/lib.php';
 
@@ -13,7 +13,7 @@ const SZ_REPOS = ['Agent-Project-Backup', 'Agent-Compute-Public', 'stylistcrm', 
 const SZ_FAST = 3600;        // repos + drive
 const SZ_SLOW = 6 * 3600;    // host disks
 const SZ_RETRY = 1800;       // a host that failed (e.g. the relay before its disk job landed) is retried after 30 min, not 6 h
-const SZ_RELAY = 'https://relay.hohe1.ir/run.php?job=disk';
+const SZ_RELAY = 'https://relay.liliumesorkh.ir/run.php?job=disk';
 
 function sz_owner(): string { return explode('/', CTL_REPO)[0]; }
 
@@ -103,9 +103,9 @@ function sz_iran(): array {
     curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_CONNECTTIMEOUT => 10, CURLOPT_TIMEOUT => 200]);
     $j = json_decode((string) curl_exec($ch), true); $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
     if ($code !== 200 || !is_array($j) || !($j['ok'] ?? false))
-        return ['id' => 'iran', 'domain' => 'hohe1.ir', 'bytes' => null,
+        return ['id' => 'iran', 'domain' => 'liliumesorkh.ir', 'bytes' => null,
                 'error' => $code === 400 ? 'relay has no disk job yet' : 'relay ' . $code];
-    return ['id' => 'iran', 'domain' => 'hohe1.ir', 'bytes' => $j['bytes'] ?? null, 'method' => $j['method'] ?? null,
+    return ['id' => 'iran', 'domain' => 'liliumesorkh.ir', 'bytes' => $j['bytes'] ?? null, 'method' => $j['method'] ?? null,
             'measured' => $j['at'] ?? null, 'parts' => $j['parts'] ?? []];
 }
 

@@ -1,6 +1,6 @@
 <?php
 // Structured & JavaScript-data extractor running directly on the Germany host (apps.hohedoc.ir).
-// Parses raw HTML / JSON fetched from inside Iran via relay.hohe1.ir — zero GitHub Secrets, zero browser needed
+// Parses raw HTML / JSON fetched from inside Iran via relay.liliumesorkh.ir — zero GitHub Secrets, zero browser needed
 // for ~85-90% of modern Iranian JS sites (Next.js __NEXT_DATA__, Nuxt, JSON-LD, inline state, and direct JSON APIs).
 
 function js_extract_clean_text(string $s, int $max = 24000): string {

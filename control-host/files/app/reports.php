@@ -4,7 +4,7 @@
 //   Memory-Workflow/projects-hub/<project>/chapters/<CODE>/REPORT.md
 // Every AI employee (Claude, Gemini, Codex, Grok, ...) appends a <= 8-line summary per completed step.
 // Built by the 5-minute cron (like sessions.php) and served over the signed door POST api.php?op=chapter-report
-// (works both directly via control.hohedoc.ir and through relay.hohe1.ir?job=ctl without exposing private data publicly).
+// (works both directly via control.hohedoc.ir and through relay.liliumesorkh.ir?job=ctl without exposing private data publicly).
 require_once __DIR__ . '/lib.php';
 
 const REPORTS_DIR = 'Memory-Workflow/projects-hub';

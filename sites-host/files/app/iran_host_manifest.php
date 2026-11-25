@@ -2,12 +2,12 @@
 // iran_host_manifest.php — Incremental manifest & delta builder for the Iran host (Holding-Backup-Vault/v1/03-iran-host/).
 // Runs alongside the dual-DB architecture (STY-02/03) and weekly Telegram DB backup from sites-host/files/app/tick.php.
 // Tracks:
-//   1) Workout media/PDF index on https://relay.hohe1.ir/workout/index.json
+//   1) Workout media/PDF index on https://relay.liliumesorkh.ir/workout/index.json
 //   2) Dual-DB latest backup state (from My-Sites / phone-backup metadata, never plaintext secrets)
 //   3) Site uploads & local config inventory metadata (delta-friendly: added / changed / removed)
 require_once __DIR__ . '/lib.php';
 
-const IRAN_WORKOUT_INDEX_URL = 'https://relay.hohe1.ir/workout/index.json';
+const IRAN_WORKOUT_INDEX_URL = 'https://relay.liliumesorkh.ir/workout/index.json';
 const IRAN_MANIFEST_INTERVAL_S = 21600; // every 6 hours
 
 /** Pure delta calculator: returns added, changed, removed, unchanged counts & paths for incremental sync. */
@@ -58,7 +58,7 @@ function iran_fetch_workout_index(?string $url = null): array {
         $items['workout/' . $href] = [
             'section' => 'workout',
             'name' => (string) ($row['name'] ?? basename($href)),
-            'url' => 'https://relay.hohe1.ir/workout/' . $href,
+            'url' => 'https://relay.liliumesorkh.ir/workout/' . $href,
             'bytes' => (int) ($row['bytes'] ?? 0),
             'sha256' => (string) ($row['sha256'] ?? ''),
             'folder' => (string) ($row['folder'] ?? ''),

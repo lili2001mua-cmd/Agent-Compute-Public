@@ -1,6 +1,6 @@
 <?php
 // Public outbox of apps.hohedoc.ir for the Iran relay (1405-08-11). Lists workout files waiting to be pulled and serves
-// one by its sha256. Nothing here is secret: the same files become public on https://relay.hohe1.ir/workout/ .
+// one by its sha256. Nothing here is secret: the same files become public on https://relay.liliumesorkh.ir/workout/ .
 require __DIR__ . '/../app/jobs.php';
 header('X-Robots-Tag: noindex');
 header('Cache-Control: no-store');
