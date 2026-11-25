@@ -290,6 +290,17 @@ function de_mirror_sync_tick(): void {
     [$tableCols, $tablePks] = de_mirror_introspect_schema($pdo);
     $cursor = (int) $pdo->query("SELECT COALESCE(MAX(seq), 0) FROM `change_log`")->fetchColumn();
 
+    // STY-05 گامِ ۱۲۰: قاعدهٔ خواندنِ امن (حاشیهٔ ۵ ثانیه‌ایِ پیوسته تا هیچ تراکنشِ هم‌زمانی جا نیفتد)
+    $wmRows = de_mirror_iran_query(
+        $site,
+        "SELECT MIN(seq) AS first_young, COALESCE(MAX(seq), 0) AS max_seq FROM change_log "
+        . "WHERE seq > " . (int) $cursor . " AND created_at > (NOW(6) - INTERVAL 5 SECOND)"
+    );
+    $firstYoung = $wmRows[0]['first_young'] ?? null;
+    $safeUpperClause = ($firstYoung !== null && (int) $firstYoung > 0)
+        ? (" AND seq <= " . max($cursor, (int) $firstYoung - 1))
+        : "";
+
     $applied = 0;
     $upserts = 0;
     $deletes = 0;
@@ -298,7 +309,7 @@ function de_mirror_sync_tick(): void {
 
     for ($page = 0; $page < DE_MIRROR_MAX_PAGES; $page++) {
         $sql = "SELECT seq, tx_id, table_name, pk_val, op, company_id, before_json, after_json, created_at "
-             . "FROM change_log WHERE seq > " . (int) $cursor
+             . "FROM change_log WHERE seq > " . (int) $cursor . $safeUpperClause
              . " ORDER BY seq ASC LIMIT " . DE_MIRROR_BATCH_SIZE;
         $rows = de_mirror_iran_query($site, $sql);
         if (!$rows) break;
