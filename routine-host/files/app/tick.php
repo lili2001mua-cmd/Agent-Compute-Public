@@ -16,6 +16,8 @@ if (!$prev) r_notify('🟢 routine.hohedoc.ir نصب شد و ساعتِ روتی
 elseif (time() - $prev > 15 * 60) r_notify('⚠️ کرونِ routine.hohedoc.ir حدودِ ' . round((time() - $prev) / 60) . ' دقیقه خواب بود؛ نوبت‌های جاافتادهٔ کوتاه شلیک و بقیه بستهٔ دستی می‌شوند.');
 
 r_probe_country();          // daily, armed or not: status.php shows where the host fires from
+require_once __DIR__ . '/ai-dispatch.php';
+try { rt_ai_sync_legacy_claude_keys(); } catch (Throwable $e) { r_log('ai-legacy-sync ' . substr($e->getMessage(), 0, 200)); }
 r_clock_tick();
 require_once __DIR__ . '/step3-fire.php';
 try { r_step3_fire(); } catch (Throwable $e) { r_log('step3-fire ' . substr($e->getMessage(), 0, 200)); }

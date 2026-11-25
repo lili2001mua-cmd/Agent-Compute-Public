@@ -65,6 +65,27 @@ function ai_account_dependents(string $alias, array $processes): array {
     return $out;
 }
 
+/** Merge truthful on-host vault presence and safe 4-char hints (never raw secrets) into catalog rows. */
+function ai_merge_vault_hints(array $accounts, string $varDir): array {
+    $vdir = rtrim($varDir, '/') . '/ai-vault';
+    $hints = @json_decode((string) @file_get_contents(rtrim($varDir, '/') . '/ai-vault-hints.json'), true);
+    if (!is_array($hints)) $hints = [];
+    foreach ($accounts as $i => $row) {
+        if (!is_array($row)) continue;
+        $alias = (string) ($row['alias'] ?? '');
+        if ($alias === '') continue;
+        $vfile = ai_vault_file($vdir, $alias);
+        $hasVault = ($vfile !== null && is_file($vfile));
+        if ($hasVault) {
+            $accounts[$i]['secret_present'] = true;
+            if (empty($accounts[$i]['secret_hint']) && !empty($hints[$alias]['secret_hint'])) {
+                $accounts[$i]['secret_hint'] = mb_substr(trim((string) $hints[$alias]['secret_hint']), 0, 12);
+            }
+        }
+    }
+    return $accounts;
+}
+
 function ai_load_catalog(): array {
     $raw = function_exists('gh_file') ? gh_file(AI_CATALOG_PATH) : null;
     $j = is_string($raw) ? json_decode($raw, true) : null;
@@ -76,7 +97,8 @@ function ai_load_catalog(): array {
     foreach (($j['accounts'] ?? []) as $row) {
         if (is_array($row) && !empty($row['alias'])) $clean[] = ai_catalog_sanitize_row($row);
     }
-    $j['accounts'] = $clean;
+    $varDir = function_exists('ctl_var') ? rtrim(ctl_var(''), '/') : dirname(ai_vault_dir());
+    $j['accounts'] = ai_merge_vault_hints($clean, $varDir);
     if (function_exists('ctl_json_write')) ctl_json_write('ai-accounts-catalog.json', $j);
     return $j;
 }

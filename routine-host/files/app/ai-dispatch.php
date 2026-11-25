@@ -45,6 +45,73 @@ function rt_ai_master_key(): ?string {
     return ai_vault_master_key();
 }
 
+/** Find the existing legacy Claude routine key (acct-a) on routine.hohedoc.ir/keys/. */
+function rt_ai_legacy_claude_key(?array $legacyKeys = null): ?array {
+    $keys = $legacyKeys ?? (function_exists('r_keys') ? (r_keys()['keys'] ?? []) : []);
+    $acctA = $keys['acct-a'] ?? null;
+    if (!is_array($acctA) || empty($acctA)) return null;
+    if (isset($acctA['agent-project-backup']) && is_array($acctA['agent-project-backup'])) {
+        $k = $acctA['agent-project-backup'];
+        if (!empty($k['url']) && !empty($k['token'])) return $k;
+    }
+    foreach ($acctA as $k) {
+        if (is_array($k) && !empty($k['url']) && !empty($k['token'])) return $k;
+    }
+    return null;
+}
+
+/**
+ * One-way on-host bridge: import existing routine-host Claude key (acct-a) into
+ * control.hohedoc.ir/var/ai-vault/acct-claude-main.enc.json (AES-256-GCM, 0600)
+ * and record ONLY non-secret hint metadata in ai-vault-hints.json (0600).
+ * Never overwrites an existing vault entry (user edits from the app always win).
+ */
+function rt_ai_sync_legacy_claude_keys(?string $cvar = null, ?string $masterKey = null, ?array $legacyKeys = null): array {
+    $cvar = $cvar ?? rt_ai_control_var();
+    $mk = $masterKey ?? rt_ai_master_key();
+    if ($mk === null || strlen($mk) !== 32) {
+        return ['synced' => false, 'reason' => 'master key unavailable'];
+    }
+    $legacy = rt_ai_legacy_claude_key($legacyKeys);
+    if ($legacy === null) {
+        return ['synced' => false, 'reason' => 'no legacy acct-a key'];
+    }
+
+    $alias = 'acct-claude-main';
+    $vdir = rtrim($cvar, '/') . '/ai-vault';
+    $vfile = ai_vault_file($vdir, $alias);
+    if ($vfile !== null && is_file($vfile)) {
+        return ['synced' => false, 'reason' => 'already present in vault'];
+    }
+
+    $secret = [
+        'token' => (string) $legacy['token'],
+        'url' => (string) $legacy['url'],
+        'beta' => (string) ($legacy['beta'] ?? (defined('R_DEFAULT_BETA') ? R_DEFAULT_BETA : '')),
+        'header' => '',
+    ];
+    if (!ai_vault_put($vdir, $mk, $alias, $secret)) {
+        return ['synced' => false, 'reason' => 'vault write failed'];
+    }
+
+    $hintsFile = rtrim($cvar, '/') . '/ai-vault-hints.json';
+    $hints = @json_decode((string) @file_get_contents($hintsFile), true);
+    if (!is_array($hints)) $hints = [];
+    $hints[$alias] = [
+        'secret_present' => true,
+        'secret_hint' => ai_vault_hint($secret['token']),
+        'source' => 'routine-host:acct-a',
+        'synced_at' => time(),
+    ];
+    $tmp = $hintsFile . '.tmp';
+    if (@file_put_contents($tmp, json_encode($hints, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . "\n", LOCK_EX) !== false) {
+        @chmod($tmp, 0600);
+        @rename($tmp, $hintsFile);
+    }
+
+    return ['synced' => true, 'alias' => $alias, 'hint' => $hints[$alias]['secret_hint']];
+}
+
 /** Dispatch one job/stage through the selected AI account adapter. */
 function rt_ai_fire_process(string $processKey, string $jobId, string $runId, array $extra = []): ?array {
     $cvar = rt_ai_control_var();
@@ -59,6 +126,12 @@ function rt_ai_fire_process(string $processKey, string $jobId, string $runId, ar
     $sec = ($mk !== null) ? ai_vault_get($cvar . '/ai-vault', $mk, $alias) : null;
 
     if ($mode === 'claude_routine') {
+        if ((!is_array($sec) || empty($sec['url']) || empty($sec['token'])) && $alias === 'acct-claude-main') {
+            $legacy = rt_ai_legacy_claude_key();
+            if ($legacy !== null) {
+                $sec = ['url' => (string) $legacy['url'], 'token' => (string) $legacy['token'], 'beta' => (string) ($legacy['beta'] ?? R_DEFAULT_BETA)];
+            }
+        }
         if (!is_array($sec) || empty($sec['url']) || empty($sec['token'])) {
             return ['state' => 'pack', 'why' => "کلیدِ {$alias} در گاوصندوقِ هاست ناقص است"];
         }
