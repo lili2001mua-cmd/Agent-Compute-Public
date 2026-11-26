@@ -102,6 +102,21 @@ if ($op === 'backup-status' && $_SERVER['REQUEST_METHOD'] === 'GET') {
     out(200, ['ok' => true, 'pending' => $pending, 'last' => ctl_json_read('backup-state.json', null)]);
 }
 
+if ($op === 'stylist-admin-status' && $_SERVER['REQUEST_METHOD'] === 'GET') {
+    // Unified Stylist Admin snapshot published by sites.hohedoc.ir cron (app/stylist_admin_bridge.php + db_parity_audit.php)
+    $pendingBackup  = count(glob(ctl_var('backup-req') . '/*.json') ?: []);
+    $pendingActions = count(glob(ctl_var('stylist-admin-req') . '/*.json') ?: []);
+    out(200, [
+        'ok'              => true,
+        'state'           => ctl_json_read('stylist-admin-state.json', null),
+        'db_parity'       => ctl_json_read('db-parity-state.json', null),
+        'db_parity_7day'  => ctl_json_read('db-parity-7day.json', null),
+        'backup'          => ['pending' => $pendingBackup, 'last' => ctl_json_read('backup-state.json', null)],
+        'last_action'     => ctl_json_read('stylist-admin-last-action.json', null),
+        'pending_actions' => $pendingActions,
+    ]);
+}
+
 if ($op === 'sessions' && $_SERVER['REQUEST_METHOD'] === 'GET') {
     // «سشن‌ها» (app v64): read-only rows of Memory-Workflow/live-sessions, built by the cron (app/sessions.php)
     $d = ctl_var('sessions');
@@ -216,6 +231,37 @@ if ($op === 'backup-request') {
         'device' => (string) $_SERVER['HTTP_X_HC_DEVICE']]), LOCK_EX);
     ctl_log("backup-request $id");
     out(200, ['ok' => true, 'id' => $id, 'note' => 'the sites.hohedoc.ir cron picks it up within a minute']);
+}
+
+if ($op === 'stylist-admin-action') {
+    // Signed owner operations for Stylist Admin screen in My-Control-Project (queued for sites.hohedoc.ir cron).
+    $allowed = ['release_status', 'release_assign_900', 'release_promote', 'release_rollback', 'db_parity_now'];
+    $action = trim((string) ($in['action'] ?? ''));
+    $rid    = strtoupper(trim((string) ($in['release_id'] ?? '')));
+    $reason = trim((string) ($in['reason'] ?? 'control-app'));
+    if (!in_array($action, $allowed, true)) out(400, ['ok' => false, 'error' => 'unknown action']);
+    if (in_array($action, ['release_assign_900', 'release_promote'], true) && !preg_match('/^R\d{4}$/', $rid)) {
+        out(400, ['ok' => false, 'error' => 'release_id must match R####']);
+    }
+    if ($action === 'release_rollback' && $rid !== '' && !preg_match('/^R\d{4}$/', $rid)) {
+        out(400, ['ok' => false, 'error' => 'release_id must match R####']);
+    }
+    $dir = ctl_var('stylist-admin-req');
+    if (!is_dir($dir)) mkdir($dir, 0700, true);
+    if (count(glob($dir . '/*.json') ?: []) >= 5) out(409, ['ok' => false, 'error' => 'too many pending stylist actions']);
+    $id = bin2hex(random_bytes(6));
+    $req = [
+        'id'         => $id,
+        'action'     => $action,
+        'release_id' => $rid,
+        'reason'     => mb_substr($reason, 0, 120),
+        'at'         => time(),
+        'device'     => (string) $_SERVER['HTTP_X_HC_DEVICE'],
+    ];
+    file_put_contents($dir . '/' . time() . '-' . $id . '.json', json_encode($req, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), LOCK_EX);
+    ctl_log("stylist-admin-action $id $action $rid");
+    out(200, ['ok' => true, 'id' => $id, 'action' => $action, 'release_id' => $rid !== '' ? $rid : null,
+        'note' => 'the sites.hohedoc.ir cron picks it up within a minute']);
 }
 
 if ($op === 'step3-fire') {

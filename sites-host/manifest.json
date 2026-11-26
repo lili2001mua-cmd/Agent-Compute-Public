@@ -1,5 +1,5 @@
 {
-  "version": "20261125170449",
+  "version": "20261126020811",
   "files": {
     "app/branches.php": "1485a102188e83165111d1d23ce79a2fced2cc6fed0dd7719b31107262f74f1e",
     "app/da_provision.php": "29764156cb4cf47db4159acffc2a3de1603a9c70b0175274d5563d0b57e497a9",
@@ -14,7 +14,8 @@
     "app/ops.php": "e716c98426f94ebda21874e4f7674b9bd465819b15014aef50f0412d50255bff",
     "app/phone-backup.php": "8cc237b15d1f818bde8bfba8444e618583f00400285d7d04d26061d18f8d5184",
     "app/sites.php": "87a8fbdf23285764c6ceca919c247d48b367d76f49a01b7c4e44d7c0d999bea4",
-    "app/tick.php": "122799ab26639d19ac6e443d3c516c7e8978a1dfcb38b3ad19f0ae7fe472cfd1",
+    "app/stylist_admin_bridge.php": "320b57d29a25bda8220218088443f48a5b045eda53db8530a994d1f237993184",
+    "app/tick.php": "ae23560c04dda37a69afc2ed8a9601cad07478997cab2b5762b7dfe2fcc208b0",
     "app/vault-sync.php": "03c50c26e4c2fb51b9e42779564bd4a6a658505b8fd8197b56252ff6a3153d04",
     "public_html/door.php": "c502f5fc24821db57fa63abe4f6aa098afa5b8cd33850a8c9a653cd6d194a2c4",
     "public_html/get.php": "e9dea2684f69be84e616a1668dfb36f519a6043a71b014de441b7a588007c750",
