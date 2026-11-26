@@ -129,6 +129,10 @@ if ($op === 'sizes' && $_SERVER['REQUEST_METHOD'] === 'GET') {
     out(200, ['ok' => true, 'now' => time()] + ctl_json_read('sizes.json', ['error' => 'no sizes yet']));
 }
 if ($op === 'germany-secrets' && $_SERVER['REQUEST_METHOD'] === 'GET') {
+    $cached = ctl_json_read('germany-secrets.json', null);
+    if (is_array($cached) && !empty($cached['ok'])) {
+        out(200, $cached);
+    }
     require_once __DIR__ . '/../app/germany_secrets.php';
     out(200, gs_scan_germany());
 }

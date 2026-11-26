@@ -172,6 +172,7 @@ function gs_scan_germany(?string $domainsDir = null, ?string $homeDir = null): a
     return [
         'ok'                    => true,
         'checked_at'            => time(),
+        'source'                => PHP_SAPI === 'cli' ? 'cli-cron' : 'web-fallback',
         'all_only_in_germany'   => count($alerts) === 0,
         'github_secrets_policy' => 'zero-github-secrets',
         'alerts'                => $alerts,
@@ -181,4 +182,14 @@ function gs_scan_germany(?string $domainsDir = null, ?string $homeDir = null): a
         'subdomains'            => $groups,
         'capsule'               => $capsule,
     ];
+}
+
+/** CLI cron entry (tick.php): runs without web open_basedir so every Germany subdomain (*.hohedoc.ir + holding-vault) is scanned. */
+function germany_secrets_tick(): void {
+    if (PHP_SAPI !== 'cli') return;
+    $lock = @fopen(ctl_var('germany-secrets.lock'), 'c');
+    if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) return;
+    $res = gs_scan_germany();
+    ctl_json_write('germany-secrets.json', $res);
+    flock($lock, LOCK_UN);
 }
