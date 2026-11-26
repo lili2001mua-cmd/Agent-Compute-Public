@@ -29,15 +29,29 @@ function stylist_admin_read_json(string $path, $fallback = null) {
     return is_array($j) ? $j : $fallback;
 }
 
+/** Return stylistcrm site config from dh_sites() (or dh_site() in isolated tests). */
+function stylist_admin_site(): ?array {
+    if (function_exists('dh_sites')) {
+        $all = dh_sites();
+        if (isset($all['stylistcrm']) && is_array($all['stylistcrm'])) return $all['stylistcrm'];
+    }
+    if (function_exists('dh_site')) {
+        $s = dh_site('stylistcrm');
+        if (is_array($s)) return $s;
+    }
+    return null;
+}
+
 /** Extract portable host URLs dynamically from sites.php (zero hardcoding for STY-18 migration). */
 function stylist_admin_hosts_info(): array {
     $out = ['primary_pwa' => '', 'primary_hub' => '', 'standby_pwa' => '', 'standby_hub' => ''];
-    if (!function_exists('dh_site')) return $out;
+    $site = stylist_admin_site();
+    if (!is_array($site)) return $out;
     try {
-        $site = dh_site('stylistcrm');
         $envs = $site['envs'] ?? [];
         foreach (['pwa' => 'primary_pwa', 'hub' => 'primary_hub', 'pwa-de' => 'standby_pwa', 'hub-de' => 'standby_hub'] as $k => $field) {
-            $u = (string) ($envs[$k]['url'] ?? '');
+            $raw = $envs[$k] ?? '';
+            $u = is_array($raw) ? (string) ($raw['url'] ?? '') : (string) $raw;
             if ($u !== '') {
                 $p = parse_url($u);
                 if (!empty($p['scheme']) && !empty($p['host'])) {
@@ -55,7 +69,7 @@ function stylist_admin_hosts_info(): array {
 function stylist_admin_fetch_releases(bool $force = false): array {
     $cachePath = function_exists('dh_var') ? dh_var('stylist-releases-cache.json') : sys_get_temp_dir() . '/stylist-releases-cache.json';
     $cached = stylist_admin_read_json($cachePath, null);
-    if (!$force && is_array($cached) && (time() - (int) ($cached['fetched_at'] ?? 0)) < STYLIST_ADMIN_RELEASE_CACHE_SEC) {
+    if (!$force && is_array($cached) && !empty($cached['ok']) && (time() - (int) ($cached['fetched_at'] ?? 0)) < STYLIST_ADMIN_RELEASE_CACHE_SEC) {
         return $cached;
     }
 
@@ -69,13 +83,13 @@ function stylist_admin_fetch_releases(bool $force = false): array {
         'assignments'    => [],
         'error'          => null,
     ];
-    if (!function_exists('dh_site') || !function_exists('dh_post')) {
+    $site = stylist_admin_site();
+    if (!is_array($site) || !function_exists('dh_post')) {
         $res['error'] = 'bridge_unavailable';
         return $res;
     }
 
     try {
-        $site = dh_site('stylistcrm');
         [$code, $j, $err] = dh_post($site, 'pwa', ['action' => 'release', 'op' => 'status', 'files' => []]);
         if ($code === 200 && !empty($j['ok'])) {
             $st = is_array($j['state'] ?? null) ? $j['state'] : [];
@@ -99,7 +113,9 @@ function stylist_admin_fetch_releases(bool $force = false): array {
 function stylist_admin_publish_snapshot(bool $forceReleases = false, ?string $controlVarOverride = null): array {
     $hosts = stylist_admin_hosts_info();
 
-    $syncState = function_exists('dh_var') ? stylist_admin_read_json(dh_var('de-mirror-sync-state.json'), null) : null;
+    $syncState = function_exists('dh_var')
+        ? (stylist_admin_read_json(dh_var('de-mirror-state.json'), null) ?? stylist_admin_read_json(dh_var('de-mirror-sync-state.json'), null))
+        : null;
     $sla24h    = function_exists('dh_var') ? stylist_admin_read_json(dh_var('de-mirror-sla-24h.json'), null) : null;
     $parity    = function_exists('db_parity_state_path') ? stylist_admin_read_json(db_parity_state_path(), null) : null;
     $parity7   = function_exists('db_parity_7day_path') ? stylist_admin_read_json(db_parity_7day_path(), null) : null;
@@ -214,10 +230,14 @@ function stylist_admin_execute_action(array $req, ?callable $bridgeFn = null, ?c
         $ok = !empty($j['ok']);
         $err = $ok ? null : (string) ($j['error'] ?? 'bridge_fail');
     } else {
-        $site = dh_site('stylistcrm');
-        [$code, $j, $err] = dh_post($site, 'pwa', $payload);
-        $ok = ($code === 200 && !empty($j['ok']));
-        if (!$ok && !$err) $err = 'http_' . $code . '_' . (string) ($j['error'] ?? 'fail');
+        $site = stylist_admin_site();
+        if (!is_array($site) || !function_exists('dh_post')) {
+            $ok = false; $j = null; $err = 'bridge_unavailable';
+        } else {
+            [$code, $j, $err] = dh_post($site, 'pwa', $payload);
+            $ok = ($code === 200 && !empty($j['ok']));
+            if (!$ok && !$err) $err = 'http_' . $code . '_' . (string) ($j['error'] ?? 'fail');
+        }
     }
 
     return [

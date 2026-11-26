@@ -264,6 +264,15 @@ if ($op === 'stylist-admin-action') {
         'note' => 'the sites.hohedoc.ir cron picks it up within a minute']);
 }
 
+if ($op === 'hub-gate-ticket') {
+    // Signed short-lived ticket for My-Control-Project's built-in Hub browser (dynamic primary/standby host).
+    require_once __DIR__ . '/../app/hub_gate.php';
+    $dev = (string) ($_SERVER['HTTP_X_HC_DEVICE'] ?? 'phone1');
+    $res = hub_gate_issue($in, $dev);
+    ctl_log("hub-gate-ticket dev=$dev code=" . $res['code'] . ' role=' . (string) ($res['body']['role'] ?? ''));
+    out($res['code'], $res['body']);
+}
+
 if ($op === 'step3-fire') {
     // «سشن بساز و اجرا کن»: one bundle waiting in step 3 without a session → routine.hohedoc.ir fires the
     // account's dispatcher with job=step3-bundle (Memory-Routine-Runbook/step3-bundle.md). We only drop a file.
