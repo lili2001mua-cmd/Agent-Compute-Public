@@ -59,6 +59,74 @@ t_assert($qRes['processed'] === 1 && ($qRes['last']['ok'] ?? false) === true && 
 t_assert(!is_file($tmpCtrl . '/stylist-admin-req/1700000000-q1.json'), '11) Processed request file deleted cleanly');
 t_assert(is_file($tmpCtrl . '/stylist-admin-last-action.json'), '12) stylist-admin-last-action.json written atomically');
 
+// 6) Real producer->consumer contract test for STY-03 (db_parity_audit.php -> stylist_admin_normalize_db_parity)
+require_once __DIR__ . '/../files/app/db_parity_audit.php';
+$realCmp = db_parity_compare(
+    ['factor', 'desk_log'],
+    ['factor', 'desk_log'],
+    [
+        'factor'   => ['cnt' => 10, 'max_pk' => 10, 'content_hash' => '111'],
+        'desk_log' => ['cnt' => 5,  'max_pk' => 5,  'content_hash' => '222'],
+    ],
+    [
+        'factor'   => ['cnt' => 10, 'max_pk' => 10, 'content_hash' => '111'],
+        'desk_log' => ['cnt' => 4,  'max_pk' => 4,  'content_hash' => '333'],
+    ]
+);
+$realAlert = db_parity_eval_alert([], $realCmp, 1700000000, '1405-09-05 16:00');
+$real7 = db_parity_update_7day(
+    ['days' => [['day' => '1405-09-04', 'ok' => true, 'checks' => 7, 'mismatches' => 0]]],
+    '1405-09-05',
+    $realCmp,
+    '2026-11-26T12:30:00+00:00',
+    $realAlert['state']['consecutive_mismatches']
+);
+t_assert(($real7['consecutive_green_days'] ?? 0) === 2 && ($real7['consecutive_clean_days'] ?? 0) === 2,
+    '13) db_parity_update_7day emits both consecutive_green_days=2 and consecutive_clean_days=2');
+t_assert(($real7['days'][0]['all_match'] ?? false) === true && ($real7['days'][0]['date_jalali'] ?? '') === '1405-09-04',
+    '14) db_parity_update_7day backfills all_match & date_jalali on existing days');
+$realState = [
+    'ok'             => true,
+    'at'             => '2026-11-26T12:30:00+00:00',
+    'all_match'      => $realCmp['all_match'],
+    'tables_primary' => $realCmp['tables_primary'],
+    'tables_standby' => $realCmp['tables_standby'],
+    'mismatches'     => $realCmp['mismatches'],
+    'alert'          => $realAlert['state'],
+    'days_7_streak'  => $real7['consecutive_green_days'],
+];
+$normParity = stylist_admin_normalize_db_parity($realState, $real7);
+t_assert(($normParity['consecutive_days'] ?? 0) === 2 && ($normParity['mismatched_tables'] ?? []) === ['desk_log'] && ($normParity['alert_active'] ?? true) === false,
+    '15) stylist_admin_normalize_db_parity maps real db_parity_audit output without key drift');
+
+// 7) STY-14 automatic DB query fallback when sync.php returns HTTP 400 action not allowed
+$fallbackCaller = function (array $payload): array {
+    if (($payload['action'] ?? '') === 'release') {
+        return [400, ['ok' => false, 'error' => 'action'], null];
+    }
+    if (($payload['action'] ?? '') === 'query' && str_contains((string) ($payload['sql'] ?? ''), 'app_releases')) {
+        return [200, ['ok' => true, 'rows' => [
+            ['release_id' => 'R0002', 'status' => 'staged', 'git_sha' => 'abc-canary', 'notes' => 'canary 900'],
+            ['release_id' => 'R0001', 'status' => 'stable', 'git_sha' => 'abc', 'notes' => 'baseline'],
+        ]], null];
+    }
+    if (($payload['action'] ?? '') === 'query' && str_contains((string) ($payload['sql'] ?? ''), 'branch_release_assignments')) {
+        return [200, ['ok' => true, 'rows' => [
+            ['company_id' => 900, 'release_id' => 'R0002', 'scope_type' => 'branch', 'reason' => 'canary'],
+        ]], null];
+    }
+    return [404, ['ok' => false, 'error' => 'unexpected'], null];
+};
+$relFb = stylist_admin_fetch_releases(true, $fallbackCaller);
+t_assert(
+    ($relFb['ok'] ?? false) === true
+    && ($relFb['default_stable'] ?? '') === 'R0001'
+    && ($relFb['branch_900'] ?? '') === 'R0002'
+    && count($relFb['releases'] ?? []) === 2
+    && ($relFb['source'] ?? '') === 'db_query_fallback',
+    '16) STY-14 falls back to live DB query on HTTP 400 action and resolves R0001/R0002'
+);
+
 // cleanup
 @unlink($tmpCtrl . '/stylist-admin-state.json');
 @unlink($tmpCtrl . '/stylist-admin-last-action.json');

@@ -231,10 +231,14 @@ function db_parity_update_7day(array $prevLedger, string $jalaliDay, array $cmp,
     $effectiveOk = !empty($cmp['all_match']) || $isTransientOnly;
 
     $prevToday = $byDay[$jalaliDay] ?? ['checks' => 0, 'mismatches' => 0];
+    $checksNow = (int) ($prevToday['checks'] ?? 0) + 1;
     $byDay[$jalaliDay] = [
         'day'            => $jalaliDay,
+        'date_jalali'    => $jalaliDay,
         'ok'             => $effectiveOk,
-        'checks'         => (int) ($prevToday['checks'] ?? 0) + 1,
+        'all_match'      => $effectiveOk,
+        'checks'         => $checksNow,
+        'runs'           => $checksNow,
         'mismatches'     => (int) ($prevToday['mismatches'] ?? 0) + ($effectiveOk ? 0 : 1),
         'tables_total'   => (int) ($cmp['tables_primary'] ?? 0),
         'hashed_matched' => (int) ($cmp['matched_tables'] ?? 0) . '/' . (int) ($cmp['hashed_tables'] ?? 0),
@@ -244,7 +248,20 @@ function db_parity_update_7day(array $prevLedger, string $jalaliDay, array $cmp,
     if (count($byDay) > 14) {
         $byDay = array_slice($byDay, -14, null, true);
     }
-    $list = array_values($byDay);
+    // Backfill compatibility aliases on any previously stored days so all consumers agree.
+    $list = [];
+    foreach ($byDay as $row) {
+        $rowOk = !empty($row['ok']) || !empty($row['all_match']);
+        $rowDay = (string) ($row['day'] ?? $row['date_jalali'] ?? '—');
+        $rowChecks = (int) ($row['checks'] ?? $row['runs'] ?? 0);
+        $row['day'] = $rowDay;
+        $row['date_jalali'] = $rowDay;
+        $row['ok'] = $rowOk;
+        $row['all_match'] = $rowOk;
+        $row['checks'] = $rowChecks;
+        $row['runs'] = $rowChecks;
+        $list[] = $row;
+    }
     $streak = 0;
     for ($i = count($list) - 1; $i >= 0; $i--) {
         if (!empty($list[$i]['ok'])) $streak++;
@@ -253,6 +270,7 @@ function db_parity_update_7day(array $prevLedger, string $jalaliDay, array $cmp,
     return [
         'target_days'            => 7,
         'consecutive_green_days' => $streak,
+        'consecutive_clean_days' => $streak,
         'ready_7day_gate'        => ($streak >= 7),
         'updated_at_utc'         => $utcNow,
         'days'                   => $list,
@@ -327,6 +345,39 @@ function db_parity_audit_run(bool $force = true): array {
     }
 
     $cmp = db_parity_compare($primaryTables, $standbyTables, $primaryHashes, $standbyHashes);
+
+    // Eliminate false-positive in-flight replication lag (e.g. 1 live row written to desk_log during the audit window):
+    // flush one immediate sync tick and re-hash ONLY the mismatched table(s) before declaring a mismatch.
+    if (
+        empty($cmp['all_match'])
+        && empty($cmp['only_in_primary'])
+        && empty($cmp['only_in_standby'])
+        && !empty($cmp['mismatches'])
+        && function_exists('de_mirror_sync_tick')
+    ) {
+        try {
+            de_mirror_sync_tick();
+            $pClMax2 = (int) (de_mirror_iran_query($site, "SELECT COALESCE(MAX(seq), 0) AS m FROM change_log")[0]['m'] ?? 0);
+            $sClMax2 = (int) $pdo->query("SELECT COALESCE(MAX(seq), 0) FROM `change_log`")->fetchColumn();
+            $commonSeq = min($pClMax2, $sClMax2);
+            foreach ($cmp['mismatches'] as $m) {
+                $tbl = (string) ($m['table'] ?? '');
+                if ($tbl === '' || !isset(DB_PARITY_HASH_SPECS[$tbl]) || !isset($localCols[$tbl])) continue;
+                [$pk, $cols] = DB_PARITY_HASH_SPECS[$tbl];
+                $validCols = array_values(array_filter($cols, fn($c) => isset($localCols[$tbl][$c])));
+                if (!$validCols || !isset($localCols[$tbl][$pk])) continue;
+                $sql = db_parity_table_hash_sql($tbl, $pk, $validCols, $tbl === 'change_log' ? $commonSeq : null);
+                $pr = de_mirror_iran_query($site, $sql)[0] ?? null;
+                $sr = $pdo->query($sql)->fetch(PDO::FETCH_ASSOC) ?: null;
+                if (is_array($pr)) $primaryHashes[$tbl] = $pr;
+                if (is_array($sr)) $standbyHashes[$tbl] = $sr;
+            }
+            $cmp = db_parity_compare($primaryTables, $standbyTables, $primaryHashes, $standbyHashes);
+        } catch (Throwable $e) {
+            // keep original comparison if retry sync fails
+        }
+    }
+
     $utcNow = gmdate('c', $nowTs);
     $tehStr = function_exists('pb_tehran') ? pb_tehran($nowTs) : gmdate('Y-m-d H:i', $nowTs);
     $jalaliDay = explode(' ', $tehStr)[0];

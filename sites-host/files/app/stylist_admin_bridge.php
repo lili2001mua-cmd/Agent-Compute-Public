@@ -65,11 +65,121 @@ function stylist_admin_hosts_info(): array {
     return $out;
 }
 
-/** Fetch dual-track release status from pwa (cached 5 min unless forced). */
-function stylist_admin_fetch_releases(bool $force = false): array {
+/**
+ * Read-only fallback for STY-14 when pwa/deploy/sync.php is v7 (no action=release due to deploy/* lock).
+ * Reads app_releases + branch_release_assignments directly via sync.php's existing action=query.
+ */
+function stylist_admin_fetch_releases_via_query(array $site, ?callable $postFn = null): array {
+    $out = [
+        'ok'             => false,
+        'fetched_at'     => time(),
+        'fetched_at_utc' => gmdate('c'),
+        'default_stable' => null,
+        'branch_900'     => null,
+        'releases'       => [],
+        'assignments'    => [],
+        'source'         => 'db_query_fallback',
+        'error'          => null,
+    ];
+    $caller = $postFn ?? (function_exists('dh_post') ? fn(array $p) => dh_post($site, 'pwa', $p) : null);
+    if (!$caller) {
+        $out['error'] = 'bridge_unavailable';
+        return $out;
+    }
+    [$c1, $j1, $e1] = $caller([
+        'action' => 'query',
+        'sql'    => 'SELECT release_id, status, git_sha, notes, staged_at, promoted_at FROM app_releases ORDER BY id DESC LIMIT 12',
+    ]);
+    if ($c1 !== 200 || empty($j1['ok']) || !is_array($j1['rows'] ?? null)) {
+        $out['error'] = $e1 ?: ('query_releases_http_' . $c1 . '_' . (string) ($j1['error'] ?? 'fail'));
+        return $out;
+    }
+    $releases = [];
+    $stable = null;
+    foreach ($j1['rows'] as $row) {
+        if (!is_array($row) || empty($row['release_id'])) continue;
+        $releases[] = [
+            'release_id'  => (string) $row['release_id'],
+            'status'      => (string) ($row['status'] ?? ''),
+            'git_sha'     => (string) ($row['git_sha'] ?? ''),
+            'notes'       => (string) ($row['notes'] ?? ''),
+            'staged_at'   => $row['staged_at'] ?? null,
+            'promoted_at' => $row['promoted_at'] ?? null,
+        ];
+        if ($stable === null && ($row['status'] ?? '') === 'stable') {
+            $stable = (string) $row['release_id'];
+        }
+    }
+    $assignments = [];
+    $branch900 = null;
+    [$c2, $j2] = $caller([
+        'action' => 'query',
+        'sql'    => 'SELECT company_id, release_id, scope_type, reason, assigned_at FROM branch_release_assignments WHERE active = 1 ORDER BY id DESC LIMIT 20',
+    ]);
+    if ($c2 === 200 && !empty($j2['ok']) && is_array($j2['rows'] ?? null)) {
+        foreach ($j2['rows'] as $a) {
+            if (!is_array($a) || empty($a['release_id'])) continue;
+            $cid = (int) ($a['company_id'] ?? 0);
+            $rid = (string) $a['release_id'];
+            $assignments[] = [
+                'company_id'  => $cid,
+                'release_id'  => $rid,
+                'scope_type'  => (string) ($a['scope_type'] ?? 'branch'),
+                'reason'      => (string) ($a['reason'] ?? ''),
+                'assigned_at' => $a['assigned_at'] ?? null,
+            ];
+            if ($cid === 900 && $branch900 === null) {
+                $branch900 = $rid;
+            }
+        }
+    }
+    $out['ok']             = true;
+    $out['default_stable'] = $stable;
+    $out['branch_900']     = $branch900 ?? $stable;
+    $out['releases']       = $releases;
+    $out['assignments']    = $assignments;
+    return $out;
+}
+
+/** Normalize db_parity state + 7-day ledger produced by db_parity_audit.php into stylist-admin-v1 shape. */
+function stylist_admin_normalize_db_parity(?array $parity, ?array $parity7): ?array {
+    if (!is_array($parity)) return null;
+    $mismatchedTables = [];
+    if (is_array($parity['mismatched_tables'] ?? null) && count($parity['mismatched_tables']) > 0) {
+        foreach ($parity['mismatched_tables'] as $t) {
+            if (is_string($t) && $t !== '') $mismatchedTables[] = $t;
+        }
+    } elseif (is_array($parity['mismatches'] ?? null)) {
+        foreach ($parity['mismatches'] as $m) {
+            if (is_array($m) && !empty($m['table'])) $mismatchedTables[] = (string) $m['table'];
+            elseif (is_string($m) && $m !== '') $mismatchedTables[] = $m;
+        }
+    }
+    $alertActive = (bool) ($parity['alert']['alert_active'] ?? $parity['alert_active'] ?? false);
+    $consecDays = (int) (
+        $parity7['consecutive_green_days']
+        ?? $parity7['consecutive_clean_days']
+        ?? $parity['days_7_streak']
+        ?? 0
+    );
+    return [
+        'ok'                => (bool) ($parity['ok'] ?? false),
+        'all_match'         => (bool) ($parity['all_match'] ?? false),
+        'tables_primary'    => (int) ($parity['tables_primary'] ?? 0),
+        'tables_standby'    => (int) ($parity['tables_standby'] ?? 0),
+        'mismatched_tables' => $mismatchedTables,
+        'alert_active'      => $alertActive,
+        'last_run_utc'      => $parity['at'] ?? ($parity['last_run_utc'] ?? null),
+        'consecutive_days'  => $consecDays,
+        'ready_7day_gate'   => (bool) ($parity7['ready_7day_gate'] ?? ($consecDays >= 7)),
+    ];
+}
+
+/** Fetch dual-track release status from pwa (cached 5 min unless forced; falls back to DB query if sync.php is v7). */
+function stylist_admin_fetch_releases(bool $force = false, ?callable $postFn = null): array {
     $cachePath = function_exists('dh_var') ? dh_var('stylist-releases-cache.json') : sys_get_temp_dir() . '/stylist-releases-cache.json';
     $cached = stylist_admin_read_json($cachePath, null);
-    if (!$force && is_array($cached) && !empty($cached['ok']) && (time() - (int) ($cached['fetched_at'] ?? 0)) < STYLIST_ADMIN_RELEASE_CACHE_SEC) {
+    if (!$force && $postFn === null && is_array($cached) && !empty($cached['ok']) && (time() - (int) ($cached['fetched_at'] ?? 0)) < STYLIST_ADMIN_RELEASE_CACHE_SEC) {
         return $cached;
     }
 
@@ -83,14 +193,15 @@ function stylist_admin_fetch_releases(bool $force = false): array {
         'assignments'    => [],
         'error'          => null,
     ];
-    $site = stylist_admin_site();
-    if (!is_array($site) || !function_exists('dh_post')) {
+    $site = stylist_admin_site() ?? [];
+    $caller = $postFn ?? (is_array($site) && $site && function_exists('dh_post') ? fn(array $p) => dh_post($site, 'pwa', $p) : null);
+    if (!$caller) {
         $res['error'] = 'bridge_unavailable';
         return $res;
     }
 
     try {
-        [$code, $j, $err] = dh_post($site, 'pwa', ['action' => 'release', 'op' => 'status', 'files' => []]);
+        [$code, $j, $err] = $caller(['action' => 'release', 'op' => 'status', 'files' => []]);
         if ($code === 200 && !empty($j['ok'])) {
             $st = is_array($j['state'] ?? null) ? $j['state'] : [];
             $res['ok']             = true;
@@ -98,6 +209,8 @@ function stylist_admin_fetch_releases(bool $force = false): array {
             $res['branch_900']     = $st['branch_overrides']['900'] ?? ($st['default_stable'] ?? null);
             $res['releases']       = is_array($j['releases'] ?? null) ? array_slice($j['releases'], 0, 12) : [];
             $res['assignments']    = is_array($j['assignments'] ?? null) ? array_slice($j['assignments'], 0, 20) : [];
+        } elseif ($code === 400 && str_contains(strtolower((string) ($j['error'] ?? '')), 'action')) {
+            $res = stylist_admin_fetch_releases_via_query($site, $caller);
         } else {
             $res['error'] = $err ?: ('http_' . $code . '_' . (string) ($j['error'] ?? 'fail'));
         }
@@ -105,7 +218,9 @@ function stylist_admin_fetch_releases(bool $force = false): array {
         $res['error'] = substr($e->getMessage(), 0, 160);
     }
 
-    stylist_admin_atomic_json($cachePath, $res);
+    if ($postFn === null) {
+        stylist_admin_atomic_json($cachePath, $res);
+    }
     return $res;
 }
 
@@ -141,17 +256,7 @@ function stylist_admin_publish_snapshot(bool $forceReleases = false, ?string $co
                 'alert_active' => (bool) ($sla24h['alert_active'] ?? false),
             ] : null,
         ],
-        'db_parity'      => is_array($parity) ? [
-            'ok'                  => (bool) ($parity['ok'] ?? false),
-            'all_match'           => (bool) ($parity['all_match'] ?? false),
-            'tables_primary'      => (int) ($parity['tables_primary'] ?? 0),
-            'tables_standby'      => (int) ($parity['tables_standby'] ?? 0),
-            'mismatched_tables'   => $parity['mismatched_tables'] ?? [],
-            'alert_active'        => (bool) ($parity['alert_active'] ?? false),
-            'last_run_utc'        => $parity['last_run_utc'] ?? null,
-            'consecutive_days'    => (int) ($parity7['consecutive_clean_days'] ?? 0),
-            'ready_7day_gate'     => (bool) ($parity7['ready_7day_gate'] ?? false),
-        ] : null,
+        'db_parity'      => stylist_admin_normalize_db_parity($parity, $parity7),
         'releases'       => $releases,
         'apk_download'   => [
             'version'     => '2.4.0',
@@ -165,6 +270,28 @@ function stylist_admin_publish_snapshot(bool $forceReleases = false, ?string $co
     $published = false;
     if ($ctrlDir !== '' && is_dir($ctrlDir)) {
         $published = stylist_admin_atomic_json($ctrlDir . '/stylist-admin-state.json', $snapshot);
+        if (is_array($parity7) && is_array($parity7['days'] ?? null)) {
+            $normDays = [];
+            foreach ($parity7['days'] as $row) {
+                if (!is_array($row)) continue;
+                $rOk = !empty($row['ok']) || !empty($row['all_match']);
+                $rDay = (string) ($row['day'] ?? $row['date_jalali'] ?? '—');
+                $rChk = (int) ($row['checks'] ?? $row['runs'] ?? 0);
+                $row['day'] = $rDay;
+                $row['date_jalali'] = $rDay;
+                $row['ok'] = $rOk;
+                $row['all_match'] = $rOk;
+                $row['checks'] = $rChk;
+                $row['runs'] = $rChk;
+                $normDays[] = $row;
+            }
+            $streak = (int) ($parity7['consecutive_green_days'] ?? $parity7['consecutive_clean_days'] ?? 0);
+            $parity7Norm = $parity7;
+            $parity7Norm['consecutive_green_days'] = $streak;
+            $parity7Norm['consecutive_clean_days'] = $streak;
+            $parity7Norm['days'] = $normDays;
+            stylist_admin_atomic_json($ctrlDir . '/db-parity-7day.json', $parity7Norm);
+        }
         if (function_exists('dh_secrets')) {
             $depSec = trim((string) (dh_secrets()['STYLISTCRM_DEPLOY_SECRET'] ?? ''));
             if ($depSec !== '') {
