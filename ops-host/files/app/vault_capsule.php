@@ -122,12 +122,20 @@ function ops_vault_capsule_collect(): array {
         }
     }
 
-    foreach (OPS_SUBDOMAINS as $sub) {
+    $scanSubs = OPS_SUBDOMAINS;
+    foreach (glob($domainsDir . '/*.hohedoc.ir', GLOB_ONLYDIR) ?: [] as $d) {
+        $bn = basename($d);
+        if (!in_array($bn, $scanSubs, true)) $scanSubs[] = $bn;
+    }
+    foreach ($scanSubs as $sub) {
         $subDir = $domainsDir . '/' . $sub;
         if (!@is_dir($subDir)) continue;
         $candidates = [];
         foreach (OPS_SECRET_FILES as $sf) $candidates[] = $subDir . '/' . $sf;
+        $candidates[] = $subDir . '/var/hub-gate.key';
         foreach (glob($subDir . '/secrets-extra*.php') ?: [] as $ex) $candidates[] = $ex;
+        foreach (glob($subDir . '/var/ai-vault/*.enc') ?: [] as $enc) $candidates[] = $enc;
+        foreach (glob($subDir . '/var/drive-accounts/*.json') ?: [] as $da) $candidates[] = $da;
         foreach (array_unique($candidates) as $p) {
             if (!@is_file($p)) continue;
             $raw = @file_get_contents($p);
