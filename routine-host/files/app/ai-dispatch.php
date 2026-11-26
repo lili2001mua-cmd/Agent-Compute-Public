@@ -151,6 +151,11 @@ function rt_ai_fire_process(string $processKey, string $jobId, string $runId, ar
         return ['state' => 'pack', 'why' => "پاسخِ خطا از {$alias} (HTTP {$code})"];
     }
 
+    $defaultInstruction = !empty($extra['runbook'])
+        ? "مخزن Agent-Project-Backup را از شاخهٔ main تازه کن و فایل {$extra['runbook']} را با شناسهٔ {$runId} عیناً اجرا کن."
+        : "مخزن Agent-Project-Backup را از شاخهٔ main تازه کن و کارِ {$processKey} ({$jobId} · {$runId}) را طبقِ رانبوکِ مربوط اجرا کن.";
+    $basePayload = ['repo' => 'lili2001mua-cmd/Agent-Project-Backup', 'branch' => 'main', 'process' => $processKey, 'job' => $jobId, 'run_id' => $runId, 'instruction' => (string) ($extra['instruction'] ?? $defaultInstruction)] + $extra;
+
     if ($mode === 'webhook' || $mode === 'api_key') {
         if (!is_array($sec) || empty($sec['url'])) {
             return ['state' => 'pack', 'why' => "نشانیِ {$alias} در گاوصندوقِ هاست نیست"];
@@ -158,7 +163,7 @@ function rt_ai_fire_process(string $processKey, string $jobId, string $runId, ar
         $hdrs = ['Content-Type: application/json', 'User-Agent: routine-hohedoc'];
         if (!empty($sec['token'])) $hdrs[] = 'Authorization: Bearer ' . $sec['token'];
         if (!empty($sec['header'])) $hdrs[] = (string) $sec['header'];
-        $payload = json_encode(['process' => $processKey, 'job' => $jobId, 'run_id' => $runId, 'model' => (string) ($acct['model'] ?? '')] + $extra, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $payload = json_encode($basePayload + ['model' => (string) ($acct['model'] ?? '')], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         $ch = curl_init((string) $sec['url']);
         curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 25, CURLOPT_POST => true, CURLOPT_HTTPHEADER => $hdrs, CURLOPT_POSTFIELDS => $payload]);
         curl_exec($ch);
@@ -179,7 +184,7 @@ function rt_ai_fire_process(string $processKey, string $jobId, string $runId, ar
             if (!empty($sec['token'])) $hdrs[] = 'Authorization: Bearer ' . $sec['token'];
             if (!empty($sec['header'])) $hdrs[] = (string) $sec['header'];
             curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 15, CURLOPT_POST => true, CURLOPT_HTTPHEADER => $hdrs,
-                CURLOPT_POSTFIELDS => json_encode(['process' => $processKey, 'job' => $jobId, 'run_id' => $runId] + $extra, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)]);
+                CURLOPT_POSTFIELDS => json_encode($basePayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)]);
             curl_exec($ch);
             $webhookCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
             curl_close($ch);

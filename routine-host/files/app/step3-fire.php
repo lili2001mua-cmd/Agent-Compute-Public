@@ -36,7 +36,11 @@ function r_step3_fire(): void {
     if (!$job) { f_state($base + ['state' => 'failed', 'error' => 'step3-bundle missing from jobs.json']); return; }
     if (is_file(__DIR__ . '/ai-dispatch.php')) {
         require_once __DIR__ . '/ai-dispatch.php';
-        $aiRes = rt_ai_fire_process('trainer.step3_mapping', 'step3-bundle', $runId, ['key' => $key]);
+        $aiRes = rt_ai_fire_process('trainer.step3_mapping', 'step3-bundle', $runId, [
+            'key' => $key,
+            'runbook' => 'Memory-Routine-Runbook/pool-step3-grok.md',
+            'instruction' => "مخزن Agent-Project-Backup را از main تازه کن و رانبوک Memory-Routine-Runbook/pool-step3-grok.md را برای کلید {$key} اجرا کن.",
+        ]);
         if ($aiRes !== null) {
             if (($aiRes['state'] ?? '') === 'fired') {
                 $st = $base + ['state' => 'fired', 'session' => (string) ($aiRes['session'] ?? ''), 'via' => (string) ($aiRes['via'] ?? '')];
