@@ -9,6 +9,28 @@ const DB_PARITY_ALERT_CONSEC  = 2;    // 2 consecutive mismatches before firing 
 const DB_PARITY_ALERT_COOLDOWN = 3600; // 60-minute cooldown between repeated mismatch alerts
 
 /**
+ * Strict, closed allowlist of host-local operational tables (5-specialist unanimous policy):
+ * These tables store local host metadata (migration ledger, write lease, cold-archive manifest)
+ * and may legitimately differ across hosts (e.g. during bridge/STY-18 upgrades).
+ * Security guard: NO table in DB_PARITY_HASH_SPECS (core business tables) can ever be excluded.
+ */
+const DB_PARITY_HOST_LOCAL_TABLES = [
+    'schema_migration_log'        => 1,
+    'stylist_write_lease'         => 1,
+    'change_log_archive_manifest' => 1,
+];
+
+/** Check whether a table is an explicitly authorized host-local operational table. */
+function db_parity_is_host_local_table(string $table): bool {
+    // Hard security invariant: core business tables can NEVER be excluded
+    if (isset(DB_PARITY_HASH_SPECS[$table])) return false;
+    if (isset(DB_PARITY_HOST_LOCAL_TABLES[$table])) return true;
+    // Explicit probe prefix used only by removable Step-100-style self-tests
+    if (str_starts_with($table, '_sty_probe_')) return true;
+    return false;
+}
+
+/**
  * 12 core business & integrity tables for deep COUNT(*) + MAX(pk) + BIT_XOR(CRC32(...)) content hash.
  * Each spec: [pk_col, hash_cols_array].
  */
@@ -57,12 +79,30 @@ function db_parity_table_hash_sql(string $table, string $pk, array $cols, ?int $
          . "COALESCE(BIT_XOR(CRC32($concat)), 0) AS content_hash FROM `$table`$where";
 }
 
-/** Pure comparison of full table inventory + deep per-table count & content-hash results (unit-testable). */
+/** Pure comparison of business table inventory + deep per-table count & content-hash results (unit-testable). */
 function db_parity_compare(array $primaryTables, array $standbyTables, array $primaryHashes, array $standbyHashes): array {
-    sort($primaryTables, SORT_STRING);
-    sort($standbyTables, SORT_STRING);
-    $onlyPrimaryTbl = array_values(array_diff($primaryTables, $standbyTables));
-    $onlyStandbyTbl = array_values(array_diff($standbyTables, $primaryTables));
+    $ignoredHostLocal = [];
+    $filterBiz = function (array $list) use (&$ignoredHostLocal): array {
+        $out = [];
+        foreach ($list as $t) {
+            $name = (string) $t;
+            if (db_parity_is_host_local_table($name)) {
+                $ignoredHostLocal[$name] = true;
+            } else {
+                $out[] = $name;
+            }
+        }
+        sort($out, SORT_STRING);
+        return $out;
+    };
+
+    $bizPrimary = $filterBiz($primaryTables);
+    $bizStandby = $filterBiz($standbyTables);
+    $ignoredList = array_keys($ignoredHostLocal);
+    sort($ignoredList, SORT_STRING);
+
+    $onlyPrimaryTbl = array_values(array_diff($bizPrimary, $bizStandby));
+    $onlyStandbyTbl = array_values(array_diff($bizStandby, $bizPrimary));
 
     $details = [];
     $mismatches = [];
@@ -96,19 +136,22 @@ function db_parity_compare(array $primaryTables, array $standbyTables, array $pr
 
     $allMatch = !$onlyPrimaryTbl && !$onlyStandbyTbl && !$mismatches && count($details) > 0;
     return [
-        'all_match'        => $allMatch,
-        'tables_primary'   => count($primaryTables),
-        'tables_standby'   => count($standbyTables),
-        'only_in_primary'  => $onlyPrimaryTbl,
-        'only_in_standby'  => $onlyStandbyTbl,
-        'hashed_tables'    => count($details),
-        'matched_tables'   => count($details) - count($mismatches),
-        'mismatches'       => $mismatches,
-        'details'          => $details,
+        'all_match'          => $allMatch,
+        'tables_primary'     => count($bizPrimary),
+        'tables_standby'     => count($bizStandby),
+        'tables_primary_raw' => count($primaryTables),
+        'tables_standby_raw' => count($standbyTables),
+        'only_in_primary'    => $onlyPrimaryTbl,
+        'only_in_standby'    => $onlyStandbyTbl,
+        'ignored_host_local' => $ignoredList,
+        'hashed_tables'      => count($details),
+        'matched_tables'     => count($details) - count($mismatches),
+        'mismatches'         => $mismatches,
+        'details'            => $details,
     ];
 }
 
-/** Pure Control App + Telegram mismatch alert state machine (unit-testable). */
+/** Pure Control App + Telegram mismatch alert state machine with exact diff attribution (unit-testable). */
 function db_parity_eval_alert(array $prevAlert, array $cmp, int $nowTs, string $tehranTime): array {
     $consec   = (int) ($prevAlert['consecutive_mismatches'] ?? 0);
     $active   = !empty($prevAlert['alert_active']);
@@ -121,13 +164,25 @@ function db_parity_eval_alert(array $prevAlert, array $cmp, int $nowTs, string $
     if (empty($cmp['all_match'])) {
         $consec++;
         $badNames = array_map(fn($m) => $m['table'], $cmp['mismatches'] ?? []);
+        $schemaParts = [];
+        if (!empty($cmp['only_in_primary'])) {
+            $schemaParts[] = 'فقط در اصلی: ' . implode('، ', $cmp['only_in_primary']);
+        }
+        if (!empty($cmp['only_in_standby'])) {
+            $schemaParts[] = 'فقط در پشتیبان: ' . implode('، ', $cmp['only_in_standby']);
+        }
+        $diffLine = implode(' | ', array_filter([
+            $badNames ? ('داده: ' . implode('، ', $badNames)) : '',
+            $schemaParts ? ('فهرست جدول‌ها (' . implode(' · ', $schemaParts) . ')') : '',
+        ])) ?: 'اختلاف ناشناخته';
+
         if ($consec >= DB_PARITY_ALERT_CONSEC && (!$active || ($nowTs - $lastSent) >= DB_PARITY_ALERT_COOLDOWN)) {
             $send     = 'mismatch';
             $active   = true;
             $lastSent = $nowTs;
             $msg      = "⚠️ هشدارِ ناهمخوانیِ دو دیتابیس (استایلیست · STY-03)\n"
                       . "• زمان: {$tehranTime}\n"
-                      . "• جدول‌های دارای اختلاف: " . (implode('، ', $badNames) ?: 'تفاوتِ فهرستِ جدول‌ها') . "\n"
+                      . "• جزئیاتِ اختلاف: {$diffLine}\n"
                       . "• هم‌خوان: {$cmp['matched_tables']} از {$cmp['hashed_tables']} جدولِ اصلی";
         }
     } else {
@@ -138,7 +193,7 @@ function db_parity_eval_alert(array $prevAlert, array $cmp, int $nowTs, string $
             $lastRec = $nowTs;
             $msg     = "✅ بازیابیِ هم‌خوانیِ دو دیتابیس (استایلیست · STY-03)\n"
                      . "• زمان: {$tehranTime}\n"
-                     . "• همهٔ {$cmp['hashed_tables']} جدولِ اصلی با شمار و هشِ محتوا ۱۰۰٪ برابر شدند.";
+                     . "• همهٔ {$cmp['hashed_tables']} جدولِ اصلی ({$cmp['tables_primary']} جدولِ کسب‌وکار) با شمار و هشِ محتوا ۱۰۰٪ برابر شدند.";
         }
     }
 
@@ -154,8 +209,13 @@ function db_parity_eval_alert(array $prevAlert, array $cmp, int $nowTs, string $
     ];
 }
 
-/** Update automated 7-day rolling daily parity ledger (1 row per Jalali day, unit-testable). */
-function db_parity_update_7day(array $prevLedger, string $jalaliDay, array $cmp, string $utcNow): array {
+/**
+ * Update automated 7-day rolling daily parity ledger (1 row per Jalali day, unit-testable).
+ * A single transient in-flight replication diff (consecutive_mismatches == 1 with zero schema drift)
+ * is recorded as a transient check without falsely breaking the 7-day green streak;
+ * any persistent mismatch (>= 2 consecutive) or any business-table schema drift marks the day red.
+ */
+function db_parity_update_7day(array $prevLedger, string $jalaliDay, array $cmp, string $utcNow, ?int $consecutiveMismatches = null): array {
     $days = is_array($prevLedger['days'] ?? null) ? $prevLedger['days'] : [];
     $byDay = [];
     foreach ($days as $d) {
@@ -163,12 +223,19 @@ function db_parity_update_7day(array $prevLedger, string $jalaliDay, array $cmp,
             $byDay[(string) $d['day']] = $d;
         }
     }
+    $hasSchemaDrift = !empty($cmp['only_in_primary']) || !empty($cmp['only_in_standby']);
+    $isTransientOnly = empty($cmp['all_match'])
+        && !$hasSchemaDrift
+        && $consecutiveMismatches !== null
+        && $consecutiveMismatches < DB_PARITY_ALERT_CONSEC;
+    $effectiveOk = !empty($cmp['all_match']) || $isTransientOnly;
+
     $prevToday = $byDay[$jalaliDay] ?? ['checks' => 0, 'mismatches' => 0];
     $byDay[$jalaliDay] = [
         'day'            => $jalaliDay,
-        'ok'             => !empty($cmp['all_match']),
+        'ok'             => $effectiveOk,
         'checks'         => (int) ($prevToday['checks'] ?? 0) + 1,
-        'mismatches'     => (int) ($prevToday['mismatches'] ?? 0) + (empty($cmp['all_match']) ? 1 : 0),
+        'mismatches'     => (int) ($prevToday['mismatches'] ?? 0) + ($effectiveOk ? 0 : 1),
         'tables_total'   => (int) ($cmp['tables_primary'] ?? 0),
         'hashed_matched' => (int) ($cmp['matched_tables'] ?? 0) . '/' . (int) ($cmp['hashed_tables'] ?? 0),
         'last_at_utc'    => $utcNow,
@@ -211,26 +278,31 @@ function db_parity_publish_to_control(array $controlPayload, array $ledger7): bo
     return $ok1;
 }
 
-/** CLI-only: called from tick.php. Runs every 30 minutes (and immediately on first run). */
+/** CLI-only: called from tick.php (every 30 min) or on-demand from stylist_admin_bridge.php (db_parity_now). */
 function db_parity_audit_tick(): void {
-    if (PHP_SAPI !== 'cli') return;
+    db_parity_audit_run(false);
+}
+
+function db_parity_audit_run(bool $force = true): array {
+    if (PHP_SAPI !== 'cli') return ['ok' => false, 'error' => 'cli_only'];
     $nowTs = time();
     $prev = @json_decode((string) @file_get_contents(db_parity_state_path()), true);
     $lastTs = is_array($prev) ? (strtotime((string) ($prev['at'] ?? '')) ?: 0) : 0;
-    if ($lastTs > 0 && ($nowTs - $lastTs) < DB_PARITY_INTERVAL_SEC) {
-        return;
+    if (!$force && $lastTs > 0 && ($nowTs - $lastTs) < DB_PARITY_INTERVAL_SEC) {
+        return ['ok' => true, 'skipped' => true];
     }
 
     $pdo = de_mirror_open_pdo();
-    if ($pdo === null) return;
+    if ($pdo === null) return ['ok' => false, 'error' => 'standby_pdo_unavailable'];
     $site = dh_sites()['stylistcrm'] ?? null;
-    if (!$site) return;
+    if (!$site) return ['ok' => false, 'error' => 'site_config_missing'];
 
     $t0 = microtime(true);
 
-    // 1. Full table inventory on both DBs (read-only)
-    $pTblRows = de_mirror_iran_query($site, "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() ORDER BY TABLE_NAME");
-    $sTblRows = $pdo->query("SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() ORDER BY TABLE_NAME")->fetchAll(PDO::FETCH_ASSOC);
+    // 1. Full BASE TABLE inventory on both DBs (read-only; excludes temporary views)
+    $tblSql = "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE' ORDER BY TABLE_NAME";
+    $pTblRows = de_mirror_iran_query($site, $tblSql);
+    $sTblRows = $pdo->query($tblSql)->fetchAll(PDO::FETCH_ASSOC);
     $primaryTables = array_map(fn($r) => (string) $r['TABLE_NAME'], $pTblRows);
     $standbyTables = array_map(fn($r) => (string) $r['TABLE_NAME'], $sTblRows);
 
@@ -267,26 +339,35 @@ function db_parity_audit_tick(): void {
     }
 
     $prev7 = @json_decode((string) @file_get_contents(db_parity_7day_path()), true);
-    $ledger7 = db_parity_update_7day(is_array($prev7) ? $prev7 : [], $jalaliDay, $cmp, $utcNow);
+    $ledger7 = db_parity_update_7day(
+        is_array($prev7) ? $prev7 : [],
+        $jalaliDay,
+        $cmp,
+        $utcNow,
+        (int) ($alertEval['state']['consecutive_mismatches'] ?? 0)
+    );
     @file_put_contents(db_parity_7day_path(), json_encode($ledger7, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT), LOCK_EX);
     @chmod(db_parity_7day_path(), 0600);
 
     $state = [
-        'ready'           => true,
-        'ok'              => true,
-        'at'              => $utcNow,
-        'at_tehran'       => $tehStr,
-        'duration_ms'     => (int) round((microtime(true) - $t0) * 1000),
-        'common_seq_cap'  => $commonSeq,
-        'all_match'       => $cmp['all_match'],
-        'tables_primary'  => $cmp['tables_primary'],
-        'tables_standby'  => $cmp['tables_standby'],
-        'hashed_tables'   => $cmp['hashed_tables'],
-        'matched_tables'  => $cmp['matched_tables'],
-        'mismatches'      => $cmp['mismatches'],
-        'details'         => $cmp['details'],
-        'alert'           => $alertEval['state'],
-        'days_7_streak'   => $ledger7['consecutive_green_days'],
+        'ready'              => true,
+        'ok'                 => true,
+        'at'                 => $utcNow,
+        'at_tehran'          => $tehStr,
+        'duration_ms'        => (int) round((microtime(true) - $t0) * 1000),
+        'common_seq_cap'     => $commonSeq,
+        'all_match'          => $cmp['all_match'],
+        'tables_primary'     => $cmp['tables_primary'],
+        'tables_standby'     => $cmp['tables_standby'],
+        'only_in_primary'    => $cmp['only_in_primary'],
+        'only_in_standby'    => $cmp['only_in_standby'],
+        'ignored_host_local' => $cmp['ignored_host_local'],
+        'hashed_tables'      => $cmp['hashed_tables'],
+        'matched_tables'     => $cmp['matched_tables'],
+        'mismatches'         => $cmp['mismatches'],
+        'details'            => $cmp['details'],
+        'alert'              => $alertEval['state'],
+        'days_7_streak'      => $ledger7['consecutive_green_days'],
     ];
 
     $controlPayload = [
@@ -295,6 +376,9 @@ function db_parity_audit_tick(): void {
         'checked_at_tehran'      => $tehStr,
         'checked_at_utc'         => $utcNow,
         'tables_total'           => $cmp['tables_primary'],
+        'only_in_primary'        => $cmp['only_in_primary'],
+        'only_in_standby'        => $cmp['only_in_standby'],
+        'ignored_host_local'     => $cmp['ignored_host_local'],
         'hashed_matched'         => $cmp['matched_tables'] . '/' . $cmp['hashed_tables'],
         'mismatches'             => $cmp['mismatches'],
         'alert_active'           => $alertEval['state']['alert_active'],
@@ -317,4 +401,5 @@ function db_parity_audit_tick(): void {
         'consecutive_green_days' => $ledger7['consecutive_green_days'],
     ]);
     dh_log("db_parity all_match=" . ($cmp['all_match'] ? '1' : '0') . " matched={$cmp['matched_tables']}/{$cmp['hashed_tables']} streak={$ledger7['consecutive_green_days']}d");
+    return $state;
 }

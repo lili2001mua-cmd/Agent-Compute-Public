@@ -59,5 +59,40 @@ ok(count($lSame['days']) === 7 && $lSame['days'][6]['checks'] === 2, 'same Jalal
 $lRed = db_parity_update_7day($lSame, '1405-09-08', $c2, '2026-11-26T17:00:00Z');
 ok($lRed['consecutive_green_days'] === 0 && $lRed['ready_7day_gate'] === false, 'mismatch day resets consecutive green streak to 0');
 
+// 7. 5-specialist policy: host-local ops tables ignored & reported transparently without false mismatch
+$cHostLocal = db_parity_compare(
+    ['factor', 'user'],
+    ['factor', 'user', 'schema_migration_log', 'stylist_write_lease', '_sty_probe_test'],
+    $pH,
+    $pH
+);
+ok(
+    $cHostLocal['all_match'] === true
+        && $cHostLocal['tables_primary'] === 2
+        && $cHostLocal['tables_standby'] === 2
+        && $cHostLocal['ignored_host_local'] === ['_sty_probe_test', 'schema_migration_log', 'stylist_write_lease'],
+    'host-local ops tables ignored cleanly and reported in ignored_host_local'
+);
+
+// 8. Security guard: core business table can NEVER be treated as host-local
+ok(db_parity_is_host_local_table('factor') === false && db_parity_is_host_local_table('user') === false,
+    'security guard forbids excluding core business tables');
+
+// 9. Real business-table schema drift includes exact table name & host side in Telegram alert
+$aDrift1 = db_parity_eval_alert([], $c3, $t0, '1405-09-05 07:00');
+$aDrift2 = db_parity_eval_alert($aDrift1['state'], $c3, $t0 + 1800, '1405-09-05 07:30');
+ok(
+    $aDrift2['send'] === 'mismatch' && str_contains($aDrift2['message'], 'extra_tbl') && str_contains($aDrift2['message'], 'فقط در اصلی'),
+    'business-table schema drift names exact table & host side in Telegram alert'
+);
+
+// 10. Transient 1-tick in-flight diff does NOT break 7-day green streak, whereas 2nd consecutive or schema drift DOES
+$lTrans = db_parity_update_7day($lSame, '1405-09-08', $c2, '2026-11-26T17:00:00Z', 1);
+ok($lTrans['consecutive_green_days'] === 8, 'single transient 1-tick in-flight diff preserves green streak');
+$lPersist = db_parity_update_7day($lSame, '1405-09-08', $c2, '2026-11-26T17:30:00Z', 2);
+ok($lPersist['consecutive_green_days'] === 0, '2nd consecutive mismatch breaks green streak');
+$lSchemaRed = db_parity_update_7day($lSame, '1405-09-08', $c3, '2026-11-26T17:00:00Z', 1);
+ok($lSchemaRed['consecutive_green_days'] === 0, 'real business-table schema drift breaks green streak immediately');
+
 echo "\nTOTAL: $pass passed, $fail failed\n";
 exit($fail > 0 ? 1 : 0);
