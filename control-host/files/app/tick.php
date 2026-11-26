@@ -80,4 +80,6 @@ require_once __DIR__ . '/backup_stream.php';
 try { backup_catalog_tick(); } catch (Throwable $e) { ctl_log('backup catalog tick: ' . substr($e->getMessage(), 0, 200)); }   // 4-source backup manifest (BKP-05 Step 184)
 require_once __DIR__ . '/germany_secrets.php';
 try { germany_secrets_tick(); } catch (Throwable $e) { ctl_log('germany secrets tick: ' . substr($e->getMessage(), 0, 200)); }   // فهرستِ زندهٔ رمزهای همهٔ زیرشاخه‌های آلمان (بی محدودیتِ open_basedir وب)
+require_once __DIR__ . '/infra.php';
+try { infra_tick(); } catch (Throwable $e) { ctl_log('infra tick: ' . substr($e->getMessage(), 0, 200)); }   // ورک‌فلوهای زمان‌دار/دستی/خاموش + فرایندها و رده‌های زنده (قفلِ ضدکهنگی)
 

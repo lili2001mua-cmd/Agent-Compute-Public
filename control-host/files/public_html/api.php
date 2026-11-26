@@ -136,6 +136,32 @@ if ($op === 'germany-secrets' && $_SERVER['REQUEST_METHOD'] === 'GET') {
     require_once __DIR__ . '/../app/germany_secrets.php';
     out(200, gs_scan_germany());
 }
+if ($op === 'infra' && $_SERVER['REQUEST_METHOD'] === 'GET') {
+    $cached = ctl_json_read('infra.json', null);
+    if (!is_array($cached) || empty($cached['ok'])) {
+        out(200, ['ok' => false, 'now' => time(), 'error' => 'no_infra_yet']);
+    }
+    // Always overlay live AI executors & accounts so changes made in the app appear immediately.
+    require_once __DIR__ . '/../app/ai-routing.php';
+    require_once __DIR__ . '/../app/infra.php';
+    $exec = ai_load_executors();
+    $cat = ai_load_catalog();
+    foreach (['timed', 'manual'] as $bucket) {
+        if (!is_array($cached['workflows'][$bucket] ?? null)) continue;
+        foreach ($cached['workflows'][$bucket] as &$w) {
+            if (!empty($w['ai_configurable']) && !empty($w['process_key'])) {
+                $pk = (string) $w['process_key'];
+                $al = (string) ($exec['processes'][$pk]['account_alias'] ?? $w['executor_alias'] ?? 'acct-claude-main');
+                $w['executor_alias'] = $al;
+                $w['executor_name'] = infra_account_name($al, $cat);
+            }
+        }
+        unset($w);
+    }
+    $cached['now'] = time();
+    $cached['accounts'] = array_values(array_filter($cat['accounts'] ?? [], fn($a) => is_array($a) && !empty($a['enabled'])));
+    out(200, $cached);
+}
 
 if ($op === 'status' && $_SERVER['REQUEST_METHOD'] === 'GET') {
     out(200, ['ok' => true] + ctl_json_read('status.json', ['error' => 'no status yet']));
