@@ -1,5 +1,5 @@
 {
-  "version": "20261126140553",
+  "version": "20261126143031",
   "files": {
     "app/ai-routing.php": "ab10eb5e042186fc81f67b31507ae9b126f873956da2e0f5677a60e89692f94b",
     "app/ai-vault.php": "1007ae7e6f0379e3f8ff2e9885425536fa0d7b7687f85a401657a295511ae3c2",
@@ -8,7 +8,7 @@
     "app/button.php": "f0de76f8b3d37e338f07d475b156e89cd0d3ba46db82bc0c8e41a6eb1777e9d8",
     "app/germany_secrets.php": "487b522310fa29062702ab670b8e8c70887ea217646d4944f7ad23f94fc98411",
     "app/hub_gate.php": "110e9ff91e9e1cc21e258ef17c97670cbb37a8eb46634fddc15dea95c9b4dd19",
-    "app/infra.php": "bf20c95562ce15d4c2e9bdbd5a11a3c31567889356a6e3fd37fc7009d7472369",
+    "app/infra.php": "ebe539af91f90492805f6ae4146ae4ede7421262acc89f81aa28401bbdcc621c",
     "app/lib.php": "3e1b41106a87b84eda4ddc3bb9bb2489b9c8084b66eeb95dc3ef0b218cc6ccb2",
     "app/primary_anchor.php": "dbdefcc6d5fe2d4e193e7ef55abcd55b4a646f7cd4a42ab1a915a1bd08bd3403",
     "app/projects.php": "8e480f6faeca9f17a46cb36e677c8dd5f8d073f944359a4ac8a077e4448921f5",

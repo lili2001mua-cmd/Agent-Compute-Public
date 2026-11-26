@@ -6,7 +6,7 @@
 // Runs in CLI cron (tick.php) so sibling routine.hohedoc.ir/app/jobs.json & var/runs.json are readable outside web open_basedir.
 declare(strict_types=1);
 
-const INFRA_SCHEMA_V      = 1;
+const INFRA_SCHEMA_V      = 2;
 const INFRA_REFRESH_SEC   = 900;   // refresh graph.json + routine jobs every 15 minutes
 const INFRA_STALE_MAX_SEC = 1800;  // 30-minute anti-staleness lock
 
@@ -301,7 +301,8 @@ function infra_tick(bool $force = false): array {
         $declared = infra_parse_workflow_state_yaml($yaml);
 
         // Read sibling routine.hohedoc.ir/app/jobs.json + var/runs.json (CLI outside web open_basedir)
-        $domainsRoot = dirname(dirname(CTL_ROOT));
+        $ctlRoot = realpath(CTL_ROOT) ?: CTL_ROOT;
+        $domainsRoot = dirname($ctlRoot);
         $routineDir = $domainsRoot . '/routine.hohedoc.ir';
         $jobsDoc = @json_decode((string) @file_get_contents($routineDir . '/app/jobs.json'), true);
         $routineJobs = is_array($jobsDoc['jobs'] ?? null) ? $jobsDoc['jobs'] : [];
