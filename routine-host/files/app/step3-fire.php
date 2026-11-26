@@ -39,9 +39,14 @@ function r_step3_fire(): void {
         $aiRes = rt_ai_fire_process('trainer.step3_mapping', 'step3-bundle', $runId, ['key' => $key]);
         if ($aiRes !== null) {
             if (($aiRes['state'] ?? '') === 'fired') {
-                f_state($base + ['state' => 'fired', 'session' => (string) ($aiRes['session'] ?? ''), 'via' => (string) ($aiRes['via'] ?? '')]);
+                $st = $base + ['state' => 'fired', 'session' => (string) ($aiRes['session'] ?? ''), 'via' => (string) ($aiRes['via'] ?? '')];
+                if (array_key_exists('webhook_sent', $aiRes)) $st['webhook_sent'] = (bool) $aiRes['webhook_sent'];
+                if (array_key_exists('webhook_code', $aiRes)) $st['webhook_code'] = (int) $aiRes['webhook_code'];
+                f_state($st);
+                r_log("step3-fire {$runId} via " . ($st['via'] ?: 'ai-dispatch') . (isset($st['webhook_sent']) ? ' webhook=' . ($st['webhook_sent'] ? 'ok' : 'none') : ''));
             } else {
                 f_state($base + ['state' => 'failed', 'error' => (string) ($aiRes['why'] ?? 'dispatch failed')]);
+                r_log("step3-fire {$runId} failed: " . (string) ($aiRes['why'] ?? 'dispatch failed'));
             }
             return;
         }

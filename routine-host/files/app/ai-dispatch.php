@@ -170,17 +170,25 @@ function rt_ai_fire_process(string $processKey, string $jobId, string $runId, ar
     }
 
     if ($mode === 'github_queue') {
-        // Queue-based employees (e.g. Grok/Gemini/Codex) pick up requests from GitHub; optional wake webhook if set.
+        // Queue-based employees (e.g. Grok/Gemini/Codex) pick up requests from GitHub; optional wake webhook if set in ai-vault.
+        $webhookSent = false;
+        $webhookCode = 0;
         if (is_array($sec) && !empty($sec['url'])) {
             $ch = curl_init((string) $sec['url']);
-            $hdrs = ['Content-Type: application/json'];
+            $hdrs = ['Content-Type: application/json', 'User-Agent: routine-hohedoc'];
             if (!empty($sec['token'])) $hdrs[] = 'Authorization: Bearer ' . $sec['token'];
+            if (!empty($sec['header'])) $hdrs[] = (string) $sec['header'];
             curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 15, CURLOPT_POST => true, CURLOPT_HTTPHEADER => $hdrs,
-                CURLOPT_POSTFIELDS => json_encode(['process' => $processKey, 'job' => $jobId, 'run_id' => $runId] + $extra)]);
+                CURLOPT_POSTFIELDS => json_encode(['process' => $processKey, 'job' => $jobId, 'run_id' => $runId] + $extra, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)]);
             curl_exec($ch);
+            $webhookCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
             curl_close($ch);
+            $webhookSent = ($webhookCode >= 200 && $webhookCode < 300);
+            if (function_exists('r_log')) r_log("ai-dispatch {$processKey} {$runId} via {$alias} (queue+webhook) http={$webhookCode}");
+        } else {
+            if (function_exists('r_log')) r_log("ai-dispatch {$processKey} {$runId} via {$alias} (queue, no webhook)");
         }
-        return ['state' => 'fired', 'via' => $alias . ' (queue)', 'fired_at' => time(), 'session' => ''];
+        return ['state' => 'fired', 'via' => $alias . ' (queue)', 'fired_at' => time(), 'session' => '', 'webhook_sent' => $webhookSent, 'webhook_code' => $webhookCode];
     }
 
     return ['state' => 'pack', 'why' => "روشِ ناشناخته برای {$alias}"];

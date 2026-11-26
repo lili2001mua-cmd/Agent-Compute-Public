@@ -191,6 +191,12 @@ function btn_tick(): void {
     if ($now - $since > 60 * (BTN_LIMIT_MIN[$stage] ?? 120)) {
         $why = ['queued' => 'زنجیره روی گیت‌هاب شروع نشد', 'step1' => 'گامِ ۱ در مهلت تمام نشد', 'step2' => 'گامِ ۲ در مهلت تمام نشد',
                 'step3' => 'گامِ ۳ در مهلت تمام نشد', 'delivering' => 'انتقال به کانالِ Routine Trainer 1 & 2 در مهلت نرسید'][$stage] ?? 'مهلت گذشت';
+        if ($stage === 'step3' && $key !== '') {
+            $fs = (ctl_json_read('fire-state.json', []) ?: [])[$key] ?? null;
+            if (is_array($fs) && str_ends_with((string) ($fs['via'] ?? ''), '(queue)') && empty($fs['webhook_sent'])) {
+                $why = 'گامِ ۳ در مهلت تمام نشد (مجری در حالتِ صف است و نشانیِ بیدارباشِ فوری در گاوصندوقِ هاستِ آلمان ثبت نشده)';
+            }
+        }
         btn_fail($s, $why, $stage);
     }
 }

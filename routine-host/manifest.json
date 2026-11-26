@@ -1,13 +1,13 @@
 {
   "version": "20261125184136",
   "files": {
-    "app/ai-dispatch.php": "04f541416cf73d7678c880f03d0096fc7f0f147c9cb234960d29db8c7d3dc008",
+    "app/ai-dispatch.php": "cc9517afca5c5b6758e108e3d69a96a2d08e0e64df73095528d2d90c4a962808",
     "app/dispatch.flag": "dc083dbe056a217097b6d6aba9e34f057b5f728b2fa63d0099a5e3c3f297cb5a",
     "app/dispatch.php": "8af4494b743eece2affd1488e5be3b8101c225c51168ae7ef9e1e29f43d05e28",
     "app/jobs.json": "86da050e0da7b5da91e1a42b4711dfba327aaac50a09be912b97d0a6d1f9c752",
     "app/lib.php": "388776edce3da780f445109e6ca4fcbfc11d8bd6bdf26d7ae2e60154d33e6510",
     "app/session-command-fire.php": "44378b601448f0ac5b64756f7d2e92ed5fe2823fe7e086588b26abf294fae0b4",
-    "app/step3-fire.php": "178ebf9cb99bb14d0d62d743edef5f334b2a50ee6bb378a92fb762509b1441a0",
+    "app/step3-fire.php": "dd8cd5307f1e3ead63e0d17a0c1eaa4c9421ba0c58d0b3e3ea40810eb0659d1d",
     "app/tick.php": "ae312af490ed6c78c590a9a0d3d4ec0131e13194debd6aa50f8d791fc5c1a8a7",
     "app/vault-sync.php": "03c50c26e4c2fb51b9e42779564bd4a6a658505b8fd8197b56252ff6a3153d04",
     "public_html/.htaccess": "43d17cc38be53900cb3c677a197aa0c1ba8fc4cf2c5190674dccaaf07bc90fbb",
