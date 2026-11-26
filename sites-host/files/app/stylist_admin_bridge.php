@@ -224,6 +224,33 @@ function stylist_admin_fetch_releases(bool $force = false, ?callable $postFn = n
     return $res;
 }
 
+/** Normalize replication + embedded sla_24h produced by de_mirror_sync.php into stylist-admin-v1 shape. */
+function stylist_admin_normalize_replication(?array $syncState, ?array $slaFile = null): array {
+    $sla = (is_array($syncState['sla_24h'] ?? null) ? $syncState['sla_24h'] : null)
+        ?? (is_array($slaFile) ? $slaFile : null);
+    $alertActive = (bool) (
+        $syncState['alert']['alert_active']
+        ?? ($sla['alert_active'] ?? false)
+    );
+    return [
+        'ok'             => (bool) ($syncState['ok'] ?? false),
+        'last_seq'       => (int) ($syncState['de_max_seq'] ?? $syncState['last_seq'] ?? 0),
+        'total_applied'  => (int) ($syncState['total_applied'] ?? 0),
+        'lag_seconds'    => $syncState['lag_seconds'] ?? null,
+        'seq_gap'        => $syncState['seq_gap'] ?? null,
+        'sla_target_sec' => (int) ($syncState['sla_target_sec'] ?? 120),
+        'sla_ok'         => (bool) ($syncState['sla_ok'] ?? (!$alertActive)),
+        'last_run_utc'   => $syncState['at'] ?? ($syncState['last_run_utc'] ?? null),
+        'sla_24h'        => is_array($sla) ? [
+            'ticks_24h'    => (int) ($sla['ticks_24h'] ?? 0),
+            'breaches_24h' => (int) ($sla['breaches_24h'] ?? 0),
+            'max_lag_24h'  => $sla['max_lag_24h'] ?? null,
+            'sla_pass_pct' => $sla['sla_pass_pct'] ?? null,
+            'alert_active' => $alertActive,
+        ] : null,
+    ];
+}
+
 /** Build and publish unified Stylist Admin snapshot to control.hohedoc.ir/var/stylist-admin-state.json. */
 function stylist_admin_publish_snapshot(bool $forceReleases = false, ?string $controlVarOverride = null): array {
     $hosts = stylist_admin_hosts_info();
@@ -241,21 +268,7 @@ function stylist_admin_publish_snapshot(bool $forceReleases = false, ?string $co
         'updated_at'     => time(),
         'updated_at_utc' => gmdate('c'),
         'hosts'          => $hosts,
-        'replication'    => [
-            'ok'            => (bool) ($syncState['ok'] ?? false),
-            'last_seq'      => (int) ($syncState['last_seq'] ?? 0),
-            'total_applied' => (int) ($syncState['total_applied'] ?? 0),
-            'lag_seconds'   => $syncState['lag_seconds'] ?? null,
-            'seq_gap'       => $syncState['seq_gap'] ?? null,
-            'last_run_utc'  => $syncState['last_run_utc'] ?? null,
-            'sla_24h'       => is_array($sla24h) ? [
-                'ticks_24h'    => (int) ($sla24h['ticks_24h'] ?? 0),
-                'breaches_24h' => (int) ($sla24h['breaches_24h'] ?? 0),
-                'max_lag_24h'  => $sla24h['max_lag_24h'] ?? null,
-                'sla_pass_pct' => $sla24h['sla_pass_pct'] ?? null,
-                'alert_active' => (bool) ($sla24h['alert_active'] ?? false),
-            ] : null,
-        ],
+        'replication'    => stylist_admin_normalize_replication($syncState, $sla24h),
         'db_parity'      => stylist_admin_normalize_db_parity($parity, $parity7),
         'releases'       => $releases,
         'apk_download'   => [

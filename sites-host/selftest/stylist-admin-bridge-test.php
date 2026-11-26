@@ -127,6 +127,28 @@ t_assert(
     '16) STY-14 falls back to live DB query on HTTP 400 action and resolves R0001/R0002'
 );
 
+// 8) Real producer->consumer contract test for STY-05 (de_mirror_sync embedded sla_24h + at)
+$normRep = stylist_admin_normalize_replication([
+    'ok'             => true,
+    'at'             => '2026-11-26T13:01:02+00:00',
+    'de_max_seq'     => 42360,
+    'total_applied'  => 10107,
+    'lag_seconds'    => 15,
+    'seq_gap'        => 1,
+    'sla_target_sec' => 120,
+    'sla_ok'         => true,
+    'sla_24h'        => ['ticks_24h' => 1378, 'breaches_24h' => 0, 'max_lag_24h' => 66, 'sla_pass_pct' => 100],
+    'alert'          => ['alert_active' => false],
+], null);
+t_assert(
+    ($normRep['last_run_utc'] ?? '') === '2026-11-26T13:01:02+00:00'
+    && ($normRep['sla_target_sec'] ?? 0) === 120
+    && ($normRep['sla_24h']['ticks_24h'] ?? 0) === 1378
+    && ($normRep['sla_24h']['sla_pass_pct'] ?? 0) === 100
+    && ($normRep['sla_24h']['alert_active'] ?? true) === false,
+    '17) stylist_admin_normalize_replication reads embedded sla_24h, at, and sla_target_sec'
+);
+
 // cleanup
 @unlink($tmpCtrl . '/stylist-admin-state.json');
 @unlink($tmpCtrl . '/stylist-admin-last-action.json');
