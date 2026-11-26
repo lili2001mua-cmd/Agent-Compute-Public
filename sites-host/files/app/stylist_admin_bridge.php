@@ -165,6 +165,21 @@ function stylist_admin_publish_snapshot(bool $forceReleases = false, ?string $co
     $published = false;
     if ($ctrlDir !== '' && is_dir($ctrlDir)) {
         $published = stylist_admin_atomic_json($ctrlDir . '/stylist-admin-state.json', $snapshot);
+        if (function_exists('dh_secrets')) {
+            $depSec = trim((string) (dh_secrets()['STYLISTCRM_DEPLOY_SECRET'] ?? ''));
+            if ($depSec !== '') {
+                $gateKey = hash_hmac('sha256', 'hub-gate-sso-v1', $depSec);
+                $keyPath = $ctrlDir . '/hub-gate.key';
+                $cur = is_file($keyPath) ? trim((string) @file_get_contents($keyPath)) : '';
+                if ($cur !== $gateKey) {
+                    $tmp = $keyPath . '.tmp.' . getmypid();
+                    if (@file_put_contents($tmp, $gateKey . "\n", LOCK_EX) !== false) {
+                        @chmod($tmp, 0600);
+                        @rename($tmp, $keyPath);
+                    }
+                }
+            }
+        }
     }
     $snapshot['published_to_control'] = $published;
     return $snapshot;

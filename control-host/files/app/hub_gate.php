@@ -7,6 +7,13 @@ declare(strict_types=1);
 const HUB_GATE_TTL_SEC = 120;
 
 function hub_gate_secret(): string {
+    if (function_exists('ctl_var')) {
+        $kf = ctl_var('hub-gate.key');
+        if (is_file($kf)) {
+            $k = trim((string) @file_get_contents($kf));
+            if ($k !== '') return $k;
+        }
+    }
     if (defined('HUB_GATE_SECRET') && is_string(HUB_GATE_SECRET) && HUB_GATE_SECRET !== '') {
         return HUB_GATE_SECRET;
     }
