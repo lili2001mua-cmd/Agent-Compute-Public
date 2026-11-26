@@ -38,7 +38,7 @@ if ($op === 'step3') {
         // ⛔ ۱۴۰۵-۰۹-۰۵ (بستهٔ b9025): مجری‌های صفی (Grok/Gemini) به‌جای routine-host/runs/*.done.json شاخهٔ
         //    <provider>/step3-<key>-<زمانِ تهران> را پوش می‌کنند؛ وجودِ آن شاخه پس از $mark یعنی سشنِ قبلی تمام شده است.
         if (!$ended) {
-            foreach (['grok', 'gemini'] as $prov) {
+            foreach (['grok', 'gemini', 'chatgpt', 'codex', 'cursor'] as $prov) {
                 [$rc, $refs] = gh('GET', '/repos/' . CTL_REPO . '/git/matching-refs/heads/' . $prov . '/step3-' . $key . '-');
                 foreach (($rc === 200 && is_array($refs) ? $refs : []) as $r) {
                     if (preg_match('#^refs/heads/' . $prov . '/step3-' . preg_quote($key, '#') . '-([0-9]{12})$#', (string) ($r['ref'] ?? ''), $m) && $m[1] >= $mark) {
